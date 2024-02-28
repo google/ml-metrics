@@ -4,9 +4,9 @@ from collections.abc import Iterable
 import dataclasses
 import functools
 import itertools
-import pickle
 from typing import Any, Callable
 
+import cloudpickle as pickle
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform as transform_lib
 
