@@ -16,6 +16,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from ml_metrics._src.aggregates import retrieval
 from ml_metrics._src.aggregates import types
+from ml_metrics._src.aggregates import utils
 import numpy as np
 
 
@@ -217,12 +218,67 @@ class ClassificationTest(parameterized.TestCase):
       k_list,
       expected,
   ):
-    confusion_matrix = retrieval.TopKRetrievalAggFn(
+    topk_retrievals = []
+    # TopKRetrieval's mergeable state is MeanState, merging multiple of the same
+    # state does not change the result since sum * N / cnt * N == sum / cnt.
+    for _ in range(3):
+      topk_retrieval = retrieval.TopKRetrievalConfig(
+          metrics=metrics,
+          k_list=k_list,
+          input_type=input_type,
+      ).make()
+      topk_retrieval.add(y_true, y_pred)
+      topk_retrievals.append(topk_retrieval)
+    topk_retrievals[0].merge(topk_retrievals[1])
+    np.testing.assert_allclose(expected, topk_retrievals[0].result())
+
+    topk_retrieval = retrieval.TopKRetrievalConfig(
+        metrics=metrics,
+        k_list=k_list,
+        input_type=input_type,
+    ).make()
+    for _ in range(3):
+      topk_retrieval.add(y_true, y_pred)
+    np.testing.assert_allclose(expected, topk_retrievals[0].result())
+
+    topk_retrieval_agg_fn = retrieval.TopKRetrievalAggFn(
         metrics=metrics,
         k_list=k_list,
         input_type=input_type,
     )
-    np.testing.assert_allclose(expected, confusion_matrix(y_true, y_pred))
+    np.testing.assert_allclose(expected, topk_retrieval_agg_fn(y_true, y_pred))
+
+  def test_retrieval_metric_add(self):
+    y_pred = [["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]]
+    y_true = [["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]]
+    topk_retrieval = retrieval.TopKRetrievalConfig(
+        metrics=[RetrievalMetric.PRECISION],
+        k_list=None,
+        input_type=InputType.MULTICLASS_MULTIOUTPUT,
+    ).make()
+    topk_retrieval.add(y_true, y_pred)
+    topk_retrieval.add(y_true, y_pred)
+    expected = {"precision": utils.MeanState(11, 16)}
+    self.assertDictEqual(expected, topk_retrieval.state)
+
+  def test_retrieval_metric_merge(self):
+    y_pred = [["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]]
+    y_true = [["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]]
+    topk_retrieval1 = retrieval.TopKRetrievalConfig(
+        metrics=[RetrievalMetric.PRECISION],
+        k_list=None,
+        input_type=InputType.MULTICLASS_MULTIOUTPUT,
+    ).make()
+    topk_retrieval2 = retrieval.TopKRetrievalConfig(
+        metrics=[RetrievalMetric.PRECISION],
+        k_list=None,
+        input_type=InputType.MULTICLASS_MULTIOUTPUT,
+    ).make()
+    topk_retrieval1.add(y_true, y_pred)
+    topk_retrieval2.add(y_true, y_pred)
+    topk_retrieval1.merge(topk_retrieval2)
+    expected = {"precision": utils.MeanState(11, 16)}
+    self.assertDictEqual(expected, topk_retrieval1.state)
 
 
 if __name__ == "__main__":

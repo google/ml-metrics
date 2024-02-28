@@ -14,8 +14,40 @@
 """Base AggregateFn for all the aggregates."""
 
 import abc
+from collections.abc import Iterable
 import dataclasses
 from typing import Any, Protocol, runtime_checkable
+
+
+@runtime_checkable
+class Metric(Protocol):
+  """MergibleMetric can be used as simple Map, and also MapReduce."""
+
+  @abc.abstractmethod
+  def add(self, *inputs, **named_inputs):
+    """Computes the state from a batch while outputting batch output."""
+
+  @abc.abstractmethod
+  def result(self):
+    """Returns the result of the metric."""
+
+
+@runtime_checkable
+class MergeableMetric(Metric, Protocol):
+  """MergibleMetric can be used as simple Map, and also MapReduce."""
+
+  @abc.abstractmethod
+  def merge(self, other: 'Metric') -> 'Metric':
+    """Merges the metric with another metric of the same type."""
+
+
+@runtime_checkable
+class MetricMaker(Protocol):
+  """A config class that can make a Metric class."""
+
+  @abc.abstractmethod
+  def make(self) -> Metric:
+    """Makes a new Metric."""
 
 
 @runtime_checkable
@@ -67,6 +99,30 @@ class AggregateFn(Aggregatable):
     return self.get_result(
         self.update_state(self.create_state(), *inputs, **named_inputs)
     )
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class MergibleMetricAggFn(AggregateFn):
+  """MergibleMetricAggFn."""
+
+  metric_maker: MetricMaker
+
+  def create_state(self) -> Metric:
+    return self.metric_maker.make()
+
+  def update_state(self, state: Metric, *args, **kwargs) -> Metric:
+    state.add(*args, **kwargs)
+    return state
+
+  def merge_states(self, states: Iterable[MergeableMetric]) -> Any:
+    iter_states = iter(states)
+    result = next(iter_states)
+    for state in iter_states:
+      result.merge(state)
+    return result
+
+  def get_result(self, state: Metric) -> Any:
+    return state.result()
 
 
 @dataclasses.dataclass(frozen=True)

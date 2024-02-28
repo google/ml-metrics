@@ -14,9 +14,9 @@
 
 """Aggregates modules for all retrieval metrics."""
 
+import collections
 from collections.abc import Sequence
 import dataclasses
-from typing import Any
 
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
@@ -53,71 +53,6 @@ class RetrievalMetric(types.StrEnum):  # pylint: disable=invalid-enum-extension
 
 
 safe_divide = utils.safe_divide
-
-
-_SamplewiseMeanAggFnState = MeanStatesPerMetric
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class TopKSamplewiseMeanAggFn(base.AggregateFn):
-  """TopK sample mean aggregate.
-
-  Attributes:
-    k_list: topk list used to truncate prediction. E.g., in an retrieval results
-      of ['dog', 'cat', 'pig'], k=[2] means only ['dog', 'cat'] is used as the
-      prediction. The default is None, which means all outputs in each
-      prediction is included. Effectively k=None is same as k=[inf].
-    metrics: The metrics to be computed.
-    input_type: input encoding type, must be multiclass(-multioutput).
-  """
-
-  k_list: Sequence[int] | None = None
-  metrics: Sequence[RetrievalMetric] = ()
-  input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT
-
-  def __post_init__(self):
-    if self.input_type not in (
-        InputType.MULTICLASS_MULTIOUTPUT,
-        InputType.MULTICLASS,
-    ):
-      raise NotImplementedError(f'"{str(self.input_type)}" is not supported.')
-
-  def create_state(self) -> _SamplewiseMeanAggFnState:
-    """Creates an empty state."""
-    return {metric: MeanState() for metric in self.metrics}
-
-  def _compute_metric_states(self, *inputs, **kwargs):
-    """The actual metric state calculation logic."""
-    raise NotImplementedError()
-
-  def update_state(
-      self, mean_states: _SamplewiseMeanAggFnState, y_trues, y_preds
-  ) -> _SamplewiseMeanAggFnState:
-    """Updated the intermediate states by batches."""
-    tp_metric = self._compute_metric_states(y_trues, y_preds)
-    return self.merge_states((mean_states, tp_metric))
-
-  def merge_states(
-      self, states: Sequence[_SamplewiseMeanAggFnState]
-  ) -> _SamplewiseMeanAggFnState:
-    """Merge the intermediate metric states."""
-    states_iter = iter(states)
-    result = next(states_iter)
-    for state in states_iter:
-      for metric in self.metrics:
-        result[metric] += state[metric]
-    return result
-
-  def get_result(self, states: _SamplewiseMeanAggFnState) -> Any:
-    """Extract the metric results from the intermediate states."""
-    result = [states[metric].result() for metric in self.metrics]
-    # Extends the remaining Ks from the last value.
-
-    if self.k_list and result and len(self.k_list) > len(result[0]):
-      for i, metric_result in enumerate(result):
-        extra_ks = len(self.k_list) - len(metric_result)
-        result[i] = list(metric_result) + [metric_result[-1]] * extra_ks
-    return tuple(tuple(metric) for metric in result)
 
 
 def _accuracy(tp_at_topks, k_list):
@@ -234,9 +169,9 @@ def _ndcg_score(tp, k_range, k_list, y_true_count):
   return result
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class TopKRetrievalAggFn(TopKSamplewiseMeanAggFn):
-  """TopKRetrievalAggFn aggregate.
+@dataclasses.dataclass(kw_only=True)
+class TopKRetrievalConfig(base.MetricMaker):
+  """TopKRetrievals.
 
   Attributes:
     k_list: topk list, default to None, which means all outputs are considered.
@@ -245,6 +180,7 @@ class TopKRetrievalAggFn(TopKSamplewiseMeanAggFn):
       `multiclass-multioutput`.
   """
 
+  k_list: Sequence[int] | None = None
   metrics: Sequence[RetrievalMetric] = (
       RetrievalMetric.PRECISION,
       RetrievalMetric.PPV,
@@ -264,8 +200,40 @@ class TopKRetrievalAggFn(TopKSamplewiseMeanAggFn):
       RetrievalMetric.DCG_SCORE,
       RetrievalMetric.NDCG_SCORE,
   )
+  input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT
 
-  def _compute_metric_states(self, y_trues, y_preds):
+  def __post_init__(self):
+    if self.input_type not in (
+        InputType.MULTICLASS_MULTIOUTPUT,
+        InputType.MULTICLASS,
+    ):
+      raise NotImplementedError(f'"{str(self.input_type)}" is not supported.')
+
+  def make(self):
+    return TopKRetrieval(k_list=self.k_list, metrics=self.metrics)
+
+
+@dataclasses.dataclass(kw_only=True)
+class TopKRetrieval(base.MergeableMetric):
+  """TopKRetrievals.
+
+  Attributes:
+    k_list: topk list, default to None, which means all outputs are considered.
+    metrics: The metrics to be computed.
+  """
+
+  k_list: Sequence[int] | None = None
+  metrics: Sequence[RetrievalMetric] = ()
+  _state: MeanStatesPerMetric = dataclasses.field(
+      default_factory=lambda: collections.defaultdict(MeanState),
+      init=False,
+  )
+
+  @property
+  def state(self):
+    return self._state
+
+  def add(self, y_trues, y_preds):
     """Compute all true positive related metrics."""
     k_list = list(sorted(self.k_list)) if self.k_list else [float('inf')]
     y_pred_count = np.asarray([len(row) for row in y_preds])
@@ -301,47 +269,59 @@ class TopKRetrievalAggFn(TopKSamplewiseMeanAggFn):
     result = {}
     if 'accuracy' in self.metrics:
       accuracy = _accuracy(tp_at_topks, k_list)
-      result['accuracy'] = MeanState(accuracy.sum(axis=0), accuracy.shape[0])
+      self._state['accuracy'] += MeanState(
+          accuracy.sum(axis=0), accuracy.shape[0]
+      )
+      result['accuracy'] = accuracy
 
     precision, recall = None, None
     if 'precision' in self.metrics:
       precision = _precision(tp_at_topks, k_list, y_pred_count)
-      result['precision'] = MeanState(precision.sum(axis=0), precision.shape[0])
+      self._state['precision'] += MeanState(
+          precision.sum(axis=0), precision.shape[0]
+      )
+      result['precision'] = precision
 
     if 'ppv' in self.metrics:
       ppv = _ppv(tp_at_topks, k_list, y_pred_count)
-      result['ppv'] = MeanState(ppv.sum(axis=0), ppv.shape[0])
+      self._state['ppv'] += MeanState(ppv.sum(axis=0), ppv.shape[0])
+      result['ppv'] = ppv
 
     if 'recall' in self.metrics:
       recall = _recall(tp_at_topks, k_list, y_true_count)
-      result['recall'] = MeanState(recall.sum(axis=0), recall.shape[0])
+      self._state['recall'] += MeanState(recall.sum(axis=0), recall.shape[0])
+      result['recall'] = recall
 
     if 'sensitivity' in self.metrics:
       sensitivity = _sensitivity(tp_at_topks, k_list, y_true_count)
-      result['sensitivity'] = MeanState(
+      self._state['sensitivity'] += MeanState(
           sensitivity.sum(axis=0), sensitivity.shape[0]
       )
+      result['sensitivity'] = sensitivity
 
     if 'tpr' in self.metrics:
       tpr = _tpr(tp_at_topks, k_list, y_true_count)
-      result['tpr'] = MeanState(tpr.sum(axis=0), tpr.shape[0])
+      self._state['tpr'] += MeanState(tpr.sum(axis=0), tpr.shape[0])
+      result['tpr'] = tpr
 
     if 'positive_predictive_value' in self.metrics:
       positive_predictive_value = _positive_predictive_value(
           tp_at_topks, k_list, y_pred_count
       )
-      result['positive_predictive_value'] = MeanState(
+      self._state['positive_predictive_value'] += MeanState(
           positive_predictive_value.sum(axis=0),
           positive_predictive_value.shape[0],
       )
+      result['positive_predictive_value'] = positive_predictive_value
 
     if 'intersection_over_union' in self.metrics:
       intersection_over_union = _intersection_over_union(
           tp_at_topks, k_list, y_true_count, y_pred_count
       )
-      result['intersection_over_union'] = MeanState(
+      self._state['intersection_over_union'] += MeanState(
           intersection_over_union.sum(axis=0), intersection_over_union.shape[0]
       )
+      result['intersection_over_union'] = intersection_over_union
 
     if 'f1_score' in self.metrics:
       if precision is None:
@@ -349,54 +329,83 @@ class TopKRetrievalAggFn(TopKSamplewiseMeanAggFn):
       if recall is None:
         recall = _recall(tp_at_topks, k_list, y_true_count)
       f1 = _f1_score(precision, recall)
-      result['f1_score'] = MeanState(f1.sum(axis=0), f1.shape[0])
+      self._state['f1_score'] += MeanState(f1.sum(axis=0), f1.shape[0])
+      result['f1_score'] = f1
 
     if 'mean_average_precision' in self.metrics:
       mean_average_precision = _mean_average_precision(
           tp, tp_at_topks, k_range, k_list, y_true_count
       )
-      result['mean_average_precision'] = MeanState(
+      self._state['mean_average_precision'] += MeanState(
           mean_average_precision.sum(axis=0),
           mean_average_precision.shape[0],
       )
+      result['mean_average_precision'] = mean_average_precision
 
     if 'mean_reciprocal_rank' in self.metrics:
       reciprocal_ranks = _mean_reciprocal_rank(tp_at_topks, k_list)
-      result['mean_reciprocal_rank'] = MeanState(
+      self._state['mean_reciprocal_rank'] += MeanState(
           reciprocal_ranks.sum(axis=0), reciprocal_ranks.shape[0]
       )
+      result['reciprocal_ranks'] = reciprocal_ranks
 
     if 'miss_rate' in self.metrics:
       miss_rate = _miss_rate(tp_at_topks, k_list, y_true_count)
-      result['miss_rate'] = MeanState(miss_rate.sum(axis=0), miss_rate.shape[0])
+      self._state['miss_rate'] += MeanState(
+          miss_rate.sum(axis=0), miss_rate.shape[0]
+      )
+      result['miss_rate'] = miss_rate
 
     if 'false_discovery_rate' in self.metrics:
       false_discovery_rate = _false_discovery_rate(
           tp_at_topks, k_list, y_pred_count
       )
-      result['false_discovery_rate'] = MeanState(
+      self._state['false_discovery_rate'] += MeanState(
           false_discovery_rate.sum(axis=0), false_discovery_rate.shape[0]
       )
+      result['false_discovery_rate'] = false_discovery_rate
 
     if 'threat_score' in self.metrics:
       threat_score = _threat_score(tp_at_topks, k_list, y_true_count)
-      result['threat_score'] = MeanState(
+      self._state['threat_score'] += MeanState(
           threat_score.sum(axis=0), threat_score.shape[0]
       )
+      result['threat_score'] = threat_score
 
     if 'fowlkes_mallows_index' in self.metrics:
       fowlkes_mallows_index = _fowlkes_mallows_index(
           tp_at_topks, k_list, y_true_count, y_pred_count
       )
-      result['fowlkes_mallows_index'] = MeanState(
+      self._state['fowlkes_mallows_index'] += MeanState(
           fowlkes_mallows_index.sum(axis=0), fowlkes_mallows_index.shape[0]
       )
+      result['fowlkes_mallows_index'] = fowlkes_mallows_index
 
     if 'dcg_score' in self.metrics:
       dcg = _dcg_score(tp, k_range, k_list)
-      result['dcg_score'] = MeanState(dcg.sum(axis=0), dcg.shape[0])
+      self._state['dcg_score'] += MeanState(dcg.sum(axis=0), dcg.shape[0])
+      result['dcg_score'] = dcg
 
     if 'ndcg_score' in self.metrics:
       ndcg = _ndcg_score(tp, k_range, k_list, y_true_count)
-      result['ndcg_score'] = MeanState(ndcg.sum(axis=0), ndcg.shape[0])
+      self._state['ndcg_score'] += MeanState(ndcg.sum(axis=0), ndcg.shape[0])
+      result['ndcg_score'] = ndcg
     return result
+
+  def merge(self, other: 'TopKRetrieval'):
+    for metric in self.metrics:
+      self._state[metric] += other.state[metric]
+
+  def result(self):
+    result = [self._state[metric].result() for metric in self.metrics]
+    # Extends the remaining Ks from the last value.
+    if self.k_list and result and len(self.k_list) > len(result[0]):
+      for i, metric_result in enumerate(result):
+        extra_ks = len(self.k_list) - len(metric_result)
+        result[i] = list(metric_result) + [metric_result[-1]] * extra_ks
+    return result
+
+
+def TopKRetrievalAggFn(**kwargs):  # pylint: disable=invalid-name
+  """Convenient alias as a AggregateFn constructor."""
+  return base.MergibleMetricAggFn(metric_maker=TopKRetrievalConfig(**kwargs))
