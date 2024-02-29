@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "py-ml-metrics"
 version = "0.0.1"
-description = "ML-metrics: A library for loading and transforming data for neural network training."
+description = "ML-metrics: A library that provides performant and distributed friendly ML metrics implementations."
 keywords = []
 authors = [
     {name = "ML metrics team", email = "ml-metrics-dev@google.com"},
