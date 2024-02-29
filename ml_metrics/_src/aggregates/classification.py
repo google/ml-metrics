@@ -1,4 +1,4 @@
-# Copyright 2023 Google LLC
+# Copyright 2024 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,6 +13,7 @@
 # limitations under the License.
 """Aggregates modules for all classification metrics."""
 
+import collections
 from collections.abc import Iterable, Sequence
 import dataclasses
 import itertools
@@ -730,8 +731,8 @@ SamplewiseConfusionMatrixAggState = dict[str, utils.MeanState]
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class SamplewiseConfusionMatrixAggFn(base.AggregateFn):
-  """Samplewise ConfusionMatrix aggregate function.
+class SamplewiseClassificationConfig(base.MetricMaker):
+  """Samplewise Classification Config.
 
   Attributes:
     pos_label: the value considered as positive, default to 1.
@@ -765,9 +766,44 @@ class SamplewiseConfusionMatrixAggFn(base.AggregateFn):
           f' type, got {self.average} from {self}.'
       )
 
-  def create_state(self) -> SamplewiseConfusionMatrixAggState:
-    """Creates the initial empty state."""
-    return {}
+  def make(self):
+    return SamplewiseClassification(
+        metrics=self.metrics,
+        pos_label=self.pos_label,
+        input_type=self.input_type,
+        vocab=self.vocab,
+        dtype=self.dtype,
+    )
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class SamplewiseClassification(base.MergeableMetric):
+  """SamplewiseClassification metric.
+
+  Attributes:
+    pos_label: the value considered as positive, default to 1.
+    input_type: input encoding type, must be one of `InputType`.
+    average: fixed as `samples` average.
+    vocab: an external vocabulary that maps categorical value to integer class
+      id. This is required if computed distributed (when merge_accumulators is
+      called) and the average is macro where the class id mapping needs to be
+      stable.
+    dtype: dtype of the confusion matrix and all computations. Default to None
+      as it is inferred.
+  """
+
+  metrics: Sequence[ConfusionMatrixMetric]
+  pos_label: bool | int | str | bytes = 1
+  input_type: InputType = InputType.BINARY
+  average: AverageType = dataclasses.field(
+      default=AverageType.SAMPLES, init=False
+  )
+  vocab: dict[str, int] | None = None
+  dtype: type[Any] | None = None
+  _state: dict[str, utils.MeanState] = dataclasses.field(
+      default_factory=lambda: collections.defaultdict(utils.MeanState),
+      init=False,
+  )
 
   def _metric_states(self, cm: _ConfusionMatrix) -> dict[str, utils.MeanState]:
     result = {}
@@ -803,24 +839,31 @@ class SamplewiseConfusionMatrixAggFn(base.AggregateFn):
     else:
       raise NotImplementedError(f'"{self.input_type}" input is not supported.')
 
-  def update_state(
-      self, state: SamplewiseConfusionMatrixAggState, *inputs: Any
-  ) -> SamplewiseConfusionMatrixAggState:
+  def add(self, *inputs: Any) -> SamplewiseConfusionMatrixAggState:
     """Batch updates the states of the aggregate."""
     cm = self._calculate_confusion_matrix(*inputs)
-    metric_states = self._metric_states(cm)
-    return self.merge_states((metric_states, state))
-
-  def merge_states(
-      self, states: Sequence[SamplewiseConfusionMatrixAggState]
-  ) -> SamplewiseConfusionMatrixAggState:
-    states_iter = iter(states)
-    result = next(states_iter)
-    for state in states_iter:
-      for key, value in state.items():
-        result[key] += value
+    result = {}
+    for metric in self.metrics:
+      if (score := cm.derive_metric(metric)) is not None:
+        result[metric] = score
+        self._state[metric] += utils.MeanState(np.sum(score), len(score))
     return result
 
-  def get_result(self, state: SamplewiseConfusionMatrixAggState) -> Any:
+  @property
+  def state(self):
+    return self._state
+
+  def merge(self, other: 'SamplewiseClassification'):
+    for key, value in other.state.items():
+      self._state[key] += value
+
+  def result(self):
     """Extracts the outputs from the aggregate states."""
-    return tuple(state[metric].result() for metric in self.metrics)
+    return tuple(self._state[metric].result() for metric in self.metrics)
+
+
+def SamplewiseConfusionMatrixAggFn(**kwargs):  # pylint: disable=invalid-name
+  """Convenient alias as a AggregateFn constructor."""
+  return base.MergibleMetricAggFn(
+      metric_maker=SamplewiseClassificationConfig(**kwargs)
+  )

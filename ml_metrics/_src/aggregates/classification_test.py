@@ -747,12 +747,15 @@ class ClassificationTest(parameterized.TestCase):
         metrics=(ConfusionMatrixMetric.PRECISION,),
         input_type=InputType.MULTICLASS,
     )
-    acc = confusion_matrix.update_state(
+    state1 = confusion_matrix.update_state(
         confusion_matrix.create_state(), y_true, y_pred
     )
-    actual = confusion_matrix.update_state(acc, y_true, y_pred)
+    state2 = confusion_matrix.update_state(
+        confusion_matrix.create_state(), y_true, y_pred
+    )
+    actual = confusion_matrix.merge_states([state1, state2])
     expected = {"precision": utils.MeanState(4, 6)}
-    self.assertDictEqual(expected, actual)
+    self.assertDictEqual(expected, actual.state)
 
   def test_confusion_matrix_add(self):
     a = classification._ConfusionMatrix(tp=4, tn=4, fp=2, fn=4)
