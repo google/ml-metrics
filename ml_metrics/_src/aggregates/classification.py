@@ -19,6 +19,7 @@ import dataclasses
 import itertools
 from typing import Any
 
+from ml_metrics._src import base_types
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
@@ -28,7 +29,7 @@ AverageType = types.AverageType
 InputType = types.InputType
 
 
-class ConfusionMatrixMetric(types.StrEnum):  # pylint: disable=invalid-enum-extension
+class ConfusionMatrixMetric(base_types.StrEnum):  # pylint: disable=invalid-enum-extension
   """Confusion Matrix Metrics that can be composed from CM's intermediate state."""
   CONFUSION_MATRIX = 'confusion_matrix'
   PRECISION = 'precision'

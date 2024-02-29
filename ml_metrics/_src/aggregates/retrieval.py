@@ -18,6 +18,7 @@ import collections
 from collections.abc import Sequence
 import dataclasses
 
+from ml_metrics._src import base_types
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
@@ -29,7 +30,7 @@ MeanState = utils.MeanState
 MeanStatesPerMetric = dict[str, MeanState]
 
 
-class RetrievalMetric(types.StrEnum):  # pylint: disable=invalid-enum-extension
+class RetrievalMetric(base_types.StrEnum):  # pylint: disable=invalid-enum-extension
   """Supported retrieval metrics."""
 
   CONFUSION_MATRIX = 'confusion_matrix'

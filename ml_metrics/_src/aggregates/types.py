@@ -13,28 +13,14 @@
 # limitations under the License.
 """Common types for the aggregates."""
 
-import enum
-
+from ml_metrics._src import base_types
 from numpy import typing as npt
 
 NumbersT = npt.ArrayLike
 DefaultDType = float
 
 
-# TODO: b/312290886 - move this to Python StrEnum when moved to Python 3.11.
-class StrEnum(str, enum.Enum):
-  """Enum where members also must be strings."""
-
-  __str__ = str.__str__
-
-  __repr__ = str.__repr__
-
-  __format__ = str.__format__
-
-  __iter__ = enum.Enum.__iter__
-
-
-class InputType(StrEnum):  # pylint: disable=invalid-enum-extension
+class InputType(base_types.StrEnum):  # pylint: disable=invalid-enum-extension
   """Label prediction encoding types."""
 
   # 1D array per batch, e.g., [0,1,0,1,0], [-1, 1, -1], or ['Y', 'N']
@@ -57,7 +43,7 @@ class InputType(StrEnum):  # pylint: disable=invalid-enum-extension
   MULTICLASS_INDICATOR = 'multiclass-indicator'
 
 
-class AverageType(StrEnum):  # pylint: disable=invalid-enum-extension
+class AverageType(base_types.StrEnum):  # pylint: disable=invalid-enum-extension
   """Average type of the confusion matrix."""
 
   # Treats each class as one example and calculates the metrics on the total
