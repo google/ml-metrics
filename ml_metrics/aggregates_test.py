@@ -11,16 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Aggregation interfaces."""
+"""Tests for aggregates."""
 
-# # pylint: disable=g-importing-member
-# pylint: disable=unused-import
-from ml_metrics._src.aggregates.base import Aggregatable
-from ml_metrics._src.aggregates.base import AggregateFn
-from ml_metrics._src.aggregates.base import MergeableMetric
-from ml_metrics._src.aggregates.base import MergeableMetricAggFn
-from ml_metrics._src.aggregates.base import Metric
-from ml_metrics._src.aggregates.base import MetricMaker
-from ml_metrics._src.aggregates.base import UserAggregateFn
-# pylint: enable=g-importing-member
-# pylint: enable=unused-import
+# Only test the importing of the module succeeds.
+from ml_metrics import aggregates  # pylint: disable=unused-import
+from absl.testing import absltest
+
+
+class AggregatesTest(absltest.TestCase):
+
+  def test_import_aggregate(self):
+    pass
+
+
+if __name__ == "__main__":
+  absltest.main()
