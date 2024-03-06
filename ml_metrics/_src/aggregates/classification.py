@@ -841,9 +841,13 @@ class SamplewiseClassification(base.MergeableMetric):
     else:
       raise NotImplementedError(f'"{self.input_type}" input is not supported.')
 
-  def add(self, *inputs: Any) -> dict[str, types.NumbersT]:
+  def add(
+      self,
+      y_true: types.NumbersT,
+      y_pred: types.NumbersT,
+  ) -> dict[str, types.NumbersT]:
     """Batch updates the states of the aggregate."""
-    cm = self._calculate_confusion_matrix(*inputs)
+    cm = self._calculate_confusion_matrix(y_true, y_pred)
     result = {}
     for metric in self.metrics:
       if (score := cm.derive_metric(metric)) is not None:

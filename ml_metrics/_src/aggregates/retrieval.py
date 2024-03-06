@@ -236,15 +236,15 @@ class TopKRetrieval(base.MergeableMetric):
   def state(self):
     return self._state
 
-  def add(self, y_trues, y_preds) -> dict[str, types.NumbersT]:
+  def add(self, y_true, y_pred) -> dict[str, types.NumbersT]:
     """Compute all true positive related metrics."""
     k_list = list(sorted(self.k_list)) if self.k_list else [float('inf')]
-    y_pred_count = np.asarray([len(row) for row in y_preds])
-    y_true_count = np.asarray([len(row) for row in y_trues])
+    y_pred_count = np.asarray([len(row) for row in y_pred])
+    y_true_count = np.asarray([len(row) for row in y_true])
     max_pred_count = max(y_pred_count)
     max_pred_count = min(max_pred_count, max(k_list))
     tp = []
-    for y_pred, y_true in zip(y_preds, y_trues):
+    for y_pred, y_true in zip(y_pred, y_true):
       tp.append([
           int(y_pred[i] in y_true) if i < len(y_pred) else 0
           for i in range(max_pred_count)
