@@ -160,6 +160,7 @@ class TreeTransform(Generic[TreeFnT]):
   def select(
       self, input_keys: TreeMapKeys, output_keys: TreeMapKeys | None = None
   ) -> TreeTransform:
+    output_keys = output_keys or input_keys
     fn = tree_fns.Select.new(input_keys=input_keys, output_keys=output_keys)
     return dataclasses.replace(self, fns=self.fns + [fn])
 
@@ -198,10 +199,10 @@ class AssignTransform(TreeTransform):
 
   def assign(
       self,
-      output_keys: TreeMapKey | TreeMapKeys = (),
+      output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       *,
       fn: tree_fns.TreeFn | None = None,
-      input_keys: TreeMapKey | TreeMapKeys = (),
+      input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
   ) -> AssignTransform:
     """Assign some key value pairs back to the input mapping."""
     fn = tree_fns.Assign.new(
@@ -216,7 +217,7 @@ class AssignTransform(TreeTransform):
 class StackedTreeAggregateFn(aggregates.AggregateFn):
   """Combining multile TreeAggregateFns into one TreeAggregateFn."""
 
-  agg_fns: dict[tree_fns.TreeAggregateFn, tree_fns.TreeAggregateFn] = (
+  agg_fns: dict[tree_fns.TreeAggregateFn, aggregates.Aggregatable] = (
       dataclasses.field(default_factory=dict)
   )
   input_fn: tree_fns.TreeFn | None = None
@@ -269,7 +270,7 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
     agg_fns = {}
     for tree_fn in self.fns:
       actual_tree_fn = tree_fn.maybe_make()
-      if not isinstance(actual_tree_fn, tree_fns.TreeAggregateFn):
+      if not isinstance(actual_tree_fn, aggregates.Aggregatable):
         raise ValueError(
             'Unexpected tree_fn type:'
             f'{type(actual_tree_fn)} for {actual_tree_fn=}'
