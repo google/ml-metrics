@@ -17,6 +17,7 @@ from absl.testing import parameterized
 from ml_metrics._src.aggregates import classification
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
+from ml_metrics._src.chainables import lazy_fns
 import numpy as np
 
 
@@ -836,6 +837,25 @@ class ClassificationTest(parameterized.TestCase):
       classification.SamplewiseConfusionMatrixAggFn(
           metrics=(), input_type=InputType.BINARY
       )
+
+  def test_fn_config_to_lazy_fn_by_module(self):
+    actual = lazy_fns.maybe_make(
+        lazy_fns.FnConfig(
+            fn="SamplewiseClassificationConfig",
+            module="ml_metrics._src.aggregates.classification",
+            kwargs=dict(
+                metrics=("recall", "precision"),
+                input_type="multiclass-multioutput",
+            ),
+        ).make()
+    )
+    self.assertEqual(
+        classification.SamplewiseConfusionMatrixAggFn(
+            metrics=("recall", "precision"),
+            input_type="multiclass-multioutput",
+        ),
+        actual,
+    )
 
 
 if __name__ == "__main__":

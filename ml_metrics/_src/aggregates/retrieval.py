@@ -22,7 +22,9 @@ from ml_metrics._src import base_types
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
+from ml_metrics._src.chainables import lazy_fns
 import numpy as np
+
 
 InputType = types.InputType
 
@@ -170,7 +172,7 @@ def _ndcg_score(tp, k_range, k_list, y_true_count):
   return result
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(kw_only=True, frozen=True)
 class TopKRetrievalConfig(base.MetricMaker):
   """TopKRetrievals.
 
@@ -234,7 +236,7 @@ class TopKRetrieval(base.MergeableMetric):
   def state(self):
     return self._state
 
-  def add(self, y_trues, y_preds):
+  def add(self, y_trues, y_preds) -> dict[str, types.NumbersT]:
     """Compute all true positive related metrics."""
     k_list = list(sorted(self.k_list)) if self.k_list else [float('inf')]
     y_pred_count = np.asarray([len(row) for row in y_preds])
@@ -404,9 +406,11 @@ class TopKRetrieval(base.MergeableMetric):
       for i, metric_result in enumerate(result):
         extra_ks = len(self.k_list) - len(metric_result)
         result[i] = list(metric_result) + [metric_result[-1]] * extra_ks
-    return result
+    return tuple(result)
 
 
 def TopKRetrievalAggFn(**kwargs):  # pylint: disable=invalid-name
   """Convenient alias as a AggregateFn constructor."""
-  return base.MergibleMetricAggFn(metric_maker=TopKRetrievalConfig(**kwargs))
+  return base.MergeableMetricAggFn(metric_maker=TopKRetrievalConfig(**kwargs))
+
+lazy_fns.makeables.register(TopKRetrievalConfig, base.MergeableMetricAggFn)

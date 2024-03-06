@@ -101,9 +101,9 @@ class AggregateFn(Aggregatable):
     )
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class MergibleMetricAggFn(AggregateFn):
-  """MergibleMetricAggFn."""
+@dataclasses.dataclass(frozen=True)
+class MergeableMetricAggFn(AggregateFn):
+  """MergeableMetricAggFn."""
 
   metric_maker: MetricMaker
 

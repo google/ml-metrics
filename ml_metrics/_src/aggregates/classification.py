@@ -23,6 +23,7 @@ from ml_metrics._src import base_types
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
+from ml_metrics._src.chainables import lazy_fns
 import numpy as np
 
 AverageType = types.AverageType
@@ -840,7 +841,7 @@ class SamplewiseClassification(base.MergeableMetric):
     else:
       raise NotImplementedError(f'"{self.input_type}" input is not supported.')
 
-  def add(self, *inputs: Any) -> SamplewiseConfusionMatrixAggState:
+  def add(self, *inputs: Any) -> dict[str, types.NumbersT]:
     """Batch updates the states of the aggregate."""
     cm = self._calculate_confusion_matrix(*inputs)
     result = {}
@@ -865,6 +866,10 @@ class SamplewiseClassification(base.MergeableMetric):
 
 def SamplewiseConfusionMatrixAggFn(**kwargs):  # pylint: disable=invalid-name
   """Convenient alias as a AggregateFn constructor."""
-  return base.MergibleMetricAggFn(
+  return base.MergeableMetricAggFn(
       metric_maker=SamplewiseClassificationConfig(**kwargs)
   )
+
+lazy_fns.makeables.register(
+    SamplewiseClassificationConfig, base.MergeableMetricAggFn
+)

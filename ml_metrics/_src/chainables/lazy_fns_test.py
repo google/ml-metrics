@@ -118,5 +118,13 @@ class LazyFnsTest(absltest.TestCase):
     self.assertEqual(
         'build external_buildable new', maybe_make(lazy_foo)(' new')
     )
+
+  def test_fn_config_to_lazy_fn_direct(self):
+    self.assertEqual(
+        2,
+        lazy_fns.maybe_make(lazy_fns.FnConfig(fn='len', args=[[1, 2]]).make()),
+    )
+
+
 if __name__ == '__main__':
   absltest.main()

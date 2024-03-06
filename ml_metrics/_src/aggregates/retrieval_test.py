@@ -17,6 +17,7 @@ from absl.testing import parameterized
 from ml_metrics._src.aggregates import retrieval
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
+from ml_metrics._src.chainables import lazy_fns
 import numpy as np
 
 
@@ -279,6 +280,19 @@ class ClassificationTest(parameterized.TestCase):
     topk_retrieval1.merge(topk_retrieval2)
     expected = {"precision": utils.MeanState(11, 16)}
     self.assertDictEqual(expected, topk_retrieval1.state)
+
+  def test_fn_config_to_lazy_fn_by_module(self):
+    actual = lazy_fns.maybe_make(
+        lazy_fns.FnConfig(
+            fn="TopKRetrievalConfig",
+            module="ml_metrics._src.aggregates.retrieval",
+            kwargs=dict(metrics=("recall", "precision")),
+        ).make()
+    )
+    self.assertEqual(
+        retrieval.TopKRetrievalAggFn(metrics=("recall", "precision")),
+        actual,
+    )
 
 
 if __name__ == "__main__":

@@ -15,16 +15,29 @@
 
 from __future__ import annotations
 
+import abc
 import asyncio
 import collections
 from collections.abc import Callable, Hashable, Mapping, Sequence
 import dataclasses
 import functools
+import importlib
 import inspect
-from typing import Any, Generic, TypeVar
+import json
+from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
+
 
 ValueT = TypeVar('ValueT')
 Fn = Callable[..., ValueT]
+
+
+@runtime_checkable
+class Makeable(Protocol):
+  """A config class that can make a Metric class."""
+
+  @abc.abstractmethod
+  def make(self):
+    """Makes a new instance from this makeable."""
 
 
 class _Makers(collections.UserDict):
@@ -43,6 +56,8 @@ makeables = _Makers()
 def maybe_make(maybe_lazy: Any) -> Any:
   if maker := makeables[type(maybe_lazy)]:
     return maker(maybe_lazy)
+  if isinstance(maybe_lazy, Makeable):
+    return maybe_lazy.make()
   return maybe_lazy
 
 
@@ -132,6 +147,40 @@ def trace_args(*args, **kwargs) -> Args:
 
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
+class FnConfig(Makeable):
+  """A readable config that instantiates an in-memory LazyFn.
+
+  The config is a serialized config for the LazyFn. There are two directions
+  these are used: a) this is a readable version of the in-memory LazyFn;
+  b) this can convert a JSON deserializable config to a LazyFn. E.g.,
+  `FnConfig(...).make()` makes a in-memory LazyFn instance.
+
+  Attr:
+    fn: The function to be called.
+    module: The module where the function is located. If not specified, default
+      to the current module.
+    args: Positional arguments to be passed to the function.
+    kwargs: Keyword arguments to be passed to the function.
+  """
+
+  fn: str
+  module: str = ''
+  args: list[Any] = dataclasses.field(default_factory=list)
+  kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+
+  @classmethod
+  def from_json_str(cls, json_str: str):
+    return cls(**json.loads(json_str))
+
+  def make(self):
+    if self.module:
+      actual_fn = getattr(importlib.import_module(self.module), self.fn)
+    else:
+      actual_fn = eval(self.fn)  # pylint: disable=eval-used
+    return LazyFn.new(actual_fn, args=self.args, kwargs=self.kwargs)
+
+
+@dataclasses.dataclass(kw_only=True, frozen=True)
 class LazyFn(Generic[ValueT], Callable[..., 'LazyFn']):
   """A lazy function that has all the information to be called later.
 
@@ -201,7 +250,7 @@ class LazyFn(Generic[ValueT], Callable[..., 'LazyFn']):
 
 def _make(fn: LazyFn) -> Any:
   """Instantiate a lazy fn to a actual fn when applicable."""
-  assert isinstance(fn, LazyFn), f'{fn} is not a LazyFn, instead: {type(fn)}.'
+  # assert isinstance(fn, LazyFn), f'{fn} is not a LazyFn, instead: {type(fn)}.'
   if not fn.fn:
     return None
   args = tuple(maybe_make(arg) for arg in fn.args)
