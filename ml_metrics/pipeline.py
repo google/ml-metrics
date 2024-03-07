@@ -11,17 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for classification metrics."""
+"""Pipeline interfaces."""
 
-from ml_metrics.metrics import classification  # pylint: disable=unused-import
-from absl.testing import absltest
-
-
-class ClassificationTest(absltest.TestCase):
-
-  def test_import_classification(self):
-    pass
-
-
-if __name__ == "__main__":
-  absltest.main()
+# # pylint: disable=g-importing-member
+# pylint: disable=unused-import
+from ml_metrics._src.chainables.lazy_fns import iterate_fn
+from ml_metrics._src.chainables.lazy_fns import makeables
+from ml_metrics._src.chainables.lazy_fns import maybe_make
+from ml_metrics._src.chainables.lazy_fns import trace
+from ml_metrics._src.chainables.transform import TreeTransform as Pipeline
+from ml_metrics._src.chainables.tree import Key
+from ml_metrics._src.chainables.tree import MappingView
+# pylint: enable=g-importing-member
+# pylint: enable=unused-import

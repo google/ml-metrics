@@ -16,7 +16,6 @@
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
 from ml_metrics._src.metrics.retrieval import accuracy
-from ml_metrics._src.metrics.retrieval import compute_metrics
 from ml_metrics._src.metrics.retrieval import dcg_score
 from ml_metrics._src.metrics.retrieval import f1_score
 from ml_metrics._src.metrics.retrieval import false_discovery_rate
@@ -33,6 +32,8 @@ from ml_metrics._src.metrics.retrieval import recall
 from ml_metrics._src.metrics.retrieval import RetrievalMetric
 from ml_metrics._src.metrics.retrieval import sensitivity
 from ml_metrics._src.metrics.retrieval import threat_score
+from ml_metrics._src.metrics.retrieval import topk_retrieval_metrics
+from ml_metrics._src.metrics.retrieval import TopKRetrieval
 from ml_metrics._src.metrics.retrieval import tpr
 # pylint: enable=g-importing-member
 # pylint: enable=unused-import

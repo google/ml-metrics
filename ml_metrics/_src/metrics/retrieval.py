@@ -19,7 +19,9 @@ from ml_metrics._src.aggregates import types
 
 InputType = types.InputType
 RetrievalMetric = retrieval.RetrievalMetric
+TopKRetrieval = retrieval.TopKRetrieval
 TopKRetrievalAggFn = retrieval.TopKRetrievalAggFn
+TopKRetrievalConfig = retrieval.TopKRetrievalConfig
 
 _METRIC_PYDOC_POSTFIX = """
 
@@ -38,7 +40,7 @@ _METRIC_PYDOC_POSTFIX = """
 """
 
 
-def compute_metrics(
+def topk_retrieval_metrics(
     metrics: Sequence[RetrievalMetric],
     *,
     y_true,

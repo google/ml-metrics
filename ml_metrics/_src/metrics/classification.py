@@ -26,6 +26,8 @@ AverageType = types.AverageType
 ConfusionMatrixMetric = classification.ConfusionMatrixMetric
 ConfusionMatrixAggFn = classification.ConfusionMatrixAggFn
 TopKConfusionMatrixAggFn = classification.TopKConfusionMatrixAggFn
+SamplewiseClassification = classification.SamplewiseClassification
+SamplewiseClassificationConfig = classification.SamplewiseClassificationConfig
 SamplewiseConfusionMatrixAggFn = classification.SamplewiseConfusionMatrixAggFn
 
 _METRIC_PYDOC_POSTFIX = """
@@ -106,7 +108,9 @@ class ClassificationAggFn(base.AggregateFn):
     return self.agg_fn.create_state()
 
   def update_state(
-      self, state: classification.ConfusionMatrixAggState | None, *inputs: Any
+      self,
+      state: classification.ConfusionMatrixAggState | None,
+      *inputs: Any,
   ):
     return self.agg_fn.update_state(state, *inputs)
 
@@ -117,7 +121,7 @@ class ClassificationAggFn(base.AggregateFn):
     return self.agg_fn.merge_states(states)
 
 
-def compute_metrics(
+def classification_metrics(
     metrics: Sequence[ConfusionMatrixMetric],
     *,
     y_true,

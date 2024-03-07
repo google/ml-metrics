@@ -11,18 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for aggregates."""
+"""ml_metrics interfaces."""
 
-# Only test the importing of the module succeeds.
-from ml_metrics import aggregates  # pylint: disable=unused-import
-from absl.testing import absltest
-
-
-class AggregatesTest(absltest.TestCase):
-
-  def test_import_aggregate(self):
-    pass
-
-
-if __name__ == "__main__":
-  absltest.main()
+# # pylint: disable=g-importing-member
+# pylint: disable=unused-import
+from ml_metrics import aggregates
+from ml_metrics import pipeline
+from ml_metrics.metrics import classification
+from ml_metrics.metrics import retrieval
+# pylint: enable=g-importing-member
+# pylint: enable=unused-import

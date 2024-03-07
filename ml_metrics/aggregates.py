@@ -13,7 +13,7 @@
 # limitations under the License.
 """Aggregation interfaces."""
 
-# # pylint: disable=g-importing-member
+# pylint: disable=g-importing-member
 # pylint: disable=unused-import
 from ml_metrics._src.aggregates.base import Aggregatable
 from ml_metrics._src.aggregates.base import AggregateFn
