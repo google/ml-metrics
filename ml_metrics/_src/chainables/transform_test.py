@@ -267,8 +267,8 @@ class TransformTest(parameterized.TestCase):
         output_keys=output_keys,
     )
     agg1, agg2 = transform.make(t1), transform.make(t2)
-    state1 = agg1.update_state(agg1.create_state(), inputs)
-    state2 = agg2.update_state(agg2.create_state(), inputs)
+    state1 = agg1._update_state(agg1.create_state(), inputs)
+    state2 = agg2._update_state(agg2.create_state(), inputs)
     # LazyFn of the fn enables across workers merge since these are consistent
     # after reinstantion of the actual function instance.
     merged_t1 = agg1.merge_states([state1, state2])
@@ -276,6 +276,32 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual(merged_t1, merged_t2)
     self.assertEqual(expected, agg1.get_result(state1))
     self.assertEqual(expected, agg2.get_result(state2))
+
+  def test_input_iterator_transform(self):
+    input_iterator = [[1, 2, 3], [2, 3, 4]]
+    t = (
+        transform.TreeTransform.new()
+        .data_source(iterator=input_iterator)
+        .apply(fn=sum)
+    )
+    actual_fn = t.make()
+    self.assertEqual([6, 9], list(actual_fn.iter_call()))
+    self.assertEqual([6, 9], list(actual_fn.iter_call(input_iterator)))
+    self.assertEqual([6, 9], actual_fn(input_iterator=input_iterator))
+
+  def test_input_iterator_aggregate(self):
+    input_iterator = [[1, 2, 3], [2, 3, 4]]
+    t = (
+        transform.TreeTransform.new()
+        .data_source(iterator=lazy_fns.trace(lambda: input_iterator)())
+        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 1))
+        .aggregate(fn=TestAverageFn())
+        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 10))
+        .aggregate(fn=TestAverageFn())
+    )
+    actual_fn = t.make()
+    self.assertEqual([13.5], actual_fn())
+    self.assertEqual([13.5], actual_fn(input_iterator=input_iterator))
 
 
 if __name__ == '__main__':

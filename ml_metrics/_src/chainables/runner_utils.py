@@ -94,7 +94,7 @@ def _pickled(cached_args=None):
 
 @_pickled(cached_args=('transform',))
 def run_update_state(
-    transform: transform_lib.StackedTreeAggregateFn,
+    transform: transform_lib.CombinedTreeFn,
     input_iterator: Iterable[Any],
     initial_state=None,
     num_steps: int | None = None,
@@ -125,7 +125,7 @@ def run_update_state(
 
 @_pickled(cached_args=('transform',))
 def run_merge_states(
-    transform: transform_lib.StackedTreeAggregateFn,
+    transform: transform_lib.CombinedTreeFn,
     states: list[Any],
 ):
   return transform.merge_states(states)
@@ -133,7 +133,7 @@ def run_merge_states(
 
 @_pickled(cached_args=('transform',))
 def run_get_result(
-    transform: transform_lib.StackedTreeAggregateFn,
+    transform: transform_lib.CombinedTreeFn,
     state: Any,
 ):
   return transform.get_result(state)

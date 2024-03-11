@@ -50,7 +50,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
   input_keys: tree.TreeMapKey | tree.TreeMapKeys | None = ()
   output_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
   fn: FnT | lazy_fns.LazyFn[FnT] | None = None
-  _default_constructor: bool = True
+  _default_constructor: bool = dataclasses.field(default=True, repr=False)
 
   def __post_init__(self):
     if self._default_constructor:
@@ -83,7 +83,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
 
   @property
   def lazy(self):
-    return isinstance(self.fn, lazy_fns.LazyFn)
+    return lazy_fns.makeables[type(self.fn)] is not None
 
   @functools.cached_property
   def actual_fn(self) -> FnT:

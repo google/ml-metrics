@@ -15,8 +15,9 @@
 from __future__ import annotations
 
 import collections
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 import dataclasses
+import itertools
 from typing import Any, Generic, TypeVar
 
 from ml_metrics._src.aggregates import base as aggregates
@@ -37,23 +38,167 @@ TreeTransformT = TypeVar('TreeTransformT', bound='TreeTransform')
 TreeFn = tree_fns.TreeFn
 
 
-@dataclasses.dataclass
-class ChainedTreeFn(tree.MapLikeTreeCallable):
-  """Chaining the TreeFn together and runs it in sequence when called."""
+def _call_fns(
+    fns: Sequence[tree.MapLikeTreeCallable | tree_fns.TreeAggregateFn],
+    inputs: tree.MapLikeTree | None = None,
+) -> tree.MapLikeTree | None:
+  result = inputs
+  for fn in fns:
+    try:
+      result = fn(result)
+    except Exception as e:  # pylint: disable=too-broad-exception
+      raise ValueError(f'Falied to execute {fn} with inputs: {result}') from e
 
-  fns: Sequence[tree.MapLikeTreeCallable] = ()
+  return result
 
-  def __call__(
-      self, inputs: tree.MapLikeTree | None = None
-  ) -> tree.MapLikeTree | None:
-    result = inputs
-    for fn in self.fns:
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class CombinedTreeFn:
+  """Combining multiple transforms into one concrete TreeFn."""
+
+  input_fns: Sequence[tree.MapLikeTreeCallable] = ()
+  agg_fns: dict[tree_fns.TreeAggregateFn, aggregates.Aggregatable] = (
+      dataclasses.field(default_factory=dict)
+  )
+  output_fns: Sequence[tree.MapLikeTreeCallable] = ()
+  input_iterator: Iterable[Any] | None = None
+
+  @classmethod
+  def from_transform(
+      cls,
+      transform: TreeTransform,
+      recursive: bool = True,
+      aggregator: bool = False,
+  ):
+    """Builds a TreeFn from a transform and optionally its input transforms."""
+    # Flatten the transform into nodes and find the first aggregation node as
+    # the aggregation node for the concrete function. Any node before it is
+    # input nodes, any node after it regardless of its type (aggregation or not)
+    # is output_node.
+    transforms = transform.flatten_transform() if recursive else [transform]
+    input_nodes, output_nodes = [], []
+    iterator_node, agg_node = None, None
+    for node in transforms:
+      if isinstance(node, IteratorSource):
+        iterator_node = node
+      elif agg_node is None and isinstance(node, AggregateTransform):
+        agg_node = node
+      elif agg_node is None:
+        input_nodes.append(node)
+      else:
+        output_nodes.append(node)
+    # Reset the iterator_node and input_nodes if this is an aggregator.
+    if aggregator:
+      iterator_node = None
+      input_nodes = []
+    # Collect input_iterator.
+    input_iterator = lazy_fns.maybe_make(
+        iterator_node and iterator_node.iterator
+    )
+    # Collect all the input functions from the input nodes.
+    input_fns = list(
+        itertools.chain.from_iterable(node.fns for node in input_nodes)
+    )
+    input_fns = [tree_fn.maybe_make() for tree_fn in input_fns]
+    # Collect all the aggregation functions from the aggregation node.
+    agg_fns = {}
+    if agg_node:
+      for agg_fn in agg_node.fns:
+        actual_agg_fn = agg_fn.maybe_make()
+        agg_fns[agg_fn] = actual_agg_fn
+    # Collect all the output functions from the output nodes.
+    output_fns = []
+    for node in output_nodes:
+      # the output nodes can be aggregate, uses it as a callable since they are
+      # all ran in-process (after the first aggregation node).
+      if isinstance(node, AggregateTransform):
+        output_fns.append(cls.from_transform(node, recursive=False))
+      else:
+        output_fns.extend([tree_fn.maybe_make() for tree_fn in node.fns])
+    return cls(
+        input_fns=input_fns,
+        agg_fns=agg_fns,
+        output_fns=output_fns,
+        input_iterator=input_iterator,
+    )
+
+  def create_state(self):
+    return {
+        key: tree_fn.create_state() for key, tree_fn in self.agg_fns.items()
+    }
+
+  def _update_state(self, state, inputs):
+    """Updates the state by inputs."""
+    # All aggregates operate on the same inputs.
+    for key, tree_fn in self.agg_fns.items():
       try:
-        result = fn(result)
-      except Exception as e:  # pylint: disable=too-broad-exception
-        raise ValueError(f'Falied to execute {fn} with inputs: {result}') from e
+        state[key] = tree_fn.update_state(state[key], inputs)
+      except KeyError as e:
+        raise KeyError(f'{key=} not found from: {list(state.keys())=}') from e
+      except Exception as e:
+        raise ValueError(
+            f'Falied to update {tree_fn=} with inputs: {inputs=}'
+        ) from e
+    return state
 
-    return result
+  def merge_states(self, states: Any) -> Any:
+    states_by_fn = collections.defaultdict(list)
+    for state in states:
+      for key, fn_state in state.items():
+        states_by_fn[key].append(fn_state)
+    return {
+        key: self.agg_fns[key].merge_states(fn_states)
+        for key, fn_states in states_by_fn.items()
+    }
+
+  def get_result(self, state: Any) -> tree.MapLikeTree[Any] | None:
+    result = tree.MappingView()
+    for key, fn_state in state.items():
+      fn_result = self.agg_fns[key].get_result(fn_state)
+      result = result | tree.MappingView.as_view(fn_result)
+    result = result.data
+    return _call_fns(self.output_fns, result)
+
+  def _actual_inputs(self, inputs, input_iterator):
+    if inputs is not None and input_iterator:
+      raise ValueError(f'Cannot set inputs and input_iterator from: {self}')
+    # Overrides the internal input_iterator if either inputs or input_iterator
+    # is provided.
+    if not input_iterator and not self.input_iterator:
+      return [inputs]
+    else:
+      return input_iterator or self.input_iterator
+
+  def iter_call(self, input_iterator: Iterable[Any] = ()) -> Iterator[Any]:
+    """Directly apply aggregate on inputs."""
+    input_iterator = self._actual_inputs(None, input_iterator)
+    for batch in input_iterator:
+      yield _call_fns(self.input_fns, batch)
+
+  def update_state(
+      self,
+      state: Any = None,
+      inputs=None,
+      *,
+      input_iterator: Iterable[Any] = (),
+  ):
+    """Updates the state by either the inputs or an iterator of the inputs."""
+    input_iterator = self._actual_inputs(inputs, input_iterator)
+    state = state or self.create_state()
+    for batch_output in self.iter_call(input_iterator):
+      state = self._update_state(state, batch_output)
+    return state
+
+  def __call__(self, inputs=None, *, input_iterator=()):
+    iter_input = self._actual_inputs(inputs, input_iterator)
+    if self.agg_fns:
+      return self.get_result(self.update_state(input_iterator=iter_input))
+    else:
+      result = list(self.iter_call(iter_input))
+      # Directly returns the result when inputs (vs. iterator) is fed.
+      if not input_iterator and not self.input_iterator:
+        return result[0]
+      return result
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -80,6 +225,8 @@ class TreeTransform(Generic[TreeFnT]):
   calculating corresponding metrics:
     predictions = (
         core.TreeTransform.new()
+        # Reading
+        .data_source(iterator_make=get_iterator(path))
         # Example pre_processing
         .apply(
             output_keys=('image_bytes', 'label_id', Key.SKIP, 'label_text'),
@@ -120,7 +267,7 @@ class TreeTransform(Generic[TreeFnT]):
 
   input_transform: TreeTransform | None = None
   fns: list[TreeFnT] = dataclasses.field(default_factory=list)
-  _default_constructor: bool = True
+  _default_constructor: bool = dataclasses.field(default=True, repr=False)
 
   def __post_init__(self):
     if self._default_constructor:
@@ -136,38 +283,56 @@ class TreeTransform(Generic[TreeFnT]):
       input_transform = input_transform.input_transform
     return cls(input_transform=input_transform, _default_constructor=False)
 
-  def make(self, *, recursive=True):
-    fns = []
-    if recursive and (input_transform := self.input_transform):
-      fns = [input_transform.make()]
-    fns += [tree_fn.maybe_make() for tree_fn in self.fns]
-    assert fns, f'No function tp run in {self}, {fns=}'
-    return ChainedTreeFn(fns=fns)
+  def make(self, *, recursive=True, aggregator=False):
+    """Makes the concrete function instance from the transform."""
+    return CombinedTreeFn.from_transform(
+        self, recursive=recursive, aggregator=aggregator
+    )
+
+  def data_source(self, iterator: Any = None):
+    if self.input_transform:
+      raise ValueError(
+          f'Cannot add data_source to {self} when there is already an'
+          ' input_transform.'
+      )
+    return dataclasses.replace(
+        self, input_transform=IteratorSource.new(iterator)
+    )
 
   def assign(
       self,
       output_keys: TreeMapKey | TreeMapKeys = (),
       *,
-      fn: tree_fns.TreeFn | None = None,
-      input_keys: TreeMapKey | TreeMapKeys = (),
-  ) -> AssignTransform:
-    return AssignTransform.new(input_transform=self).assign(
-        output_keys,
+      fn: lazy_fns.Makeable | Callable[..., Any] | None = None,
+      input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+  ) -> TreeTransform:
+    """Assign some key value pairs back to the input mapping."""
+    fn = tree_fns.Assign.new(
+        output_keys=output_keys,
         fn=fn,
         input_keys=input_keys,
     )
+    return self._maybe_new_transform(fn)
 
   def select(
       self, input_keys: TreeMapKeys, output_keys: TreeMapKeys | None = None
   ) -> TreeTransform:
     output_keys = output_keys or input_keys
     fn = tree_fns.Select.new(input_keys=input_keys, output_keys=output_keys)
-    return dataclasses.replace(self, fns=self.fns + [fn])
+    return self._maybe_new_transform(fn)
 
-  def aggregate(self, **kwargs) -> AggregateTransform:
+  def aggregate(
+      self,
+      output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+      *,
+      fn: lazy_fns.Makeable | aggregates.Aggregatable | None = None,
+      input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+  ) -> AggregateTransform:
     # TODO: b/318463291 - fix a bug when self.fns is empty, the runner
     # skips its own input transform.
-    return AggregateTransform.new(input_transform=self).add_aggregate(**kwargs)
+    return AggregateTransform.new(input_transform=self).add_aggregate(
+        input_keys=input_keys, output_keys=output_keys, fn=fn
+    )
 
   def agg(self, **kwargs) -> AggregateTransform:
     """Alias for aggregate."""
@@ -177,7 +342,7 @@ class TreeTransform(Generic[TreeFnT]):
       self,
       *,
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      fn: tree_fns.TreeFn | None = None,
+      fn: lazy_fns.Makeable | Callable[..., Any] | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
   ) -> TreeTransformT:
     """Applys a TreeFn on the selected inputs and directly outputs the result."""
@@ -186,7 +351,22 @@ class TreeTransform(Generic[TreeFnT]):
         fn=fn,
         input_keys=input_keys,
     )
-    return dataclasses.replace(self, fns=self.fns + [fn])
+    return self._maybe_new_transform(fn)
+
+  def flatten_transform(self):
+    """Flatten all the chain of transforms into a list."""
+    if not self.input_transform:
+      return [self]
+    return self.input_transform.flatten_transform() + [self]
+
+  def _maybe_new_transform(self, fn):
+    # Break apart the transform when this is an aggregate transform.
+    if isinstance(self, AggregateTransform):
+      return TreeTransform(
+          input_transform=self, fns=[fn], _default_constructor=False
+      )
+    else:
+      return dataclasses.replace(self, fns=self.fns + [fn])
 
 
 def make(tree_transform: TreeTransform):
@@ -194,96 +374,40 @@ def make(tree_transform: TreeTransform):
   return tree_transform.make()
 
 
-class AssignTransform(TreeTransform):
-  """A MapTransform captures all transforms that have row correspondence."""
-
-  def assign(
-      self,
-      output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      *,
-      fn: tree_fns.TreeFn | None = None,
-      input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-  ) -> AssignTransform:
-    """Assign some key value pairs back to the input mapping."""
-    fn = tree_fns.Assign.new(
-        output_keys=output_keys,
-        fn=fn,
-        input_keys=input_keys,
-    )
-    return dataclasses.replace(self, fns=self.fns + [fn])
-
-
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class StackedTreeAggregateFn(aggregates.AggregateFn):
-  """Combining multile TreeAggregateFns into one TreeAggregateFn."""
+class IteratorSource(TreeTransform):
+  """A source that wraps around an iterator."""
 
-  agg_fns: dict[tree_fns.TreeAggregateFn, aggregates.Aggregatable] = (
-      dataclasses.field(default_factory=dict)
-  )
-  input_fn: tree_fns.TreeFn | None = None
+  # Any iterable or an instance that can make an iterable either from the
+  # registered lazy_fns.makeables or from an implemented Makeable.
+  iterator: Iterable[Any] | lazy_fns.Makeable | Any
 
-  def create_state(self):
-    return {
-        key: tree_fn.create_state() for key, tree_fn in self.agg_fns.items()
-    }
+  def __post_init__(self):
+    if self.input_transform:
+      raise ValueError(
+          f'Source cannot have an input_transform, got {self.input_transform}'
+      )
+    if self.fns:
+      raise ValueError(f'Source must not have any fn, got {self.fns}')
 
-  def update_state(self, state: Any, inputs: Any) -> Any:
-    if self.input_fn:
-      inputs = self.input_fn(inputs)
-    # All aggregates operate on the same inputs.
-    for key, tree_fn in self.agg_fns.items():
-      try:
-        state[key] = tree_fn.update_state(state[key], inputs)
-      except KeyError as e:
-        raise KeyError(f'{key=} not found from: {list(state.keys())=}') from e
-      except Exception as e:
-        raise ValueError(
-            f'Falied to update {tree_fn=} with inputs: {inputs=}'
-        ) from e
-    return state
-
-  def merge_states(self, states: Any) -> Any:
-    states_by_fn = collections.defaultdict(list)
-    for state in states:
-      for key, fn_state in state.items():
-        states_by_fn[key].append(fn_state)
-    return {
-        key: self.agg_fns[key].merge_states(fn_states)
-        for key, fn_states in states_by_fn.items()
-    }
-
-  def get_result(self, state: Any) -> tree.MapLikeTree[Any]:
-    result = tree.MappingView()
-    for key, fn_state in state.items():
-      fn_result = self.agg_fns[key].get_result(fn_state)
-      result = result | tree.MappingView.as_view(fn_result)
-    return result.data
+  @classmethod
+  def new(cls, iterator: Any):
+    return cls(iterator=iterator, _default_constructor=False)
 
 
 class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
-  """An AggregateTransform reduce rows."""
+  """An AggregateTransform reduce rows.
 
-  def make(self, *, recursive: bool = True) -> StackedTreeAggregateFn:
-    input_fn = None
-    if recursive and (input_transform := self.input_transform):
-      input_fn = input_transform.make()
-    agg_fns = {}
-    for tree_fn in self.fns:
-      actual_tree_fn = tree_fn.maybe_make()
-      if not isinstance(actual_tree_fn, aggregates.Aggregatable):
-        raise ValueError(
-            'Unexpected tree_fn type:'
-            f'{type(actual_tree_fn)} for {actual_tree_fn=}'
-        )
-      agg_fns[tree_fn] = actual_tree_fn
-
-    return StackedTreeAggregateFn(agg_fns=agg_fns, input_fn=input_fn)
+  Attributes:
+    input_transform: the transform that outputs the input of this transform.
+    fns: the underlying routines of the transforms.
+  """
 
   def add_aggregate(
       self,
       *,
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      fn: aggregates.Aggregatable | None = None,
+      fn: lazy_fns.Makeable | aggregates.Aggregatable | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
   ):
     """Adds a aggregate and stack it on the existing aggregates."""
@@ -295,7 +419,5 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
     return dataclasses.replace(self, fns=self.fns + [fn])
 
 # Register the lazy_fns so the make() can be called automatically when calling.
-# lazy_fns.maybe_make(transform).
 lazy_fns.makeables.register(TreeTransform, make)
-lazy_fns.makeables.register(AssignTransform, make)
 lazy_fns.makeables.register(AggregateTransform, make)
