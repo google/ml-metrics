@@ -34,6 +34,7 @@ from ml_metrics._src.metrics.retrieval import sensitivity
 from ml_metrics._src.metrics.retrieval import threat_score
 from ml_metrics._src.metrics.retrieval import topk_retrieval_metrics
 from ml_metrics._src.metrics.retrieval import TopKRetrieval
+from ml_metrics._src.metrics.retrieval import TopKRetrievalAggFn
 from ml_metrics._src.metrics.retrieval import tpr
 # pylint: enable=g-importing-member
 # pylint: enable=unused-import
