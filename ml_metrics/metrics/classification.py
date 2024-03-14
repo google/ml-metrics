@@ -19,6 +19,7 @@ from ml_metrics._src.metrics.classification import accuracy
 from ml_metrics._src.metrics.classification import balanced_accuracy
 from ml_metrics._src.metrics.classification import binary_accuracy
 from ml_metrics._src.metrics.classification import classification_metrics
+from ml_metrics._src.metrics.classification import ClassificationAggFn
 from ml_metrics._src.metrics.classification import ConfusionMatrixMetric
 from ml_metrics._src.metrics.classification import diagnostic_odds_ratio
 from ml_metrics._src.metrics.classification import f1_score
