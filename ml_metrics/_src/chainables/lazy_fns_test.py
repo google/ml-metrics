@@ -13,6 +13,7 @@
 # limitations under the License.
 import asyncio
 import pickle
+from unittest import mock
 
 from ml_metrics._src.chainables import lazy_fns
 
@@ -20,6 +21,15 @@ from absl.testing import absltest
 
 trace = lazy_fns.trace
 maybe_make = lazy_fns.maybe_make
+
+
+class CustomPickler:
+
+  def dumps(self, x):
+    return pickle.dumps(x)
+
+  def loads(self, x):
+    return pickle.loads(x)
 
 
 class Buildable(str):
@@ -50,6 +60,31 @@ class Foo:
 
 
 class LazyFnsTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    custom_pickler = CustomPickler()
+    lazy_fns.picklers.register(custom_pickler)
+    self.pickler = lazy_fns.picklers.default
+
+  def test_maybe_make(self):
+    self.assertEqual(3, lazy_fns.maybe_make(lazy_fns.trace(len)([1, 2, 3])))
+    pickled = self.pickler.dumps(lazy_fns.trace(len)([1, 2, 3]))
+    self.assertEqual(3, lazy_fns.maybe_make(pickled))
+
+  def test_pickler_register_assertion(self):
+    with self.assertRaises(TypeError):
+      lazy_fns.picklers.register(len)
+
+  def test_maybe_make_cached(self):
+    lazy_foo = trace(Foo, use_cache=True)(a=1)
+    self.assertEqual(Foo(a=1)(x=1), maybe_make(trace(get)(lazy_foo)(x=1)))
+    with mock.patch.object(Foo, '__init__', autospec=True) as mock_cached_make:
+      maybe_make(lazy_foo)
+      mock_cached_make.assert_not_called()
+    self.assertEqual(lazy_fns.cache_info().hits, 1)
+    lazy_fns.clear_cache()
+    self.assertEqual(lazy_fns.cache_info().hits, 0)
 
   def test_lazy_fn_not_makeabe_raise_typeerror(self):
     with self.assertRaises(TypeError):

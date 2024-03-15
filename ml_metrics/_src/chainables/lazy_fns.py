@@ -26,9 +26,30 @@ import inspect
 import json
 from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
 
+import cloudpickle as pickle
 
 ValueT = TypeVar('ValueT')
 Fn = Callable[..., ValueT]
+
+
+# TODO: b/318463291 - support heterogeneous (de)serializations methods.
+@dataclasses.dataclass
+class Picklers:
+  """Picklers that can be registered."""
+
+  default = pickle
+
+  def register(self, pickler):
+    if hasattr(pickler, 'dumps') and hasattr(pickler, 'loads'):
+      self.default = pickler
+    else:
+      raise TypeError(
+          f'Pickler {pickler} of type {type(pickler)} has to have `loads` and'
+          ' `dumps` methods.'
+      )
+
+
+picklers = Picklers()
 
 
 @runtime_checkable
@@ -54,6 +75,8 @@ makeables = _Makers()
 
 
 def maybe_make(maybe_lazy: Any) -> Any:
+  if isinstance(maybe_lazy, bytes):
+    maybe_lazy = picklers.default.loads(maybe_lazy)
   if maker := makeables[type(maybe_lazy)]:
     return maker(maybe_lazy)
   if isinstance(maybe_lazy, Makeable):
@@ -188,11 +211,13 @@ class LazyFn(Generic[ValueT], Callable[..., 'LazyFn']):
     fn: The function to be called.
     args: The positional arguements later used to pass in the fn.
     kwargs: The named arguements later used to pass in the fn.
+    cache_result: If True, cache the result of the make LazyFn.
   """
 
   fn: Callable[..., ValueT] | LazyFn | None = None
   args: tuple[Hashable | LazyFn, ...] = ()
   kwargs: tuple[tuple[str, Hashable | LazyFn], ...] = ()
+  cache_result: bool = False
 
   @classmethod
   def new(
@@ -201,10 +226,13 @@ class LazyFn(Generic[ValueT], Callable[..., 'LazyFn']):
       *,
       args: Sequence[Hashable] = (),
       kwargs: Mapping[str, Hashable] | None = None,
+      cache_result: bool = False,
   ) -> LazyFn[ValueT]:
     """Normalizes the arguements before constructing a LazyFn."""
     kwargs = (kwargs or {}).items()
-    return cls(fn=fn, args=tuple(args), kwargs=tuple(kwargs))
+    return cls(
+        fn=fn, args=tuple(args), kwargs=tuple(kwargs), cache_result=cache_result
+    )
 
   def __call__(self, *args, **kwargs) -> LazyFn[LazyFn]:
     """Calling a LazyFn records a lazy result of the call.
@@ -248,11 +276,37 @@ class LazyFn(Generic[ValueT], Callable[..., 'LazyFn']):
     self.__dict__.update(state)
 
 
-def _make(fn: LazyFn) -> Any:
+@functools.lru_cache(maxsize=256)
+def _cached_make(fn: LazyFn | bytes) -> Any:
   """Instantiate a lazy fn to a actual fn when applicable."""
-  # assert isinstance(fn, LazyFn), f'{fn} is not a LazyFn, instead: {type(fn)}.'
+  if isinstance(fn, bytes):
+    fn = picklers.default.loads(fn)
   if not fn.fn:
     return None
+  args = tuple(maybe_make(arg) for arg in fn.args)
+  kwargs = {k: maybe_make(v) for k, v in fn.kwargs}
+  if fn.fn is _make:
+    assert callable(args[0])
+    result = args[0](*args[1:], **kwargs)
+  elif callable(fn.fn):
+    result = fn.fn(*args, **kwargs)
+  else:
+    raise TypeError(f'fn is not callable from {fn}.')
+  return maybe_make(result)
+
+
+def _make(fn: LazyFn) -> Any:
+  """Instantiate a lazy fn to a actual fn when applicable."""
+  if not fn.fn:
+    return None
+  if fn.cache_result:
+    # In case the fn is not hash-able, we use the default pickler to pickle it
+    # to bytes first then cache it.
+    try:
+      return _cached_make(fn)
+    except TypeError:
+      return _cached_make(picklers.default.dumps(fn))
+
   args = tuple(maybe_make(arg) for arg in fn.args)
   kwargs = {k: maybe_make(v) for k, v in fn.kwargs}
   if fn.fn is _make:
@@ -268,7 +322,19 @@ def _make(fn: LazyFn) -> Any:
 makeables.register(LazyFn, _make)
 
 
-def trace(fn: Callable[..., ValueT]) -> Callable[..., LazyFn[ValueT]]:
+def clear_cache():
+  """Clear the cache for maybe_make."""
+  _cached_make.cache_clear()
+
+
+def cache_info():
+  """Returns the cache info for maybe_make."""
+  return _cached_make.cache_info()
+
+
+def trace(
+    fn: Callable[..., ValueT], use_cache: bool = False
+) -> Callable[..., LazyFn[ValueT]]:
   """Traces a callable to record the function and its arguements.
 
   A lazy function is the lazy counterpart of the actual function. We can convert
@@ -306,12 +372,13 @@ def trace(fn: Callable[..., ValueT]) -> Callable[..., LazyFn[ValueT]]:
 
   Args:
     fn: The fn to be called lazily.
+    use_cache: If True, uses cache for the result of the make LazyFn.
 
   Returns:
     A function that records the fn and its arguements to be called later.
   """
 
   def wrapped(*args, **kwargs):
-    return LazyFn.new(fn=fn, args=args, kwargs=kwargs)
+    return LazyFn.new(fn=fn, args=args, kwargs=kwargs, cache_result=use_cache)
 
   return wrapped
