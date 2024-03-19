@@ -870,9 +870,7 @@ class SamplewiseClassification(base.MergeableMetric):
 
 def SamplewiseConfusionMatrixAggFn(**kwargs):  # pylint: disable=invalid-name
   """Convenient alias as a AggregateFn constructor."""
-  return base.MergeableMetricAggFn(
-      metric_maker=SamplewiseClassificationConfig(**kwargs)
-  )
+  return base.MergeableMetricAggFn(SamplewiseClassificationConfig(**kwargs))
 
 lazy_fns.makeables.register(
     SamplewiseClassificationConfig, base.MergeableMetricAggFn

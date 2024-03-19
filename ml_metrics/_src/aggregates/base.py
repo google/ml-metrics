@@ -105,10 +105,13 @@ class AggregateFn(Aggregatable):
 class MergeableMetricAggFn(AggregateFn):
   """MergeableMetricAggFn."""
 
-  metric_maker: MetricMaker
+  metric: MetricMaker | Metric
 
   def create_state(self) -> Metric:
-    return self.metric_maker.make()
+    metric = self.metric
+    if isinstance(self.metric, MetricMaker):
+      metric = self.metric.make()
+    return metric
 
   def update_state(self, state: Metric, *args, **kwargs) -> Metric:
     state.add(*args, **kwargs)

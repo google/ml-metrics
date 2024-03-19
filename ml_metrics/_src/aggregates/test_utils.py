@@ -14,6 +14,26 @@
 """test_utils."""
 
 
+class _SumMetric:
+  """Mock Metric for test."""
+
+  def __init__(self):
+    self._state = 0
+
+  @property
+  def state(self):
+    return self._state
+
+  def add(self, x):
+    self._state += sum(x)
+
+  def merge(self, other):
+    self._state += other.state
+
+  def result(self):
+    return self._state
+
+
 class _SumAggFn:
   """Mock CombineFn for test."""
 

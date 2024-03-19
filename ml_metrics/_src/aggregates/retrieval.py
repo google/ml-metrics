@@ -411,6 +411,6 @@ class TopKRetrieval(base.MergeableMetric):
 
 def TopKRetrievalAggFn(**kwargs):  # pylint: disable=invalid-name
   """Convenient alias as a AggregateFn constructor."""
-  return base.MergeableMetricAggFn(metric_maker=TopKRetrievalConfig(**kwargs))
+  return base.MergeableMetricAggFn(TopKRetrievalConfig(**kwargs))
 
 lazy_fns.makeables.register(TopKRetrievalConfig, base.MergeableMetricAggFn)

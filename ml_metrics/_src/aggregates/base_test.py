@@ -18,11 +18,15 @@ from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import test_utils
 
 
-class CoreTest(absltest.TestCase):
+class AggregatesTest(absltest.TestCase):
 
   def test_callable_combinefn_in_process(self):
     sum_fn = base.UserAggregateFn(test_utils._SumAggFn())
     self.assertEqual(sum_fn(list(range(4))), 6)
+
+  def test_mergeable_aggregate_fn_in_process(self):
+    sum_fn = base.MergeableMetricAggFn(test_utils._SumMetric())
+    self.assertEqual(6, sum_fn([1, 2, 3]))
 
 
 if __name__ == "__main__":
