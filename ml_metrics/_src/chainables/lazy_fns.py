@@ -31,6 +31,8 @@ import cloudpickle as pickle
 ValueT = TypeVar('ValueT')
 Fn = Callable[..., ValueT]
 
+STOP_ITERATION = 'StopIteration_'
+
 
 # TODO: b/318463291 - support heterogeneous (de)serializations methods.
 @dataclasses.dataclass
