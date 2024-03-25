@@ -17,9 +17,11 @@ from __future__ import annotations
 import collections
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 import dataclasses
+import inspect
 import itertools
 from typing import Any, Generic, TypeVar
 
+from absl import logging
 from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
@@ -36,6 +38,44 @@ TreeMapKeyT = TypeVar('TreeMapKeyT', bound=TreeMapKey)
 Map = Mapping[TreeMapKeyT, Any]
 TreeTransformT = TypeVar('TreeTransformT', bound='TreeTransform')
 TreeFn = tree_fns.TreeFn
+
+
+class PrefetchableIterator:
+  """An iterator that can also prefetch before iterated."""
+
+  def __init__(self, generator, prefetch_size: int = 2):
+    self._data = []
+    if not inspect.isgenerator(generator):
+      generator = iter(generator)
+    self._generator = generator
+    self._prefetch_size = prefetch_size
+    self._exhausted = False
+    self.to_be_deleted = False
+    self._cnt = 0
+
+  def __next__(self):
+    self.prefetch(1)
+    if self._data:
+      return self._data.pop(0)
+    else:
+      self.to_be_deleted = True
+      raise StopIteration
+
+  def __iter__(self):
+    return self
+
+  def prefetch(self, num_items: int = 0):
+    while not self._exhausted and len(self._data) < (
+        num_items or self._prefetch_size
+    ):
+      try:
+        self._data.append(next(self._generator))
+        self._cnt += 1
+      except StopIteration:
+        self._exhausted = True
+        break
+      except ValueError as e:
+        logging.warning('Got error during prefetch: %s', e)
 
 
 def _call_fns(
@@ -106,6 +146,8 @@ class CombinedTreeFn:
       for agg_fn in agg_node.fns:
         actual_agg_fn = agg_fn.maybe_make()
         agg_fns[agg_fn] = actual_agg_fn
+        if not isinstance(actual_agg_fn, aggregates.Aggregatable):
+          raise ValueError(f'Not an aggregatable: {agg_fn}: {actual_agg_fn}')
     # Collect all the output functions from the output nodes.
     output_fns = []
     for node in output_nodes:
@@ -283,6 +325,16 @@ class TreeTransform(Generic[TreeFnT]):
       input_transform = input_transform.input_transform
     return cls(input_transform=input_transform, _default_constructor=False)
 
+  def chain(self, transform: TreeTransform):
+    """Chains self to the input of the first node in the other transform."""
+    transforms = transform.flatten_transform()
+    input_transform = self
+    for transform in transforms:
+      input_transform = dataclasses.replace(
+          transform, input_transform=input_transform
+      )
+    return input_transform
+
   def make(self, *, recursive=True, aggregator=False):
     """Makes the concrete function instance from the transform."""
     return CombinedTreeFn.from_transform(
@@ -295,9 +347,7 @@ class TreeTransform(Generic[TreeFnT]):
           f'Cannot add data_source to {self} when there is already an'
           ' input_transform.'
       )
-    return dataclasses.replace(
-        self, input_transform=IteratorSource.new(iterator)
-    )
+    return IteratorSource.new(iterator)
 
   def assign(
       self,
@@ -362,6 +412,10 @@ class TreeTransform(Generic[TreeFnT]):
   def _maybe_new_transform(self, fn):
     # Break apart the transform when this is an aggregate transform.
     if isinstance(self, AggregateTransform):
+      return TreeTransform(
+          input_transform=self, fns=[fn], _default_constructor=False
+      )
+    elif isinstance(self, IteratorSource):
       return TreeTransform(
           input_transform=self, fns=[fn], _default_constructor=False
       )

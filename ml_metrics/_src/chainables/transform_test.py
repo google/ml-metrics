@@ -303,6 +303,32 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual([13.5], actual_fn())
     self.assertEqual([13.5], actual_fn(input_iterator=input_iterator))
 
+  def test_chain(self):
+    input_iterator = [[1, 2, 3], [2, 3, 4]]
+    read = transform.TreeTransform.new().data_source(
+        iterator=lazy_fns.trace(lambda: input_iterator)()
+    )
+    process = (
+        transform.TreeTransform.new()
+        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 1))
+        .aggregate(fn=TestAverageFn())
+        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 10))
+        .aggregate(fn=TestAverageFn())
+    )
+    t = read.chain(process)
+    actual_fn = t.make()
+    self.assertEqual([13.5], actual_fn())
+    self.assertEqual([13.5], actual_fn(input_iterator=input_iterator))
+
+  def test_prefetched_iterator(self):
+    input_iterator = range(10)
+    p = transform.TreeTransform.new().data_source(iterator=input_iterator)
+    iterator = transform.PrefetchableIterator(
+        p.make().iter_call(), prefetch_size=2
+    )
+    iterator.prefetch()
+    self.assertEqual([0, 1], iterator._data)
+
 
 if __name__ == '__main__':
   absltest.main()
