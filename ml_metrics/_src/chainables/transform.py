@@ -61,6 +61,7 @@ class PrefetchableIterator:
       return self._data.pop(0)
     else:
       self.to_be_deleted = True
+      logging.info('Generator exhausted from %s.', self._generator)
       raise StopIteration
 
   def __iter__(self):
@@ -75,6 +76,7 @@ class PrefetchableIterator:
       try:
         self._data.append(next(self._generator))
         self._cnt += 1
+        logging.info('Prefetching %d from %s', self._cnt, self._generator)
       except StopIteration:
         exhausted = True
       except ValueError as e:
@@ -89,12 +91,15 @@ def _call_fns(
     fns: Sequence[tree.MapLikeTreeCallable | tree_fns.TreeAggregateFn],
     inputs: tree.MapLikeTree | None = None,
 ) -> tree.MapLikeTree | None:
+  """Call a chain of functions in sequence."""
   result = inputs
   for fn in fns:
     try:
       result = fn(result)
     except Exception as e:  # pylint: disable=too-broad-exception
-      raise ValueError(f'Falied to execute {fn} with inputs: {result}') from e
+      raise ValueError(
+          f'Falied to execute {fn} with inputs: {tree.tree_shape(result)}'
+      ) from e
 
   return result
 
@@ -186,7 +191,8 @@ class CombinedTreeFn:
         raise KeyError(f'{key=} not found from: {list(state.keys())=}') from e
       except Exception as e:
         raise ValueError(
-            f'Falied to update {tree_fn=} with inputs: {inputs=}'
+            f'Falied to update {tree_fn=} with inputs:'
+            f' {tree.tree_shape(inputs)}'
         ) from e
     return state
 

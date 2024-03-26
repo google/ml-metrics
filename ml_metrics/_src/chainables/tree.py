@@ -22,6 +22,19 @@ import dataclasses
 from typing import Any, Protocol, TypeVar, Union
 
 
+def tree_shape(inputs: Any):
+  result = {}
+  try:
+    for k, v in MappingView.as_view(inputs).items():
+      if hasattr(v, 'shape'):
+        result[k] = v.shape
+      else:
+        result[k] = type(v)
+  except Exception:  # pylint: disable=broad-exception-caught
+    result = inputs
+  return result
+
+
 class Index(int):
   """Convenient class to identify sequence index."""
 
