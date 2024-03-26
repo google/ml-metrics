@@ -19,6 +19,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 import dataclasses
 import inspect
 import itertools
+import time
 from typing import Any, Generic, TypeVar
 
 from absl import logging
@@ -51,6 +52,7 @@ class PrefetchableIterator:
     self._prefetch_size = prefetch_size
     self._exhausted = False
     self.to_be_deleted = False
+    self._error_cnt = 0
     self._cnt = 0
 
   def __next__(self):
@@ -65,17 +67,22 @@ class PrefetchableIterator:
     return self
 
   def prefetch(self, num_items: int = 0):
-    while not self._exhausted and len(self._data) < (
+    """Prefeches items from the undelrying generator."""
+    exhausted = False
+    while not exhausted and len(self._data) < (
         num_items or self._prefetch_size
     ):
       try:
         self._data.append(next(self._generator))
         self._cnt += 1
       except StopIteration:
-        self._exhausted = True
-        break
+        exhausted = True
       except ValueError as e:
         logging.warning('Got error during prefetch: %s', e)
+        self._error_cnt += 1
+        if self._error_cnt > 3:
+          time.sleep(1)
+          break
 
 
 def _call_fns(
