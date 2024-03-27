@@ -172,8 +172,6 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
 
   Attributes:
     data: Nested MapLike (Tree) structure.
-    ignore_leaf_sequence: Ignores the individual index key at the leaf node when
-      iterating. This is typically useful when the leaf node is batched.
     strict: If True, non-existing key will cause a KeyError.
     consistent_type: If True, tries to maintain a consistent container type when
       the input container is immutable. e.g., tuple will be reconstructed as
@@ -182,7 +180,6 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
   """
 
   data: MapLikeTree = ()
-  ignore_leaf_sequence: bool = dataclasses.field(kw_only=True, default=True)
   strict: bool = dataclasses.field(kw_only=True, default=False)
   consistent_type: bool = dataclasses.field(kw_only=True, default=False)
 
@@ -190,20 +187,11 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
   def as_view(
       cls,
       tree_or_view: MapLikeTree[LeafValueT] | TreeMapView[LeafValueT],
-      *,
-      # TODO: b/318463291 - remove this option.
-      ignore_leaf_sequence: bool = True,
   ) -> TreeMapView:
     """Util to use a MapLikeTree as a Map."""
-    if isinstance(tree_or_view, TreeMapView):
-      return dataclasses.replace(
-          tree_or_view, ignore_leaf_sequence=ignore_leaf_sequence
-      )
-    else:
-      return TreeMapView(
-          tree_or_view,
-          ignore_leaf_sequence=ignore_leaf_sequence,
-      )
+    if not isinstance(tree_or_view, TreeMapView):
+      tree_or_view = TreeMapView(tree_or_view)
+    return tree_or_view
 
   def __get(self, key: TreeMapKey) -> MapLikeTree[LeafValueT] | None:
     """Gets the value from a single Key or Path."""
@@ -252,14 +240,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
         for k, v in data.items():
           yield from self._tree_iter(v, parent_key_path + (k,))
       case _:
-        match parent_key_path:
-          case (*previous_key, Index()):
-            if self.ignore_leaf_sequence:
-              yield tuple(previous_key)
-            else:
-              yield parent_key_path
-          case _:
-            yield parent_key_path
+        yield parent_key_path
 
   def __iter__(self) -> Iterator[TreeMapKey]:
     keys = set()
@@ -315,18 +296,25 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
       result = copy.copy(tree)
 
     # Setting the item.
-    match key_path:
-      case (Reserved() as reserved, *_):
-        if _is_key(reserved, _SKIP):
-          pass
-      case (Index(key), *rest_keys) if isinstance(result, Sequence):
-        result[key] = self._set_by_path(result[key], Key(rest_keys), value)
-      case (key, *rest_keys) if isinstance(result, Mapping):
-        result[key] = self._set_by_path(
-            result.get(key, None), Key(rest_keys), value
-        )
-      case _:
-        raise ValueError(f'Unsupported key "{key_path}" for input of {tree}.')
+    try:
+      match key_path:
+        case (Reserved() as reserved, *_):
+          if _is_key(reserved, _SKIP):
+            pass
+        case (Index(key), *rest_keys) if isinstance(result, Sequence):
+          if key == len(result):
+            result.append(None)
+          result[key] = self._set_by_path(result[key], Key(rest_keys), value)
+        case (key, *rest_keys) if isinstance(result, Mapping):
+          result[key] = self._set_by_path(
+              result.get(key, None), Key(rest_keys), value
+          )
+        case _:
+          raise ValueError(f'Unsupported key "{key_path}" for input of {tree}.')
+    except (ValueError, KeyError, IndexError) as e:
+      raise ValueError(
+          f'Failed to insert {key_path}:{value} to \n{tree_shape(result)}'
+      ) from e
 
     # Recovers the container type when applicable.
     if container_type is not None and self.consistent_type:
@@ -343,26 +331,21 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
     """Shallow copies the nodes along the path and set the leaf as the value."""
     # Normalizes the key to Path() and routes the correct way to call single
     # Path _copy_and_set.
-    try:
-      match keys:
-        case Key():
-          data = self._set_by_path(self.data, keys, values)
-        case ():
-          if values:
-            raise ValueError(f'Keys cannot be empty: {keys=}')
-          data = self.data
-        # Multiple key cases (even single key within a tuple).
-        case (_, *_):
-          data = self.data
-          values = values if isinstance(values, tuple) else (values,)
-          for key, value in zip(keys, values, strict=True):
-            data = self._set_by_path(data, key, value)
-        case _:
-          data = self._set_by_path(self.data, Key.new(keys), values)
-    except (ValueError, KeyError) as e:
-      raise ValueError(
-          f'Failed to insert {keys}:{values} to {self.data}'
-      ) from e
+    match keys:
+      case Key():
+        data = self._set_by_path(self.data, keys, values)
+      case ():
+        if values:
+          raise ValueError(f'Keys cannot be empty: {keys=}')
+        data = self.data
+      # Multiple key cases (even single key within a tuple).
+      case (_, *_):
+        data = self.data
+        values = values if isinstance(values, tuple) else (values,)
+        for key, value in zip(keys, values, strict=True):
+          data = self._set_by_path(data, key, value)
+      case _:
+        data = self._set_by_path(self.data, Key.new(keys), values)
     return dataclasses.replace(self, data=data)  # pylint: disable=undefined-variable
 
   def copy_and_update(self, other: Mapping[TreeMapKey, Any]) -> TreeMapView:

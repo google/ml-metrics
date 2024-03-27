@@ -107,10 +107,6 @@ class TreeMapViewTest(absltest.TestCase):
     data = {'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}]}
     view = TreeMapView(data)
     self.assertEqual(
-        [Key.new('a', 'a1'), Key.new('b', Key.Index(0), 0)], list(view)
-    )
-    view = TreeMapView(data, ignore_leaf_sequence=False)
-    self.assertEqual(
         [
             Key.new('a', 'a1', Key.Index(0)),
             Key.new('a', 'a1', Key.Index(1)),
@@ -121,13 +117,18 @@ class TreeMapViewTest(absltest.TestCase):
     )
 
   def test_len(self):
-    view = TreeMapView({'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}]})
-    self.assertLen(view, 2)
+    view = TreeMapView({'a': {'a1': np.array([1, 2])}, 'b': [{0: ['c', 'd']}]})
+    self.assertLen(view, 3)
 
   def test_to_dict(self):
-    view = TreeMapView({'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}]})
-    self.assertEqual(
-        {Key().a.a1: [1, 2], Key.new('b', Key.Index(0), 0): ['c', 'd']},
+    view = TreeMapView(
+        {'a': {'a1': np.array([1, 2])}, 'b': [{0: np.array(['c', 'd'])}]}
+    )
+    np.testing.assert_equal(
+        {
+            Key().a.a1: np.array([1, 2]),
+            Key.new('b', Key.Index(0), 0): np.array(['c', 'd']),
+        },
         view.to_dict(),
     )
 
@@ -195,16 +196,16 @@ class TreeMapViewTest(absltest.TestCase):
     new = (
         TreeMapView({})
         .copy_and_set(('a', 'b'), values=(7, 8))
-        .copy_and_set(Key(('c', 'b')), values=(7, 8))
+        .copy_and_set(Key.new('c', 'b'), values=(7, 8))
         .copy_and_set(Key().model1.pred.at(Key.Index(0)), values=7)
         .copy_and_set(Key().model2.pred3.at(Key.Index(0)), values=[2, 3, 8])
         .copy_and_set('single_key', values=[2, 3, 8])
     )
     expected = {
-        'model1': {'pred': [7]},
+        'model1': {'pred': [7, 2, 3]},
         'a': 7,
         'b': 8,
-        'c': {'b': (7, 8)},
+        'c': {'b': [7, 8]},
         'model2': {'pred3': [[2, 3, 8]]},
         'single_key': [2, 3, 8],
     }
@@ -225,20 +226,17 @@ class TreeMapViewTest(absltest.TestCase):
             'a': np.array([1, 2, 3]),
             'b': {'c': np.array([[1, 2], [2, 3]])},
             'c': (np.array([1, 2]), {'e': 6}),
-            'd': [1, 2],
+            'd': [1, np.array(2)],
         },
-        ignore_leaf_sequence=False,
     )
     result = tree.tree_shape(inputs)
     expected = {
         Key().a: (3,),
         Key().b.c: (2, 2),
-        # TODO: b/311207032 - changes this to below after ignore_leaf_sequence
-        # bug is fixed.
-        # Key().c.at(Key.Index(0)): (2,),
-        Key().c: tuple,
+        Key().c.at(Key.Index(0)): (2,),
         Key().c.at(Key.Index(1)).e: int,
-        Key().d: list,
+        Key().d.at(Key.Index(0)): int,
+        Key().d.at(Key.Index(1)): (),
     }
     self.assertEqual(result, expected)
 
