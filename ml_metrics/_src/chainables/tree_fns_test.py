@@ -23,7 +23,6 @@ from absl.testing import absltest
 
 Key = tree.Key
 Index = tree.Index
-MappingView = tree.MappingView
 
 
 class TestAverageFn:

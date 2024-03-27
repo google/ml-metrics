@@ -13,15 +13,15 @@
 # limitations under the License.
 """Test for tree library."""
 
-from collections.abc import MappingView
 import types
 
 from ml_metrics._src.chainables import tree
+import numpy as np
 
 from absl.testing import absltest
 
 Key = tree.Key
-MappingView = tree.MappingView
+TreeMapView = tree.TreeMapView
 
 
 class PathTest(absltest.TestCase):
@@ -63,28 +63,28 @@ class PathTest(absltest.TestCase):
     self.assertEqual([Key.SKIP], list(Key.SKIP))
 
 
-class MappingViewTest(absltest.TestCase):
+class TreeMapViewTest(absltest.TestCase):
 
   def test_as_view(self):
     data = {'a': [1, 2], 'b': [3, 4]}
-    view = MappingView.as_view(data)
+    view = TreeMapView.as_view(data)
     self.assertEqual([1, 2], view['a'])
     self.assertEqual(([1, 2], [3, 4]), view['a', 'b'])
     self.assertIsNot(data, view)
-    self.assertEqual(view, MappingView.as_view(view))
+    self.assertEqual(view, TreeMapView.as_view(view))
 
   def test_get_by_reserved_key(self):
     data = {'a': [1, 2], 'b': [3, 4]}
-    view = MappingView.as_view(data)
+    view = TreeMapView.as_view(data)
     self.assertEqual(data, view[Key.SELF])
     self.assertEqual([1, 2], view[Key.new('a', Key.SELF)])
 
   def test_get_by_skip_raise_error(self):
     with self.assertRaises(KeyError):
-      MappingView({'a': 1})[Key.SKIP, 'a']  # pylint: disable=expression-not-assigned
+      TreeMapView({'a': 1})[Key.SKIP, 'a']  # pylint: disable=expression-not-assigned
 
   def test_key_path(self):
-    view = MappingView({'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}]})
+    view = TreeMapView({'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}]})
     self.assertEqual([1, 2], view[Key.new().a.a1])
     self.assertEqual(['c', 'd'], view[Key.new('b', Key.Index(0), 0)])
     self.assertEqual(view.data, view[Key.SELF])
@@ -94,22 +94,22 @@ class MappingViewTest(absltest.TestCase):
   def test_incorrect_keys_raises_error(self):
     # pylint: disable=expression-not-assigned
     with self.assertRaises(ValueError):
-      MappingView([1, 2, 3])[0]
+      TreeMapView([1, 2, 3])[0]
     with self.assertRaises(IndexError):
-      MappingView([1, 2, 3])[Key.Index(9)]
+      TreeMapView([1, 2, 3])[Key.Index(9)]
     with self.assertRaises(KeyError):
-      MappingView({'a': 1})['b']
+      TreeMapView({'a': 1})['b']
     with self.assertRaises(TypeError):
-      MappingView({'a': 1})[set('a')]
+      TreeMapView({'a': 1})[set('a')]
     # pylint: enable=expression-not-assigned
 
   def test_iter(self):
     data = {'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}]}
-    view = MappingView(data)
+    view = TreeMapView(data)
     self.assertEqual(
         [Key.new('a', 'a1'), Key.new('b', Key.Index(0), 0)], list(view)
     )
-    view = MappingView(data, ignore_leaf_sequence=False)
+    view = TreeMapView(data, ignore_leaf_sequence=False)
     self.assertEqual(
         [
             Key.new('a', 'a1', Key.Index(0)),
@@ -121,11 +121,11 @@ class MappingViewTest(absltest.TestCase):
     )
 
   def test_len(self):
-    view = MappingView({'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}]})
+    view = TreeMapView({'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}]})
     self.assertLen(view, 2)
 
   def test_to_dict(self):
-    view = MappingView({'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}]})
+    view = TreeMapView({'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}]})
     self.assertEqual(
         {Key().a.a1: [1, 2], Key.new('b', Key.Index(0), 0): ['c', 'd']},
         view.to_dict(),
@@ -133,23 +133,23 @@ class MappingViewTest(absltest.TestCase):
 
   def test_str(self):
     data = {'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}]}
-    view = MappingView(data)
+    view = TreeMapView(data)
     self.assertEqual(str(data), str(view))
 
   def test_copy_and_set_empty(self):
-    result = MappingView({1: 2}).copy_and_set((), values=())
+    result = TreeMapView({1: 2}).copy_and_set((), values=())
     self.assertEqual({1: 2}, result.data)
 
   def test_copy_and_set_single_key(self):
-    result = MappingView({}).copy_and_set('a', values=1)
+    result = TreeMapView({}).copy_and_set('a', values=1)
     self.assertEqual({'a': 1}, result.data)
-    result = MappingView([]).copy_and_set(Key.Index(0), values=[1, 2, 3])
+    result = TreeMapView([]).copy_and_set(Key.Index(0), values=[1, 2, 3])
     self.assertEqual([[1, 2, 3]], result.data)
-    result = MappingView({}).copy_and_set(Key.SELF, values=[1, 2, 3])
+    result = TreeMapView({}).copy_and_set(Key.SELF, values=[1, 2, 3])
     self.assertEqual([1, 2, 3], result.data)
-    result = MappingView({}).copy_and_set(Key(), values=[1, 2, 3])
+    result = TreeMapView({}).copy_and_set(Key(), values=[1, 2, 3])
     self.assertEqual([1, 2, 3], result.data)
-    result = MappingView({1: 2}).copy_and_set(Key.SKIP, values=[1, 2, 3])
+    result = TreeMapView({1: 2}).copy_and_set(Key.SKIP, values=[1, 2, 3])
     self.assertEqual({1: 2}, result.data)
 
   def test_copy_and_set(self):
@@ -157,7 +157,7 @@ class MappingViewTest(absltest.TestCase):
     # Uses MappingProxyType as an immutable dict for testing.
     data = types.MappingProxyType(data)
     result = (
-        tree.MappingView(data=data, consistent_type=True)
+        TreeMapView(data=data, consistent_type=True)
         .copy_and_set(('a', Key.SKIP), values=(7, 8))
         .copy_and_set(Key(('c', 'b')), values=(7, 8))
         .copy_and_set(Key().model1.pred.at(Key.Index(1)), values=7)
@@ -176,7 +176,7 @@ class MappingViewTest(absltest.TestCase):
 
   def test_copy_and_set_with_reserved_keys(self):
     result = (
-        tree.MappingView({})
+        TreeMapView({})
         .copy_and_set(Key.SELF, values={'x': {'y': 1}})
         .copy_and_set((Key.SKIP, 'b'), values=(7, 8))
     ).data
@@ -187,13 +187,13 @@ class MappingViewTest(absltest.TestCase):
     self.assertEqual(expected, result)
 
   def test_copy_and_update_empty(self):
-    data = tree.MappingView({}).copy_and_set(Key().model1.pred, (1, 2, 3))
+    data = TreeMapView({}).copy_and_set(Key().model1.pred, (1, 2, 3))
     self.assertEqual(data, data.copy_and_update({}))
 
   def test_copy_and_update_non_empty(self):
-    data = tree.MappingView({}).copy_and_set(Key().model1.pred, (1, 2, 3))
+    data = TreeMapView({}).copy_and_set(Key().model1.pred, (1, 2, 3))
     new = (
-        tree.MappingView({})
+        TreeMapView({})
         .copy_and_set(('a', 'b'), values=(7, 8))
         .copy_and_set(Key(('c', 'b')), values=(7, 8))
         .copy_and_set(Key().model1.pred.at(Key.Index(0)), values=7)
@@ -218,6 +218,29 @@ class MappingViewTest(absltest.TestCase):
     self.assertEqual((Key.SELF,), tree.normalize_keys(Key.SELF))
     self.assertEqual(('a', 'b'), tree.normalize_keys(('a', 'b')))
     self.assertEqual(('a', 'b'), tree.normalize_keys(['a', 'b']))
+
+  def test_tree_shape(self):
+    inputs = TreeMapView(
+        {
+            'a': np.array([1, 2, 3]),
+            'b': {'c': np.array([[1, 2], [2, 3]])},
+            'c': (np.array([1, 2]), {'e': 6}),
+            'd': [1, 2],
+        },
+        ignore_leaf_sequence=False,
+    )
+    result = tree.tree_shape(inputs)
+    expected = {
+        Key().a: (3,),
+        Key().b.c: (2, 2),
+        # TODO: b/311207032 - changes this to below after ignore_leaf_sequence
+        # bug is fixed.
+        # Key().c.at(Key.Index(0)): (2,),
+        Key().c: tuple,
+        Key().c.at(Key.Index(1)).e: int,
+        Key().d: list,
+    }
+    self.assertEqual(result, expected)
 
 
 if __name__ == '__main__':

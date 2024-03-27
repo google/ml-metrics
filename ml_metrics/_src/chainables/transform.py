@@ -210,10 +210,10 @@ class CombinedTreeFn:
     }
 
   def get_result(self, state: Any) -> tree.MapLikeTree[Any] | None:
-    result = tree.MappingView()
+    result = tree.TreeMapView()
     for key, fn_state in state.items():
       fn_result = self.agg_fns[key].get_result(fn_state)
-      result = result | tree.MappingView.as_view(fn_result)
+      result = result | tree.TreeMapView.as_view(fn_result)
     result = result.data
     return _call_fns(self.output_fns, result)
 

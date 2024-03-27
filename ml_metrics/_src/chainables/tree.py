@@ -25,7 +25,7 @@ from typing import Any, Protocol, TypeVar, Union
 def tree_shape(inputs: Any):
   result = {}
   try:
-    for k, v in MappingView.as_view(inputs).items():
+    for k, v in TreeMapView.as_view(inputs).items():
       if hasattr(v, 'shape'):
         result[k] = v.shape
       else:
@@ -155,7 +155,7 @@ def _default_tree(key_path: Key, value: Any):
 
 
 @dataclasses.dataclass
-class MappingView(Mapping[TreeMapKey, LeafValueT]):
+class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
   """Handler for a MapTreeLike instance as a mapping instance.
 
   This creates an immutable View of a `MapLikeTree`, the view implements the
@@ -189,17 +189,18 @@ class MappingView(Mapping[TreeMapKey, LeafValueT]):
   @classmethod
   def as_view(
       cls,
-      tree_or_view: MapLikeTree[LeafValueT] | MappingView[LeafValueT],
+      tree_or_view: MapLikeTree[LeafValueT] | TreeMapView[LeafValueT],
       *,
+      # TODO: b/318463291 - remove this option.
       ignore_leaf_sequence: bool = True,
-  ) -> MappingView:
+  ) -> TreeMapView:
     """Util to use a MapLikeTree as a Map."""
-    if isinstance(tree_or_view, MappingView):
+    if isinstance(tree_or_view, TreeMapView):
       return dataclasses.replace(
           tree_or_view, ignore_leaf_sequence=ignore_leaf_sequence
       )
     else:
-      return MappingView(
+      return TreeMapView(
           tree_or_view,
           ignore_leaf_sequence=ignore_leaf_sequence,
       )
@@ -252,8 +253,11 @@ class MappingView(Mapping[TreeMapKey, LeafValueT]):
           yield from self._tree_iter(v, parent_key_path + (k,))
       case _:
         match parent_key_path:
-          case (*previous_key, Index()) if self.ignore_leaf_sequence:
-            yield tuple(previous_key)
+          case (*previous_key, Index()):
+            if self.ignore_leaf_sequence:
+              yield tuple(previous_key)
+            else:
+              yield parent_key_path
           case _:
             yield parent_key_path
 
@@ -335,7 +339,7 @@ class MappingView(Mapping[TreeMapKey, LeafValueT]):
   # TODO: b/318463291 - adds in-place option for efficiency.
   def copy_and_set(
       self, keys: TreeMapKey | TreeMapKeys, values: Any
-  ) -> MappingView[LeafValueT]:
+  ) -> TreeMapView[LeafValueT]:
     """Shallow copies the nodes along the path and set the leaf as the value."""
     # Normalizes the key to Path() and routes the correct way to call single
     # Path _copy_and_set.
@@ -361,13 +365,13 @@ class MappingView(Mapping[TreeMapKey, LeafValueT]):
       ) from e
     return dataclasses.replace(self, data=data)  # pylint: disable=undefined-variable
 
-  def copy_and_update(self, other: Mapping[TreeMapKey, Any]) -> MappingView:
+  def copy_and_update(self, other: Mapping[TreeMapKey, Any]) -> TreeMapView:
     """Copy and update the original tree given a map."""
     if other:
       return self.copy_and_set(*zip(*other.items(), strict=True))
     else:
       return self
 
-  def __or__(self, other: Mapping[TreeMapKey, Any]) -> MappingView:
+  def __or__(self, other: Mapping[TreeMapKey, Any]) -> TreeMapView:
     """Alias for `copy_and_update`."""
     return self.copy_and_update(other)

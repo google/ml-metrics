@@ -102,7 +102,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
     # The input_keys are always normalized to tuple, so the output will always
     # be a tuple.
     fn_inputs = typing.cast(
-        tuple[Any, ...], tree.MappingView.as_view(inputs)[self.input_keys]
+        tuple[Any, ...], tree.TreeMapView.as_view(inputs)[self.input_keys]
     )
     return fn_inputs
 
@@ -118,8 +118,8 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
     else:
       # If the function is None, this serves as a select operation.
       outputs = fn_inputs
-    # Uses MappingView to handle multiple key.
-    return tree.MappingView().copy_and_set(self.output_keys, outputs).data
+    # Uses TreeMapView to handle multiple key.
+    return tree.TreeMapView().copy_and_set(self.output_keys, outputs).data
 
   def __getstate__(self):
     state = self.__dict__.copy()
@@ -152,8 +152,8 @@ class Assign(TreeFn):
     else:
       # If the function is None, this serves as a select operation.
       outputs = fn_inputs
-    # Uses MappingView to handle multiple key.
-    return tree.MappingView(inputs).copy_and_set(self.output_keys, outputs).data
+    # Uses TreeMapView to handle multiple key.
+    return tree.TreeMapView(inputs).copy_and_set(self.output_keys, outputs).data
 
 
 class Select(TreeFn):
@@ -184,7 +184,7 @@ class TreeAggregateFn(
       self, state: StateT, inputs: tree.MapLikeTree[ValueT]
   ) -> StateT:
     try:
-      inputs = tree.MappingView.as_view(inputs)[self.input_keys]
+      inputs = tree.TreeMapView.as_view(inputs)[self.input_keys]
       state = self.actual_fn.update_state(state, *inputs)
     except Exception as e:
       raise ValueError(f'Cannot call {self=} with {inputs=}') from e
@@ -195,7 +195,7 @@ class TreeAggregateFn(
 
   def get_result(self, state: StateT) -> tree.MapLikeTree[ValueT]:
     outputs = self.actual_fn.get_result(state)
-    return tree.MappingView().copy_and_set(self.output_keys, outputs).data
+    return tree.TreeMapView().copy_and_set(self.output_keys, outputs).data
 
   def __call__(
       self, inputs: tree.MapLikeTree[ValueT] | None = None
