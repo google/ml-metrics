@@ -40,10 +40,9 @@ class MeanState:
   total: types.NumbersT = 0.0
   count: types.NumbersT = 0
 
-  def __iadd__(self, other: 'MeanState'):
+  def merge(self, other: 'MeanState'):
     self.total += other.total
     self.count += other.count
-    return self
 
   def result(self):
     return safe_divide(self.total, self.count)
