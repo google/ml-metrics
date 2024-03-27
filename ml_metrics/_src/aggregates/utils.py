@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Utils for aggregates."""
+
+import collections
 import dataclasses
 from ml_metrics._src.aggregates import types
 import numpy as np
@@ -47,3 +49,26 @@ class MeanState:
 
   def result(self):
     return safe_divide(self.total, self.count)
+
+
+@dataclasses.dataclass
+class FrequencyState:
+  """Mergeable frequency states for batch update in an aggregate function."""
+
+  counter: collections.Counter[str] = dataclasses.field(
+      default_factory=collections.Counter, init=True
+  )
+  counte: types.NumbersT = 0
+
+  def __iadd__(self, other: 'FrequencyState'):
+    self.counter.update(other.counter)
+    self.counte += other.counte
+    return self
+
+  def result(self) -> list[tuple[str, float]]:
+    result = [
+        (key, safe_divide(value, self.counte))
+        for key, value in self.counter.items()
+    ]
+    result = sorted(result, key=lambda x: (-x[1], x[0]))
+    return result
