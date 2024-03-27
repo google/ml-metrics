@@ -1,0 +1,122 @@
+# Copyright 2024 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""Tests for text."""
+
+from absl.testing import parameterized
+from ml_metrics._src.aggregates import text
+from absl.testing import absltest
+
+
+class TextTest(parameterized.TestCase):
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='first_ngram',
+          first_ngram=True,
+          expected_result=[
+              ('a b', 3/6),
+              ('b c', 2/6),
+          ],
+      ),
+      dict(
+          testcase_name='all_ngram',
+          first_ngram=False,
+          expected_result=[
+              ('a b', 3/6),
+              ('b c', 3/6),
+              # Noticed that 'c d' also occurs 3/6 but it has lower alphabetical
+              # order
+          ],
+      ),
+  ])
+  def test_compute_topkngrams(self, first_ngram, expected_result):
+    batch = [
+        'a b c d',
+        'a b',
+        'a b',
+        'b c',
+        'b c d',
+        'c d',
+        None,
+    ]
+    metric = text.TopKNGrams(k=2, n=2, first_ngram=first_ngram)
+    batch_result = metric.add(batch)
+    self.assertSequenceAlmostEqual(expected_result, batch_result)
+    self.assertSequenceAlmostEqual(expected_result, metric.result())
+
+  def test_compute_topkngrams_empty(self):
+    metric = text.TopKNGrams(k=2, n=2)
+    batch_result = metric.add([])
+    self.assertSequenceEqual([], batch_result)
+
+  def test_topkngrams_add(self):
+    metric = text.TopKNGrams(k=2, n=2, first_ngram=True)
+
+    batch_0 = [
+        'a b',
+        'a b',
+        'c d',
+    ]
+    batch_1 = [
+        'a b',
+        'b c',
+        'b c',
+    ]
+
+    batch_0_result = metric.add(batch_0)
+    expected_batch_0_result = [
+        ('a b', 2/3),
+        ('c d', 1/3),
+    ]
+    self.assertSequenceAlmostEqual(expected_batch_0_result, batch_0_result)
+
+    batch_1_result = metric.add(batch_1)
+    expected_batch_1_result = [
+        ('b c', 2/3),
+        ('a b', 1/3),
+    ]
+    self.assertSequenceAlmostEqual(expected_batch_1_result, batch_1_result)
+
+    expected_metric_result = [
+        ('a b', 3/6),
+        ('b c', 2/6),
+    ]
+    self.assertSequenceAlmostEqual(expected_metric_result, metric.result())
+
+  def test_topkngrams_merge(self):
+    metric_0 = text.TopKNGrams(k=2, n=2, first_ngram=True)
+    metric_1 = text.TopKNGrams(k=2, n=2, first_ngram=True)
+    batch_0 = [
+        'a b',
+        'c d',
+    ]
+    batch_1 = [
+        'b c',
+        'b c',
+    ]
+    metric_0.add(batch_0)
+    metric_1.add(batch_1)
+
+    metric_0.merge(metric_1)
+
+    expected_result = [
+        ('b c', 2/4),
+        ('a b', 1/4),
+    ]
+    merged_result = metric_0.result()
+    self.assertSequenceAlmostEqual(expected_result, merged_result)
+
+
+if __name__ == '__main__':
+  absltest.main()
