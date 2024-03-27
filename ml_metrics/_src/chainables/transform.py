@@ -76,15 +76,18 @@ class PrefetchableIterator:
       try:
         self._data.append(next(self._generator))
         self._cnt += 1
+        self._error_cnt = 0
         logging.info('Prefetching %d from %s', self._cnt, self._generator)
       except StopIteration:
         exhausted = True
       except ValueError as e:
-        logging.warning('Got error during prefetch: %s', e)
-        self._error_cnt += 1
-        if self._error_cnt > 3:
-          time.sleep(1)
-          break
+        if 'generator already executing' != str(e):
+          logging.warning('Got error during prefetch: %s', e)
+          self._error_cnt += 1
+          if self._error_cnt > 6:
+            logging.warning('Too many errors, stop prefetching.')
+            break
+        time.sleep(1)
 
 
 def _call_fns(
