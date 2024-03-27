@@ -28,5 +28,6 @@ from ml_metrics._src.chainables.transform import PrefetchableIterator
 from ml_metrics._src.chainables.transform import TreeTransform as Pipeline
 from ml_metrics._src.chainables.tree import Key
 from ml_metrics._src.chainables.tree import MappingView
+from ml_metrics._src.chainables.tree import tree_shape
 # pylint: enable=g-importing-member
 # pylint: enable=unused-import
