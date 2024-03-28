@@ -272,48 +272,52 @@ class TopKRetrieval(base.MergeableMetric):
     result = {}
     if 'accuracy' in self.metrics:
       accuracy = _accuracy(tp_at_topks, k_list)
-      self._state['accuracy'] += MeanState(
-          accuracy.sum(axis=0), accuracy.shape[0]
+      self._state['accuracy'].merge(
+          MeanState(accuracy.sum(axis=0), accuracy.shape[0])
       )
       result['accuracy'] = accuracy
 
     precision, recall = None, None
     if 'precision' in self.metrics:
       precision = _precision(tp_at_topks, k_list, y_pred_count)
-      self._state['precision'] += MeanState(
-          precision.sum(axis=0), precision.shape[0]
+      self._state['precision'].merge(
+          MeanState(precision.sum(axis=0), precision.shape[0])
       )
       result['precision'] = precision
 
     if 'ppv' in self.metrics:
       ppv = _ppv(tp_at_topks, k_list, y_pred_count)
-      self._state['ppv'] += MeanState(ppv.sum(axis=0), ppv.shape[0])
+      self._state['ppv'].merge(MeanState(ppv.sum(axis=0), ppv.shape[0]))
       result['ppv'] = ppv
 
     if 'recall' in self.metrics:
       recall = _recall(tp_at_topks, k_list, y_true_count)
-      self._state['recall'] += MeanState(recall.sum(axis=0), recall.shape[0])
+      self._state['recall'].merge(
+          MeanState(recall.sum(axis=0), recall.shape[0])
+      )
       result['recall'] = recall
 
     if 'sensitivity' in self.metrics:
       sensitivity = _sensitivity(tp_at_topks, k_list, y_true_count)
-      self._state['sensitivity'] += MeanState(
-          sensitivity.sum(axis=0), sensitivity.shape[0]
+      self._state['sensitivity'].merge(
+          MeanState(sensitivity.sum(axis=0), sensitivity.shape[0])
       )
       result['sensitivity'] = sensitivity
 
     if 'tpr' in self.metrics:
       tpr = _tpr(tp_at_topks, k_list, y_true_count)
-      self._state['tpr'] += MeanState(tpr.sum(axis=0), tpr.shape[0])
+      self._state['tpr'].merge(MeanState(tpr.sum(axis=0), tpr.shape[0]))
       result['tpr'] = tpr
 
     if 'positive_predictive_value' in self.metrics:
       positive_predictive_value = _positive_predictive_value(
           tp_at_topks, k_list, y_pred_count
       )
-      self._state['positive_predictive_value'] += MeanState(
-          positive_predictive_value.sum(axis=0),
-          positive_predictive_value.shape[0],
+      self._state['positive_predictive_value'].merge(
+          MeanState(
+              positive_predictive_value.sum(axis=0),
+              positive_predictive_value.shape[0],
+          )
       )
       result['positive_predictive_value'] = positive_predictive_value
 
@@ -321,8 +325,11 @@ class TopKRetrieval(base.MergeableMetric):
       intersection_over_union = _intersection_over_union(
           tp_at_topks, k_list, y_true_count, y_pred_count
       )
-      self._state['intersection_over_union'] += MeanState(
-          intersection_over_union.sum(axis=0), intersection_over_union.shape[0]
+      self._state['intersection_over_union'].merge(
+          MeanState(
+              intersection_over_union.sum(axis=0),
+              intersection_over_union.shape[0]
+          )
       )
       result['intersection_over_union'] = intersection_over_union
 
@@ -332,30 +339,35 @@ class TopKRetrieval(base.MergeableMetric):
       if recall is None:
         recall = _recall(tp_at_topks, k_list, y_true_count)
       f1 = _f1_score(precision, recall)
-      self._state['f1_score'] += MeanState(f1.sum(axis=0), f1.shape[0])
+      self._state['f1_score'].merge(MeanState(f1.sum(axis=0), f1.shape[0]))
       result['f1_score'] = f1
 
     if 'mean_average_precision' in self.metrics:
       mean_average_precision = _mean_average_precision(
           tp, tp_at_topks, k_range, k_list, y_true_count
       )
-      self._state['mean_average_precision'] += MeanState(
-          mean_average_precision.sum(axis=0),
-          mean_average_precision.shape[0],
+      self._state['mean_average_precision'].merge(
+          MeanState(
+              mean_average_precision.sum(axis=0),
+              mean_average_precision.shape[0],
+          )
       )
       result['mean_average_precision'] = mean_average_precision
 
     if 'mean_reciprocal_rank' in self.metrics:
       reciprocal_ranks = _mean_reciprocal_rank(tp_at_topks, k_list)
-      self._state['mean_reciprocal_rank'] += MeanState(
-          reciprocal_ranks.sum(axis=0), reciprocal_ranks.shape[0]
+      self._state['mean_reciprocal_rank'].merge(
+          MeanState(
+              reciprocal_ranks.sum(axis=0),
+              reciprocal_ranks.shape[0]
+          )
       )
       result['reciprocal_ranks'] = reciprocal_ranks
 
     if 'miss_rate' in self.metrics:
       miss_rate = _miss_rate(tp_at_topks, k_list, y_true_count)
-      self._state['miss_rate'] += MeanState(
-          miss_rate.sum(axis=0), miss_rate.shape[0]
+      self._state['miss_rate'].merge(
+          MeanState(miss_rate.sum(axis=0), miss_rate.shape[0])
       )
       result['miss_rate'] = miss_rate
 
@@ -363,15 +375,18 @@ class TopKRetrieval(base.MergeableMetric):
       false_discovery_rate = _false_discovery_rate(
           tp_at_topks, k_list, y_pred_count
       )
-      self._state['false_discovery_rate'] += MeanState(
-          false_discovery_rate.sum(axis=0), false_discovery_rate.shape[0]
+      self._state['false_discovery_rate'].merge(
+          MeanState(
+              false_discovery_rate.sum(axis=0),
+              false_discovery_rate.shape[0]
+          )
       )
       result['false_discovery_rate'] = false_discovery_rate
 
     if 'threat_score' in self.metrics:
       threat_score = _threat_score(tp_at_topks, k_list, y_true_count)
-      self._state['threat_score'] += MeanState(
-          threat_score.sum(axis=0), threat_score.shape[0]
+      self._state['threat_score'].merge(
+          MeanState(threat_score.sum(axis=0), threat_score.shape[0])
       )
       result['threat_score'] = threat_score
 
@@ -379,25 +394,30 @@ class TopKRetrieval(base.MergeableMetric):
       fowlkes_mallows_index = _fowlkes_mallows_index(
           tp_at_topks, k_list, y_true_count, y_pred_count
       )
-      self._state['fowlkes_mallows_index'] += MeanState(
-          fowlkes_mallows_index.sum(axis=0), fowlkes_mallows_index.shape[0]
+      self._state['fowlkes_mallows_index'].merge(
+          MeanState(
+              fowlkes_mallows_index.sum(axis=0),
+              fowlkes_mallows_index.shape[0]
+          )
       )
       result['fowlkes_mallows_index'] = fowlkes_mallows_index
 
     if 'dcg_score' in self.metrics:
       dcg = _dcg_score(tp, k_range, k_list)
-      self._state['dcg_score'] += MeanState(dcg.sum(axis=0), dcg.shape[0])
+      self._state['dcg_score'].merge(MeanState(dcg.sum(axis=0), dcg.shape[0]))
       result['dcg_score'] = dcg
 
     if 'ndcg_score' in self.metrics:
       ndcg = _ndcg_score(tp, k_range, k_list, y_true_count)
-      self._state['ndcg_score'] += MeanState(ndcg.sum(axis=0), ndcg.shape[0])
+      self._state['ndcg_score'].merge(
+          MeanState(ndcg.sum(axis=0), ndcg.shape[0])
+      )
       result['ndcg_score'] = ndcg
     return result
 
   def merge(self, other: 'TopKRetrieval'):
     for metric in self.metrics:
-      self._state[metric] += other.state[metric]
+      self._state[metric].merge(other.state[metric])
 
   def result(self):
     result = [self._state[metric].result() for metric in self.metrics]

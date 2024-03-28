@@ -852,7 +852,7 @@ class SamplewiseClassification(base.MergeableMetric):
     for metric in self.metrics:
       if (score := cm.derive_metric(metric)) is not None:
         result[metric] = score
-        self._state[metric] += utils.MeanState(np.sum(score), len(score))
+        self._state[metric].merge(utils.MeanState(np.sum(score), len(score)))
     return result
 
   @property
@@ -861,7 +861,7 @@ class SamplewiseClassification(base.MergeableMetric):
 
   def merge(self, other: 'SamplewiseClassification'):
     for key, value in other.state.items():
-      self._state[key] += value
+      self._state[key].merge(value)
 
   def result(self):
     """Extracts the outputs from the aggregate states."""
