@@ -95,7 +95,7 @@ class TransformTest(parameterized.TestCase):
     t = transform.TreeTransform.new().apply(
         fn=fn, input_keys=input_keys, output_keys=output_keys
     )
-    self.assertEqual(expected, transform.make(t)(inputs))
+    self.assertEqual(expected, t.make()(inputs))
 
   @parameterized.named_parameters([
       dict(
@@ -142,7 +142,7 @@ class TransformTest(parameterized.TestCase):
     t = transform.TreeTransform.new().assign(
         output_keys, fn=fn, input_keys=input_keys
     )
-    self.assertEqual(expected, transform.make(t)(inputs))
+    self.assertEqual(expected, t.make()(inputs))
 
   @parameterized.named_parameters([
       dict(testcase_name='select_self', inputs=0, expected=0),
@@ -177,7 +177,7 @@ class TransformTest(parameterized.TestCase):
         input_keys,
         output_keys=output_keys,
     )
-    self.assertEqual(expected, transform.make(t)(inputs))
+    self.assertEqual(expected, t.make()(inputs))
 
   @parameterized.named_parameters([
       dict(
@@ -215,7 +215,7 @@ class TransformTest(parameterized.TestCase):
         fn=fn,
         output_keys=output_keys,
     )
-    self.assertEqual(expected, transform.make(t)(inputs))
+    self.assertEqual(expected, t.make()(inputs))
 
   @parameterized.named_parameters([
       dict(
@@ -266,7 +266,7 @@ class TransformTest(parameterized.TestCase):
         fn=fn,
         output_keys=output_keys,
     )
-    agg1, agg2 = transform.make(t1), transform.make(t2)
+    agg1, agg2 = t1.make(), t2.make()
     state1 = agg1._update_state(agg1.create_state(), inputs)
     state2 = agg2._update_state(agg2.create_state(), inputs)
     # LazyFn of the fn enables across workers merge since these are consistent
@@ -285,8 +285,8 @@ class TransformTest(parameterized.TestCase):
         .apply(fn=sum)
     )
     actual_fn = t.make()
-    self.assertEqual([6, 9], list(actual_fn.iter_call()))
-    self.assertEqual([6, 9], list(actual_fn.iter_call(input_iterator)))
+    self.assertEqual([6, 9], list(actual_fn.iterate()))
+    self.assertEqual([6, 9], list(actual_fn.iterate(input_iterator)))
     self.assertEqual([6, 9], actual_fn(input_iterator=input_iterator))
 
   def test_input_iterator_aggregate(self):
@@ -324,7 +324,7 @@ class TransformTest(parameterized.TestCase):
     input_iterator = range(10)
     p = transform.TreeTransform.new().data_source(iterator=input_iterator)
     iterator = transform.PrefetchableIterator(
-        p.make().iter_call(), prefetch_size=2
+        p.make().iterate(), prefetch_size=2
     )
     iterator.prefetch()
     self.assertEqual([0, 1], iterator._data)

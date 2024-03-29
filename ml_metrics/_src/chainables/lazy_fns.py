@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import abc
 import asyncio
 import collections
 from collections.abc import Callable, Hashable, Mapping, Sequence
@@ -24,7 +23,7 @@ import functools
 import importlib
 import inspect
 import json
-from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
+from typing import Any, Generic, TypeVar
 
 import cloudpickle as pickle
 
@@ -54,15 +53,6 @@ class Picklers:
 picklers = Picklers()
 
 
-@runtime_checkable
-class Makeable(Protocol):
-  """A config class that can make a Metric class."""
-
-  @abc.abstractmethod
-  def make(self):
-    """Makes a new instance from this makeable."""
-
-
 class _Makers(collections.UserDict):
   """Maker registry."""
 
@@ -79,10 +69,9 @@ makeables = _Makers()
 def maybe_make(maybe_lazy: Any) -> Any:
   if isinstance(maybe_lazy, bytes):
     maybe_lazy = picklers.default.loads(maybe_lazy)
+  # User defined maker as an escape path for custom lazy instances.
   if maker := makeables[type(maybe_lazy)]:
     return maker(maybe_lazy)
-  if isinstance(maybe_lazy, Makeable):
-    return maybe_lazy.make()
   return maybe_lazy
 
 
@@ -172,7 +161,7 @@ def trace_args(*args, **kwargs) -> Args:
 
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
-class FnConfig(Makeable):
+class FnConfig:
   """A readable config that instantiates an in-memory LazyFn.
 
   The config is a serialized config for the LazyFn. There are two directions

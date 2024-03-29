@@ -23,6 +23,7 @@ import time
 from typing import Any, Generic, TypeVar
 
 from absl import logging
+from ml_metrics._src import base_types
 from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
@@ -107,6 +108,18 @@ def _call_fns(
   return result
 
 
+class RunnerMode(base_types.StrEnum):
+  DEFAULT = 'default'
+  AGGREGATE = 'aggregate'
+  SAMPLE = 'sample'
+
+
+@dataclasses.dataclass(kw_only=True, frozen=True)
+class AggregateResult:
+  agg_state: Any = None
+  agg_result: Any = None
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CombinedTreeFn:
   """Combining multiple transforms into one concrete TreeFn."""
@@ -123,7 +136,7 @@ class CombinedTreeFn:
       cls,
       transform: TreeTransform,
       recursive: bool = True,
-      aggregator: bool = False,
+      mode: RunnerMode = RunnerMode.DEFAULT,
   ):
     """Builds a TreeFn from a transform and optionally its input transforms."""
     # Flatten the transform into nodes and find the first aggregation node as
@@ -142,10 +155,15 @@ class CombinedTreeFn:
         input_nodes.append(node)
       else:
         output_nodes.append(node)
+
     # Reset the iterator_node and input_nodes if this is an aggregator.
-    if aggregator:
+    if mode == RunnerMode.AGGREGATE:
       iterator_node = None
       input_nodes = []
+    elif mode == RunnerMode.SAMPLE:
+      agg_node = None
+      output_nodes = []
+
     # Collect input_iterator.
     input_iterator = lazy_fns.maybe_make(
         iterator_node and iterator_node.iterator
@@ -227,11 +245,49 @@ class CombinedTreeFn:
     else:
       return input_iterator or self.input_iterator
 
-  def iter_call(self, input_iterator: Iterable[Any] = ()) -> Iterator[Any]:
-    """Directly apply aggregate on inputs."""
+  def iterate(
+      self,
+      input_iterator: Iterable[Any] = (),
+      *,
+      with_result: bool = True,
+      with_agg_state: bool = False,
+      with_agg_result: bool = False,
+      state: Any = None,
+  ) -> Iterator[Any]:
+    """An iterator runner that takes an input_iterator runs the transform.
+
+    The iterator by default yields the output of all the input_functions before
+    the first aggregation function in the chain. Optionally, it can also yield
+    the aggregation state and the aggregation result at the end of the
+    iteration.
+
+    Args:
+      input_iterator: the input iterator.
+      with_result: whether to yield the output of running the input_functions.
+      with_agg_state: whether to yield the aggregation state at the end of the
+        iteration.
+      with_agg_result: whether to yield the aggregation result at the end of the
+        iteration.
+      state: an optional initial aggregation state.
+
+    Yields:
+      The output of the input_fns, optionally the aggregation state and the
+      aggregation result.
+    """
     input_iterator = self._actual_inputs(None, input_iterator)
+    state = state or self.create_state()
     for batch in input_iterator:
-      yield _call_fns(self.input_fns, batch)
+      batch_output = _call_fns(self.input_fns, batch)
+      if with_agg_state or with_agg_result:
+        state = self._update_state(state, batch_output)
+      yield batch_output if with_result else None
+    # Special logic to also get the agg_state and the agg_result at the end of
+    # the iteration.It is up to the callsite to distinguish the types when
+    # aggregation is enabled.
+    if with_agg_state:
+      yield AggregateResult(agg_state=state)
+    if with_agg_result:
+      yield AggregateResult(agg_result=self.get_result(state))
 
   def update_state(
       self,
@@ -242,17 +298,18 @@ class CombinedTreeFn:
   ):
     """Updates the state by either the inputs or an iterator of the inputs."""
     input_iterator = self._actual_inputs(inputs, input_iterator)
-    state = state or self.create_state()
-    for batch_output in self.iter_call(input_iterator):
-      state = self._update_state(state, batch_output)
-    return state
+    for batch_output in self.iterate(
+        input_iterator, with_agg_state=True, state=state
+    ):
+      if isinstance(batch_output, AggregateResult):
+        return batch_output.agg_state
 
   def __call__(self, inputs=None, *, input_iterator=()):
     iter_input = self._actual_inputs(inputs, input_iterator)
     if self.agg_fns:
       return self.get_result(self.update_state(input_iterator=iter_input))
     else:
-      result = list(self.iter_call(iter_input))
+      result = list(self.iterate(iter_input))
       # Directly returns the result when inputs (vs. iterator) is fed.
       if not input_iterator and not self.input_iterator:
         return result[0]
@@ -274,7 +331,7 @@ class TreeTransform(Generic[TreeFnT]):
     * Aggregate: it applies aggregate function(s) on the inputs and outputs the
       aggregation results.
 
-  note: the transform can be chainable by themselves by intializing with an
+  note: the transform can be chainable by themselves by initializing with an
   input trasnform. `aggregate()` automatically separates the transform into two
   transforms by assigning the pre-aggregate transform as the input_transform
   of the new AggregateTransform constructed by calling `aggregate()`.
@@ -351,11 +408,9 @@ class TreeTransform(Generic[TreeFnT]):
       )
     return input_transform
 
-  def make(self, *, recursive=True, aggregator=False):
+  def make(self, *, recursive=True, mode: RunnerMode = RunnerMode.DEFAULT):
     """Makes the concrete function instance from the transform."""
-    return CombinedTreeFn.from_transform(
-        self, recursive=recursive, aggregator=aggregator
-    )
+    return CombinedTreeFn.from_transform(self, recursive=recursive, mode=mode)
 
   def data_source(self, iterator: Any = None):
     if self.input_transform:
@@ -369,7 +424,7 @@ class TreeTransform(Generic[TreeFnT]):
       self,
       output_keys: TreeMapKey | TreeMapKeys = (),
       *,
-      fn: lazy_fns.Makeable | Callable[..., Any] | None = None,
+      fn: lazy_fns.LazyFn | Callable[..., Any] | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
   ) -> TreeTransform:
     """Assign some key value pairs back to the input mapping."""
@@ -391,7 +446,7 @@ class TreeTransform(Generic[TreeFnT]):
       self,
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       *,
-      fn: lazy_fns.Makeable | aggregates.Aggregatable | None = None,
+      fn: lazy_fns.LazyFn | aggregates.Aggregatable | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
   ) -> AggregateTransform:
     # TODO: b/318463291 - fix a bug when self.fns is empty, the runner
@@ -408,7 +463,7 @@ class TreeTransform(Generic[TreeFnT]):
       self,
       *,
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      fn: lazy_fns.Makeable | Callable[..., Any] | None = None,
+      fn: lazy_fns.LazyFn | Callable[..., Any] | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
   ) -> TreeTransformT:
     """Applys a TreeFn on the selected inputs and directly outputs the result."""
@@ -439,18 +494,13 @@ class TreeTransform(Generic[TreeFnT]):
       return dataclasses.replace(self, fns=self.fns + [fn])
 
 
-def make(tree_transform: TreeTransform):
-  """Makes the runnable instance from transfrom."""
-  return tree_transform.make()
-
-
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class IteratorSource(TreeTransform):
   """A source that wraps around an iterator."""
 
   # Any iterable or an instance that can make an iterable either from the
-  # registered lazy_fns.makeables or from an implemented Makeable.
-  iterator: Iterable[Any] | lazy_fns.Makeable | Any
+  # registered lazy_fns.makeables or from an implemented LazyFn.
+  iterator: Iterable[Any] | lazy_fns.LazyFn | Any
 
   def __post_init__(self):
     if self.input_transform:
@@ -477,7 +527,7 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
       self,
       *,
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      fn: lazy_fns.Makeable | aggregates.Aggregatable | None = None,
+      fn: lazy_fns.LazyFn | aggregates.Aggregatable | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
   ):
     """Adds a aggregate and stack it on the existing aggregates."""
@@ -487,7 +537,3 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
         input_keys=input_keys,
     )
     return dataclasses.replace(self, fns=self.fns + [fn])
-
-# Register the lazy_fns so the make() can be called automatically when calling.
-lazy_fns.makeables.register(TreeTransform, make)
-lazy_fns.makeables.register(AggregateTransform, make)
