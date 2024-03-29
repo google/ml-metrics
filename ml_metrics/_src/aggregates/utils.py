@@ -1,4 +1,4 @@
-# Copyright 2023 Google LLC
+# Copyright 2024 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Utils for aggregates."""
+
+import collections
 import dataclasses
 from ml_metrics._src.aggregates import types
 import numpy as np
@@ -46,3 +48,26 @@ class MeanState:
 
   def result(self):
     return safe_divide(self.total, self.count)
+
+
+@dataclasses.dataclass
+class FrequencyState:
+  """Mergeable frequency states for batch update in an aggregate function."""
+
+  # TODO(b/331796958): Optimize storage consumption
+  counter: collections.Counter[str] = dataclasses.field(
+      default_factory=collections.Counter
+  )
+  count: int = 0
+
+  def merge(self, other: 'FrequencyState'):
+    self.counter.update(other.counter)
+    self.count += other.count
+
+  def result(self) -> list[tuple[str, float]]:
+    result = [
+        (key, safe_divide(value, self.count))
+        for key, value in self.counter.items()
+    ]
+    result = sorted(result, key=lambda x: (-x[1], x[0]))
+    return result
