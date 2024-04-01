@@ -41,6 +41,33 @@ class TextTest(parameterized.TestCase):
     count = text.alphabetical_char_count(input_text)
     self.assertEqual(expected_counts, count)
 
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='simple_text',
+          input_text='aBc def',
+          expected_counts=2,
+      ),
+      dict(
+          testcase_name='empty_text',
+          input_text='',
+          expected_counts=0,
+      ),
+      dict(
+          testcase_name='mixed_symbol_text',
+          input_text='1. I\'m doing well. How are you?',
+          expected_counts=6,
+      ),
+  ])
+  def test_word_count(self, input_text, expected_counts):
+    count = text.word_count(input_text)
+    self.assertEqual(expected_counts, count)
+
+  def test_token_count(self):
+    def tokenizer(x):
+      return [x[:i+1] for i in range(len(x))]
+
+    count = text.token_count(text='abcd', tokenizer=tokenizer)
+    self.assertEqual(4, count)
 
 if __name__ == '__main__':
   absltest.main()

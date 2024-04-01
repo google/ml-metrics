@@ -13,10 +13,36 @@
 # limitations under the License.
 """Samplewise scoring metrics for text."""
 
+from collections.abc import Callable, Sequence
 import re
+from typing import Any
 
 
 def alphabetical_char_count(text: str):
   """Computes the number of alphabetical characters."""
 
   return len(re.sub(r'[^a-zA-Z]', '', text))
+
+
+def word_count(text: str):
+  """Computes the number of words.
+
+  Computes the number of words within the text. Characters that are not letters
+  or spaces are taken out of the text, leaving only spaces between words.
+  However, each contraction is counted as only one word. For example, "I'm" is
+  treated as one word, "Im".
+
+  Args:
+    text:
+      Input text.
+  Returns:
+    Number of words.
+  """
+
+  return len(re.sub(r'[^a-zA-Z ]', '', text).split())
+
+
+def token_count(text: str, tokenizer: Callable[[str], Sequence[Any]]):
+  """Computes the number of tokens."""
+
+  return len(tokenizer(text))
