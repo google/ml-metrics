@@ -18,7 +18,8 @@ from ml_metrics._src.aggregates import text
 from absl.testing import absltest
 
 
-class TextTest(parameterized.TestCase):
+class TopKWordNGramsTest(parameterized.TestCase):
+  """Tests for TopKWordNGrams."""
 
   @parameterized.named_parameters([
       dict(
@@ -204,6 +205,100 @@ class TextTest(parameterized.TestCase):
         ValueError, 'k and n must be positive integers.'
     ):
       text.TopKWordNGrams(k=0, n=1)
+
+
+class PatternFrequencyTest(parameterized.TestCase):
+  """Tests for PatternFrequency."""
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='not_count_duplicate',
+          count_duplicate=False,
+          batch=['ab ab xyx', 'xyxyx'],
+          expected_result=[
+              ('ab', 1 / 2),
+              ('mmm', 0),
+              ('xyx', 2 / 2),
+          ],
+      ),
+      dict(
+          testcase_name='count_duplicate',
+          count_duplicate=True,
+          batch=['ab ab xyx', 'xyxyx'],
+          expected_result=[
+              ('ab', 2 / 2),
+              ('mmm', 0),
+              ('xyx', 3 / 2),
+          ],
+      ),
+  ])
+  def test_compute_pattern_frequency(
+      self, batch, count_duplicate, expected_result
+  ):
+    metric = text.PatternFrequency(
+        patterns=['ab', 'xyx', 'mmm'], count_duplicate=count_duplicate
+    )
+    batch_result = sorted(metric.add(batch))
+    self.assertSequenceAlmostEqual(expected_result, batch_result)
+    self.assertSequenceAlmostEqual(expected_result, sorted(metric.result()))
+
+  def test_compute_pattern_frequency_empty(self):
+    metric = text.PatternFrequency(
+        patterns=['ab', 'xyx'], count_duplicate=False
+    )
+    batch_result = metric.add([])
+    self.assertSequenceEqual([], batch_result)
+
+  def test_pattern_frequency_add(self):
+    metric = text.PatternFrequency(
+        patterns=['ab', 'xyx', 'mmm'], count_duplicate=False
+    )
+
+    batch_0 = ['ab ab xyx', 'xyx']
+    batch_1 = ['mmm']
+
+    batch_0_result = sorted(metric.add(batch_0))
+    expected_batch_0_result = [('ab', 1 / 2), ('mmm', 0), ('xyx', 2 / 2)]
+    self.assertSequenceAlmostEqual(expected_batch_0_result, batch_0_result)
+
+    batch_1_result = sorted(metric.add(batch_1))
+    expected_batch_1_result = [('ab', 0), ('mmm', 1), ('xyx', 0)]
+    self.assertSequenceAlmostEqual(expected_batch_1_result, batch_1_result)
+
+    expected_metric_result = [('ab', 1 / 3), ('mmm', 1 / 3), ('xyx', 2 / 3)]
+    self.assertSequenceAlmostEqual(
+        expected_metric_result, sorted(metric.result())
+    )
+
+  def test_pattern_frequency_merge(self):
+    metric_0 = text.PatternFrequency(patterns=['ab'], count_duplicate=False)
+    metric_1 = text.PatternFrequency(patterns=['ab'], count_duplicate=False)
+    batch_0 = ['ab ab xyx']
+    batch_1 = ['ab']
+    metric_0.add(batch_0)
+    metric_1.add(batch_1)
+
+    metric_0.merge(metric_1)
+
+    expected_result = [('ab', 2 / 2)]
+    merged_result = sorted(metric_0.result())
+    self.assertSequenceAlmostEqual(expected_result, merged_result)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='empty_patterns',
+          patterns=[],
+          exception_regex='Patterns must not be empty.',
+      ),
+      dict(
+          testcase_name='invalid_patterns',
+          patterns=['a', 'a', 'b'],
+          exception_regex='Patterns must be unique',
+      ),
+  ])
+  def test_pattern_frequency_invalid_patterns(self, patterns, exception_regex):
+    with self.assertRaisesRegex(ValueError, exception_regex):
+      text.PatternFrequency(patterns=patterns)
 
 
 if __name__ == '__main__':

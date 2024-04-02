@@ -100,3 +100,61 @@ class TopKWordNGrams(base.MergeableMetric):
 
   def result(self) -> list[tuple[str, float]]:
     return self._state.result()[:self.k]
+
+
+@dataclasses.dataclass(kw_only=True)
+class PatternFrequency(base.MergeableMetric):
+  """Pattern frequency metric.
+
+  Identify the frequency of occurrence for each pattern found within the given
+  texts.
+
+
+  Attributes:
+    patterns:
+      Sequence of text patterns.
+    count_duplicate:
+      If `True`, duplicate pattern within the text are included in the total
+      count. Otherwise, the count of a pattern will only consider its first
+      occurrence. Default to `False`.
+  """
+
+  patterns: Sequence[str]
+  count_duplicate: bool = True
+  _state: FrequencyState = dataclasses.field(
+      default_factory=FrequencyState, init=False
+  )
+
+  def __post_init__(self):
+    if not self.patterns:
+      raise ValueError('Patterns must not be empty.')
+
+    if len(set(self.patterns)) != len(self.patterns):
+      raise ValueError(f'Patterns must be unique: {self.patterns}')
+
+  @property
+  def state(self) -> FrequencyState:
+    return self._state
+
+  def add(self, texts: Sequence[str]) -> list[tuple[str, float]]:
+    batch_frquency_state = FrequencyState()
+    for pattern in self.patterns:
+      for text in texts:
+        num_matches = 0
+        if self.count_duplicate:
+          matches = list(
+              re.finditer(r'(?=({}))'.format(re.escape(pattern)), text)
+          )
+          num_matches = len(matches)
+        elif text.find(pattern) >= 0:
+          num_matches = 1
+        batch_frquency_state.counter[pattern] += num_matches
+    batch_frquency_state.count = len(texts)
+    self._state.merge(batch_frquency_state)
+    return batch_frquency_state.result()
+
+  def merge(self, other: 'PatternFrequency'):
+    self._state.merge(other.state)
+
+  def result(self) -> list[tuple[str, float]]:
+    return self._state.result()
