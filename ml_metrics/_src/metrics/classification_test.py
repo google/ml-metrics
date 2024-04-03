@@ -16,9 +16,10 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 from ml_metrics._src.aggregates import types
-from ml_metrics._src.aggregates import utils
 from ml_metrics._src.metrics import classification
+from ml_metrics._src.utils import math_utils
 import numpy as np
+
 
 InputType = classification.InputType
 ConfusionMatrixMetric = classification.ConfusionMatrixMetric
@@ -236,14 +237,14 @@ class ClassificationTest(parameterized.TestCase):
       dict(
           testcase_name="prevalence_threshold",
           metric_fn=classification.prevalence_threshold,
-          expected_no_k_list=(utils.pos_sqrt(30) - 3) / 7,
-          expected_with_k_list=[3 / 8, (utils.pos_sqrt(30) - 3) / 7],
+          expected_no_k_list=(math_utils.pos_sqrt(30) - 3) / 7,
+          expected_with_k_list=[3 / 8, (math_utils.pos_sqrt(30) - 3) / 7],
       ),
       dict(
           testcase_name="matthews_correlation_coefficient",
           metric_fn=classification.matthews_correlation_coefficient,
           expected_no_k_list=7 / 15,
-          expected_with_k_list=[utils.pos_sqrt(2 / 15), 7 / 15],
+          expected_with_k_list=[math_utils.pos_sqrt(2 / 15), 7 / 15],
       ),
       dict(
           testcase_name="informedness",
