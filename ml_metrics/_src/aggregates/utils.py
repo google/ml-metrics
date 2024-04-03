@@ -15,24 +15,9 @@
 
 import collections
 import dataclasses
+
 from ml_metrics._src.aggregates import types
-import numpy as np
-
-
-def safe_divide(a, b):
-  result = np.divide(
-      a, b, out=np.zeros_like(a, dtype=types.DefaultDType), where=(b != 0)
-  )
-  if result.ndim == 0:
-    return result.item()
-  return result
-
-
-def pos_sqrt(value):
-  """Returns sqrt of value or raises ValueError if negative."""
-  if np.any(value < 0):
-    raise ValueError('Attempt to take sqrt of negative value: {}'.format(value))
-  return np.sqrt(value)
+from ml_metrics._src.utils import math_utils
 
 
 @dataclasses.dataclass
@@ -47,7 +32,7 @@ class MeanState:
     self.count += other.count
 
   def result(self):
-    return safe_divide(self.total, self.count)
+    return math_utils.safe_divide(self.total, self.count)
 
 
 @dataclasses.dataclass
@@ -66,7 +51,7 @@ class FrequencyState:
 
   def result(self) -> list[tuple[str, float]]:
     result = [
-        (key, safe_divide(value, self.count))
+        (key, math_utils.safe_divide(value, self.count))
         for key, value in self.counter.items()
     ]
     result = sorted(result, key=lambda x: (-x[1], x[0]))
