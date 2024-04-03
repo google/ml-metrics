@@ -28,13 +28,6 @@ def safe_divide(a, b):
   return result
 
 
-def pos_sqrt(value):
-  """Returns sqrt of value or raises ValueError if negative."""
-  if np.any(value < 0):
-    raise ValueError('Attempt to take sqrt of negative value: {}'.format(value))
-  return np.sqrt(value)
-
-
 @dataclasses.dataclass
 class MeanState:
   """Mergeable states for batch update in an aggregate function."""

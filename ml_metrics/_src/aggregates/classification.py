@@ -24,7 +24,9 @@ from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
 from ml_metrics._src.chainables import lazy_fns
+from ml_metrics._src.utils import math_utils
 import numpy as np
+
 
 AverageType = types.AverageType
 InputType = types.InputType
@@ -378,14 +380,14 @@ def _prevalence_threshold(cm: _ConfusionMatrix) -> types.NumbersT:
   tnr = _tnr(cm)
   tpr = _tpr(cm)
   return utils.safe_divide(
-      (utils.pos_sqrt(tpr * (1 - tnr)) + tnr - 1), (tpr + tnr - 1)
+      (math_utils.pos_sqrt(tpr * (1 - tnr)) + tnr - 1), (tpr + tnr - 1)
   )
 
 
 def _matthews_correlation_coefficient(cm: _ConfusionMatrix) -> types.NumbersT:
   """Matthews corrrelation coefficient (MCC)."""
   numerator = cm.tp * cm.tn - cm.fp * cm.fn
-  denominator = utils.pos_sqrt(
+  denominator = math_utils.pos_sqrt(
       (cm.tp + cm.fp) * (cm.tp + cm.fn) * (cm.tn + cm.fp) * (cm.tn + cm.fn)
   )
   return utils.safe_divide(numerator, denominator)

@@ -23,6 +23,7 @@ from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
 from ml_metrics._src.chainables import lazy_fns
+from ml_metrics._src.utils import math_utils
 import numpy as np
 
 
@@ -121,7 +122,7 @@ def _threat_score(tp_at_topks, k_list, y_true_len):
 def _fowlkes_mallows_index(tp_at_topks, k_list, y_true_len, y_pred_count):
   precision = _precision(tp_at_topks, k_list, y_pred_count)
   recall = _recall(tp_at_topks, k_list, y_true_len)
-  return utils.pos_sqrt(precision * recall)
+  return math_utils.pos_sqrt(precision * recall)
 
 
 def _mean_average_precision(tp, tp_at_topks, ks, k_list, y_true_len):

@@ -25,13 +25,6 @@ class UtilsTest(parameterized.TestCase):
     else:
       self.assertAlmostEqual(result, expected_result)
 
-  def test_pos_sqrt(self):
-    self.assertEqual(utils.pos_sqrt(4), 2.0)
-    with self.assertRaisesRegex(
-        ValueError, 'Attempt to take sqrt of negative value: -1'
-    ):
-      utils.pos_sqrt(-1)
-
 
 if __name__ == '__main__':
   absltest.main()

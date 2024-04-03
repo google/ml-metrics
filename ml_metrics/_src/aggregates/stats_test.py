@@ -13,67 +13,180 @@
 # limitations under the License.
 """Tests for stats."""
 
+from absl.testing import parameterized
+
 from ml_metrics._src.aggregates import stats
 import numpy as np
 
 from absl.testing import absltest
 
 
-class StatsTest(absltest.TestCase):
+def get_expected_result(batch, batch_score_fn=None):
+  if batch_score_fn is not None:
+    batch = batch_score_fn(batch)
+  # result_dict key must match StatsState properties name.
+  result_dict = {
+      'min': np.min(batch),
+      'max': np.max(batch),
+      'mean': np.mean(batch),
+      'var': np.var(batch),
+      'stddev': np.std(batch),
+      'count': batch.size,
+      'total': np.sum(batch),
+  }
+  return result_dict
 
-  def test_stats_mean_variance_one_element(self):
-    batches = np.array([np.random.randn(1) for _ in range(1)])
+
+class StatsTest(parameterized.TestCase):
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='1_batch_1_element',
+          num_batch=1,
+          num_elements_per_batch=1,
+      ),
+      dict(
+          testcase_name='1_batch_2_element',
+          num_batch=1,
+          num_elements_per_batch=2,
+      ),
+      dict(
+          testcase_name='1_batch_1000_element',
+          num_batch=1,
+          num_elements_per_batch=1000,
+      ),
+      dict(
+          testcase_name='2_batch_1_element',
+          num_batch=2,
+          num_elements_per_batch=1,
+      ),
+      dict(
+          testcase_name='2_batch_2_element',
+          num_batch=2,
+          num_elements_per_batch=2,
+      ),
+      dict(
+          testcase_name='2_batch_1000_element',
+          num_batch=2,
+          num_elements_per_batch=1000,
+      ),
+      dict(
+          testcase_name='1000_batch_1_element',
+          num_batch=1000,
+          num_elements_per_batch=1,
+      ),
+      dict(
+          testcase_name='1000_batch_2_element',
+          num_batch=1000,
+          num_elements_per_batch=2,
+      ),
+      dict(
+          testcase_name='1000_batch_1000_element',
+          num_batch=1000,
+          num_elements_per_batch=1000,
+      ),
+  ])
+  def test_stats_state(self, num_batch, num_elements_per_batch):
+    batches = np.array(
+        [np.random.randn(num_elements_per_batch) for _ in range(num_batch)]
+    ) + 1e7
+    expected_result = get_expected_result(batches)
+    expected_last_batch_result = get_expected_result(batches[-1])
     state = stats.StatsState()
-    for batch in batches:
-      state.add(batch)
-    np.testing.assert_allclose(state.mean, np.mean(batches))
-    np.testing.assert_allclose(state.var, np.var(batches))
-    np.testing.assert_allclose(state.stddev, np.std(batches))
-    np.testing.assert_allclose(state.min, np.max(batches))
-    np.testing.assert_allclose(state.max, np.min(batches))
-    np.testing.assert_allclose(state.total, np.sum(batches))
-    np.testing.assert_allclose(state.count, batches.size)
 
-  def test_stats_mean_variance_with_two_elements(self):
-    batches = np.array([np.random.randn(2) for _ in range(1)])
+    last_batch_result = None
+    for batch in batches:
+      last_batch_result = state.add(batch)
+    self.assertIsInstance(last_batch_result, stats.StatsState)
+
+    for metric in expected_last_batch_result:
+      self.assertAlmostEqual(
+          expected_last_batch_result[metric], getattr(last_batch_result, metric)
+      )
+
+    result = state.result()
+
+    self.assertIsInstance(result, stats.StatsState)
+    for metric in expected_result:
+      np.testing.assert_allclose(
+          expected_result[metric], getattr(result, metric)
+      )
+
+  def test_stats_state_initial_add_with_empty_batch(self):
     state = stats.StatsState()
-    for batch in batches:
-      state.add(batch)
-    np.testing.assert_allclose(state.mean, np.mean(batches))
-    np.testing.assert_allclose(state.var, np.var(batches))
-    np.testing.assert_allclose(state.stddev, np.std(batches))
-    np.testing.assert_allclose(state.max, np.max(batches))
-    np.testing.assert_allclose(state.min, np.min(batches))
-    np.testing.assert_allclose(state.total, np.sum(batches))
-    np.testing.assert_allclose(state.count, batches.size)
+    with self.assertRaisesRegex(
+        ValueError, '`batch` must not be empty.'
+    ):
+      state.add([])
 
-  def test_stats_mean_variance_with_batches(self):
+  def test_stats_state_with_score_fn(self):
     batches = np.array([np.random.randn(30) for _ in range(30)])
-    state = stats.StatsState()
+    batch_score_fn = lambda x: x + 1
+    expected_result = get_expected_result(batches, batch_score_fn)
+    expected_last_batch_result = get_expected_result(
+        batches[-1], batch_score_fn
+    )
+    state = stats.StatsState(batch_score_fn=batch_score_fn)
+
+    last_batch_result = None
     for batch in batches:
-      state.add(batch)
-    np.testing.assert_allclose(state.mean, np.mean(batches))
-    np.testing.assert_allclose(state.var, np.var(batches))
-    np.testing.assert_allclose(state.stddev, np.std(batches))
-    np.testing.assert_allclose(state.max, np.max(batches))
-    np.testing.assert_allclose(state.min, np.min(batches))
-    np.testing.assert_allclose(state.total, np.sum(batches))
-    np.testing.assert_allclose(state.count, batches.size)
+      last_batch_result = state.add(batch)
+    self.assertIsInstance(last_batch_result, stats.StatsState)
 
-  def test_stats_mean_variance_with_function(self):
-    batches = np.array([np.random.randn(30) for _ in range(30)])
-    fn = lambda x: x + 1
-    state = stats.StatsState(batch_score_fn=fn)
-    for batch in batches:
-      state.add(batch)
-    np.testing.assert_allclose(state.mean, np.mean(fn(batches)))
-    np.testing.assert_allclose(state.var, np.var(fn(batches)))
-    np.testing.assert_allclose(state.stddev, np.std(fn(batches)))
-    np.testing.assert_allclose(state.max, np.max(fn(batches)))
-    np.testing.assert_allclose(state.min, np.min(fn(batches)))
-    np.testing.assert_allclose(state.total, np.sum(fn(batches)))
-    np.testing.assert_allclose(state.count, batches.size)
+    for metric in expected_last_batch_result:
+      self.assertAlmostEqual(
+          expected_last_batch_result[metric], getattr(last_batch_result, metric)
+      )
+
+    result = state.result()
+
+    self.assertIsInstance(result, stats.StatsState)
+    for metric in expected_result:
+      np.testing.assert_allclose(
+          expected_result[metric], getattr(result, metric)
+      )
+
+  def test_stats_state_merge(self):
+    batches = np.array([np.random.randn(30) for _ in range(2)])
+    expected_result = get_expected_result(batches)
+
+    state_0 = stats.StatsState()
+    state_0.add(batches[0])
+    state_1 = stats.StatsState()
+    state_1.add(batches[1])
+
+    state_0.merge(state_1)
+    result = state_0.result()
+
+    self.assertIsInstance(result, stats.StatsState)
+    for metric in expected_result:
+      np.testing.assert_allclose(
+          expected_result[metric], getattr(result, metric)
+      )
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='merge_empty_state',
+          self_empty=False,
+      ),
+      dict(
+          testcase_name='merge_to_empty_state',
+          self_empty=True,
+      ),
+  ])
+  def test_stats_state_merge_empty_state_stats(self, self_empty):
+    state_self = stats.StatsState()
+    state_other = stats.StatsState()
+    if self_empty:
+      state_other.add([1, 2, 3])
+    else:
+      state_self.add([1, 2, 3])
+
+    with self.assertRaisesRegex(
+        ValueError, 'Both StatsStates must not be empty.'
+    ):
+      state_self.merge(state_other)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
   absltest.main()
