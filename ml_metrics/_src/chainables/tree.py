@@ -239,7 +239,10 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
       case Mapping():
         for k, v in data.items():
           yield from self._tree_iter(v, parent_key_path + (k,))
+        if not data:
+          yield parent_key_path
       case _:
+        # This captures empty list and non-list, non-dict pattern.
         yield parent_key_path
 
   def __iter__(self) -> Iterator[TreeMapKey]:

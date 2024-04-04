@@ -104,7 +104,7 @@ class TreeMapViewTest(absltest.TestCase):
     # pylint: enable=expression-not-assigned
 
   def test_iter(self):
-    data = {'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}]}
+    data = {'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}], 'c': {}, 'e': []}
     view = TreeMapView(data)
     self.assertEqual(
         [
@@ -112,6 +112,8 @@ class TreeMapViewTest(absltest.TestCase):
             Key.new('a', 'a1', Key.Index(1)),
             Key.new('b', Key.Index(0), 0, Key.Index(0)),
             Key.new('b', Key.Index(0), 0, Key.Index(1)),
+            Key.new('c'),
+            Key.new('e'),
         ],
         list(view),
     )
