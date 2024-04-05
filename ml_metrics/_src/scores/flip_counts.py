@@ -41,3 +41,15 @@ def neg_to_neg_flip_counts(
   model_under_threshold = model_prediction <= threshold
 
   return np.logical_and(base_under_threshold, model_under_threshold).astype(int)
+
+
+def neg_to_pos_flip_counts(
+    base_prediction: types.NumbersT,
+    model_prediction: types.NumbersT,
+    threshold: types.NumbersT = np.array(0.5),
+) -> types.NumbersT:
+  """Returns a 1 if base_prediction <= threshold < model_prediction."""
+  base_under_threshold = base_prediction <= threshold
+  model_over_threshold = model_prediction > threshold
+
+  return np.logical_and(base_under_threshold, model_over_threshold).astype(int)
