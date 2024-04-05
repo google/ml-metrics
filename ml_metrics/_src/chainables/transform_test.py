@@ -144,6 +144,21 @@ class TransformTest(parameterized.TestCase):
     )
     self.assertEqual(expected, t.make()(inputs))
 
+  def test_assign_invalid_keys(self):
+    with self.assertRaises(ValueError):
+      transform.TreeTransform.new().assign(fn=len).assign('a', fn=len)
+
+    with self.assertRaises(ValueError):
+      transform.TreeTransform.new().assign('a', fn=len).assign(fn=len)
+
+  def test_assign_duplicate_keys(self):
+    with self.assertRaises(ValueError):
+      (
+          transform.TreeTransform.new()
+          .assign(('a', 'b'), fn=len)
+          .assign('a', fn=len)
+      )
+
   @parameterized.named_parameters([
       dict(testcase_name='select_self', inputs=0, expected=0),
       dict(
@@ -216,6 +231,25 @@ class TransformTest(parameterized.TestCase):
         output_keys=output_keys,
     )
     self.assertEqual(expected, t.make()(inputs))
+
+  def test_aggregate_invalid_keys(self):
+    with self.assertRaises(ValueError):
+      transform.TreeTransform.new().aggregate(
+          fn=TestAverageFn(),
+      ).add_aggregate(fn=TestAverageFn(), output_keys='a')
+
+    with self.assertRaises(ValueError):
+      transform.TreeTransform.new().aggregate(
+          fn=TestAverageFn(),
+          output_keys='a',
+      ).add_aggregate(fn=TestAverageFn())
+
+  def test_aggregate_duplicate_keys(self):
+    with self.assertRaises(ValueError):
+      transform.TreeTransform.new().aggregate(
+          fn=TestAverageFn(),
+          output_keys='a',
+      ).add_aggregate(fn=TestAverageFn(), output_keys=('a', 'b'))
 
   @parameterized.named_parameters([
       dict(

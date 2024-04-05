@@ -178,7 +178,7 @@ class CombinedTreeFn:
     if agg_node:
       for agg_fn in agg_node.fns:
         actual_agg_fn = agg_fn.maybe_make()
-        agg_fns[agg_fn] = actual_agg_fn
+        agg_fns[agg_fn.output_keys] = actual_agg_fn
         if not isinstance(actual_agg_fn, aggregates.Aggregatable):
           raise ValueError(f'Not an aggregatable: {agg_fn}: {actual_agg_fn}')
     # Collect all the output functions from the output nodes.
@@ -433,6 +433,19 @@ class TreeTransform(Generic[TreeFnT]):
         fn=fn,
         input_keys=input_keys,
     )
+    fns = {}
+    for fn_ in self.fns:
+      fns.update({key: fn_ for key in fn_.output_keys})
+    if conflicting_keys := set(fn.output_keys).intersection(fns):
+      raise ValueError(
+          f'Duplicate output_keys: {conflicting_keys} from assignment of'
+          f' {fn.output_keys}'
+      )
+    if tree.Key.SELF in fns:
+      raise ValueError(
+          f'Cannot add new key {fn.output_keys} when other aggregate output is'
+          f' SELF: {fns[tree.Key.SELF]}'
+      )
     return self._maybe_new_transform(fn)
 
   def select(
@@ -536,4 +549,18 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
         fn=fn,
         input_keys=input_keys,
     )
+    agg_fns = {}
+    for fn_ in self.fns:
+      agg_fns.update({key: fn_ for key in fn_.output_keys})
+    if conficting_keys := set(fn.output_keys).intersection(agg_fns):
+      raise ValueError(
+          f'Duplicate output_keys {conficting_keys} from aggregate output keys'
+          f' {fn.output_keys}.'
+      )
+    agg_fns.update({key: fn for key in fn.output_keys})
+    if tree.Key.SELF in agg_fns and len(agg_fns) > 1:
+      raise ValueError(
+          f'Cannot add new key {fn.output_keys} when other aggregate output is'
+          f' SELF: {agg_fns[tree.Key.SELF]}'
+      )
     return dataclasses.replace(self, fns=self.fns + [fn])
