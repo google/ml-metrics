@@ -25,77 +25,42 @@ class FlipCountsTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       dict(
-          testcase_name='low_base_low_model',
-          base_prediction=0.1,
-          model_prediction=0.2,
-          symmetric_flip_count=0,
-          neg_to_neg_flip_count=1,
-          neg_to_pos_flip_count=0,
-          pos_to_neg_flip_count=0,
-          pos_to_pos_flip_count=0,
+          testcase_name='symmetric',
+          flip_counts_fn=flip_counts.flip_counts,
+          expected_flip_counts=(0, 1, 1, 0),
       ),
       dict(
-          testcase_name='low_base_high_model',
-          base_prediction=0.1,
-          model_prediction=0.9,
-          symmetric_flip_count=1,
-          neg_to_neg_flip_count=0,
-          neg_to_pos_flip_count=1,
-          pos_to_neg_flip_count=0,
-          pos_to_pos_flip_count=0,
+          testcase_name='neg_to_neg',
+          flip_counts_fn=flip_counts.neg_to_neg_flip_counts,
+          expected_flip_counts=(1, 0, 0, 0),
       ),
       dict(
-          testcase_name='high_base_low_model',
-          base_prediction=0.9,
-          model_prediction=0.1,
-          symmetric_flip_count=1,
-          neg_to_neg_flip_count=0,
-          neg_to_pos_flip_count=0,
-          pos_to_neg_flip_count=1,
-          pos_to_pos_flip_count=0,
+          testcase_name='neg_to_pos',
+          flip_counts_fn=flip_counts.neg_to_pos_flip_counts,
+          expected_flip_counts=(0, 1, 0, 0),
       ),
       dict(
-          testcase_name='high_base_high_model',
-          base_prediction=0.9,
-          model_prediction=0.8,
-          symmetric_flip_count=0,
-          neg_to_neg_flip_count=0,
-          neg_to_pos_flip_count=0,
-          pos_to_neg_flip_count=0,
-          pos_to_pos_flip_count=1,
+          testcase_name='pos_to_neg',
+          flip_counts_fn=flip_counts.pos_to_neg_flip_counts,
+          expected_flip_counts=(0, 0, 1, 0),
+      ),
+      dict(
+          testcase_name='pos_to_pos',
+          flip_counts_fn=flip_counts.pos_to_pos_flip_counts,
+          expected_flip_counts=(0, 0, 0, 1),
       ),
   )
-  # TODO: b/332748533 - Refactor test to only test one behavior.
-  def test_flip_counts(
-      self,
-      base_prediction,
-      model_prediction,
-      symmetric_flip_count,
-      neg_to_neg_flip_count,
-      neg_to_pos_flip_count,
-      pos_to_neg_flip_count,
-      pos_to_pos_flip_count,
-  ):
-    self.assertEqual(
-        flip_counts.flip_counts(base_prediction, model_prediction),
-        symmetric_flip_count,
-    )
-    self.assertEqual(
-        flip_counts.neg_to_neg_flip_counts(base_prediction, model_prediction),
-        neg_to_neg_flip_count,
-    )
-    self.assertEqual(
-        flip_counts.neg_to_pos_flip_counts(base_prediction, model_prediction),
-        neg_to_pos_flip_count,
-    )
-    self.assertEqual(
-        flip_counts.pos_to_neg_flip_counts(base_prediction, model_prediction),
-        pos_to_neg_flip_count,
-    )
-    self.assertEqual(
-        flip_counts.pos_to_pos_flip_counts(base_prediction, model_prediction),
-        pos_to_pos_flip_count,
-    )
+  def test_flip_counts(self, flip_counts_fn, expected_flip_counts):
+    base_predictions = np.array((0.1, 0.1, 0.9, 0.9))
+    model_predictions = np.array((0.2, 0.9, 0.1, 0.8))
+
+    for base_prediction, model_prediction, expected_flip_count in zip(
+        base_predictions, model_predictions, expected_flip_counts
+    ):
+      self.assertEqual(
+          flip_counts_fn(base_prediction, model_prediction),
+          expected_flip_count,
+      )
 
   @parameterized.named_parameters(
       dict(
