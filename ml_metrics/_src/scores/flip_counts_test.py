@@ -32,6 +32,7 @@ class FlipCountsTest(parameterized.TestCase):
           neg_to_neg_flip_count=1,
           neg_to_pos_flip_count=0,
           pos_to_neg_flip_count=0,
+          pos_to_pos_flip_count=0,
       ),
       dict(
           testcase_name='low_base_high_model',
@@ -41,6 +42,7 @@ class FlipCountsTest(parameterized.TestCase):
           neg_to_neg_flip_count=0,
           neg_to_pos_flip_count=1,
           pos_to_neg_flip_count=0,
+          pos_to_pos_flip_count=0,
       ),
       dict(
           testcase_name='high_base_low_model',
@@ -50,6 +52,7 @@ class FlipCountsTest(parameterized.TestCase):
           neg_to_neg_flip_count=0,
           neg_to_pos_flip_count=0,
           pos_to_neg_flip_count=1,
+          pos_to_pos_flip_count=0,
       ),
       dict(
           testcase_name='high_base_high_model',
@@ -59,6 +62,7 @@ class FlipCountsTest(parameterized.TestCase):
           neg_to_neg_flip_count=0,
           neg_to_pos_flip_count=0,
           pos_to_neg_flip_count=0,
+          pos_to_pos_flip_count=1,
       ),
   )
   # TODO: b/332748533 - Refactor test to only test one behavior.
@@ -70,6 +74,7 @@ class FlipCountsTest(parameterized.TestCase):
       neg_to_neg_flip_count,
       neg_to_pos_flip_count,
       pos_to_neg_flip_count,
+      pos_to_pos_flip_count,
   ):
     self.assertEqual(
         flip_counts.flip_counts(base_prediction, model_prediction),
@@ -86,6 +91,10 @@ class FlipCountsTest(parameterized.TestCase):
     self.assertEqual(
         flip_counts.pos_to_neg_flip_counts(base_prediction, model_prediction),
         pos_to_neg_flip_count,
+    )
+    self.assertEqual(
+        flip_counts.pos_to_pos_flip_counts(base_prediction, model_prediction),
+        pos_to_pos_flip_count,
     )
 
   @parameterized.named_parameters(
@@ -108,6 +117,11 @@ class FlipCountsTest(parameterized.TestCase):
           testcase_name='pos_to_neg',
           flip_counts_fn=flip_counts.pos_to_neg_flip_counts,
           expected_flip_counts=np.array((0, 0, 1, 0)),
+      ),
+      dict(
+          testcase_name='pos_to_pos',
+          flip_counts_fn=flip_counts.pos_to_pos_flip_counts,
+          expected_flip_counts=np.array((0, 0, 0, 1)),
       ),
   )
   def test_flip_counts_batched(self, flip_counts_fn, expected_flip_counts):
