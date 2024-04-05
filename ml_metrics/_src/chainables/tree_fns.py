@@ -187,7 +187,9 @@ class TreeAggregateFn(
       inputs = tree.TreeMapView.as_view(inputs)[self.input_keys]
       state = self.actual_fn.update_state(state, *inputs)
     except Exception as e:
-      raise ValueError(f'Cannot call {self=} with {inputs=}') from e
+      raise ValueError(
+          f'Cannot call {self=} with shape:\n{tree.tree_shape(inputs)}'
+      ) from e
     return state
 
   def merge_states(self, states: StateT) -> StateT:
