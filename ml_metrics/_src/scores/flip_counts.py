@@ -16,10 +16,10 @@
 from ml_metrics._src.aggregates import types
 import numpy as np
 
-# TODO: b/333106326 - Replace flip_counts with flip_mask.
+# TODO: b/333106326 - Replace all flip counts with flip masks.
 
 
-def flip_counts(
+def binary_flip_counts(
     base_prediction: types.NumbersT,
     model_prediction: types.NumbersT,
     threshold: types.NumbersT = np.array(0.5),
@@ -29,18 +29,6 @@ def flip_counts(
   model_over_threshold = model_prediction > threshold
 
   return np.logical_xor(base_over_threshold, model_over_threshold).astype(int)
-
-
-def neg_to_neg_flip_counts(
-    base_prediction: types.NumbersT,
-    model_prediction: types.NumbersT,
-    threshold: types.NumbersT = np.array(0.5),
-) -> types.NumbersT:
-  """Returns a 1 if both predictions are less than or equal to the threshold."""
-  base_under_threshold = base_prediction <= threshold
-  model_under_threshold = model_prediction <= threshold
-
-  return np.logical_and(base_under_threshold, model_under_threshold).astype(int)
 
 
 def neg_to_pos_flip_counts(
@@ -65,15 +53,3 @@ def pos_to_neg_flip_counts(
   model_under_threshold = model_prediction <= threshold
 
   return np.logical_and(base_over_threshold, model_under_threshold).astype(int)
-
-
-def pos_to_pos_flip_counts(
-    base_prediction: types.NumbersT,
-    model_prediction: types.NumbersT,
-    threshold: types.NumbersT = np.array(0.5),
-) -> types.NumbersT:
-  """Returns a 1 if both predictions are greater than the threshold."""
-  base_over_threshold = base_prediction > threshold
-  model_over_threshold = model_prediction > threshold
-
-  return np.logical_and(base_over_threshold, model_over_threshold).astype(int)

@@ -25,14 +25,9 @@ class FlipCountsTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       dict(
-          testcase_name='symmetric',
-          flip_counts_fn=flip_counts.flip_counts,
+          testcase_name='binary',
+          flip_counts_fn=flip_counts.binary_flip_counts,
           expected_flip_counts=(0, 1, 1, 0),
-      ),
-      dict(
-          testcase_name='neg_to_neg',
-          flip_counts_fn=flip_counts.neg_to_neg_flip_counts,
-          expected_flip_counts=(1, 0, 0, 0),
       ),
       dict(
           testcase_name='neg_to_pos',
@@ -43,11 +38,6 @@ class FlipCountsTest(parameterized.TestCase):
           testcase_name='pos_to_neg',
           flip_counts_fn=flip_counts.pos_to_neg_flip_counts,
           expected_flip_counts=(0, 0, 1, 0),
-      ),
-      dict(
-          testcase_name='pos_to_pos',
-          flip_counts_fn=flip_counts.pos_to_pos_flip_counts,
-          expected_flip_counts=(0, 0, 0, 1),
       ),
   )
   def test_flip_counts(self, flip_counts_fn, expected_flip_counts):
@@ -64,14 +54,9 @@ class FlipCountsTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       dict(
-          testcase_name='symmetric',
-          flip_counts_fn=flip_counts.flip_counts,
+          testcase_name='binary',
+          flip_counts_fn=flip_counts.binary_flip_counts,
           expected_flip_counts=np.array((0, 1, 1, 0)),
-      ),
-      dict(
-          testcase_name='neg_to_neg',
-          flip_counts_fn=flip_counts.neg_to_neg_flip_counts,
-          expected_flip_counts=np.array((1, 0, 0, 0)),
       ),
       dict(
           testcase_name='neg_to_pos',
@@ -82,11 +67,6 @@ class FlipCountsTest(parameterized.TestCase):
           testcase_name='pos_to_neg',
           flip_counts_fn=flip_counts.pos_to_neg_flip_counts,
           expected_flip_counts=np.array((0, 0, 1, 0)),
-      ),
-      dict(
-          testcase_name='pos_to_pos',
-          flip_counts_fn=flip_counts.pos_to_pos_flip_counts,
-          expected_flip_counts=np.array((0, 0, 0, 1)),
       ),
   )
   def test_flip_counts_batched(self, flip_counts_fn, expected_flip_counts):
