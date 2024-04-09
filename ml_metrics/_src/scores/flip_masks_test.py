@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for Flip Counts."""
+"""Tests for Flip Masks."""
 
 from ml_metrics._src.scores import flip_masks
 import numpy as np
@@ -21,7 +21,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 
 
-class FlipCountsTest(parameterized.TestCase):
+class FlipMasksTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       dict(
@@ -40,16 +40,15 @@ class FlipCountsTest(parameterized.TestCase):
           expected_mask=(0, 0, 1, 0),
       ),
   )
-  def test_flip_counts(self, flip_mask_fn, expected_mask):
+  def test_flip_masks(self, flip_mask_fn, expected_mask):
     base_predictions = np.array((0.1, 0.1, 0.9, 0.9))
     model_predictions = np.array((0.2, 0.9, 0.1, 0.8))
 
-    for base_prediction, model_prediction, expected_flip_count in zip(
+    for base_prediction, model_prediction, expected_flip in zip(
         base_predictions, model_predictions, expected_mask
     ):
       self.assertEqual(
-          flip_mask_fn(base_prediction, model_prediction),
-          expected_flip_count,
+          flip_mask_fn(base_prediction, model_prediction), expected_flip
       )
 
   @parameterized.named_parameters(
@@ -69,7 +68,7 @@ class FlipCountsTest(parameterized.TestCase):
           expected_mask=np.array((0, 0, 1, 0)),
       ),
   )
-  def test_flip_counts_batched(self, flip_mask_fn, expected_mask):
+  def test_flip_masks_batched(self, flip_mask_fn, expected_mask):
     base_predictions = np.array((0.1, 0.1, 0.9, 0.9))
     model_predictions = np.array((0.2, 0.9, 0.1, 0.8))
 
