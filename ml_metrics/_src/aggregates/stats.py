@@ -16,13 +16,13 @@
 
 from collections.abc import Callable
 import dataclasses
+from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 import numpy as np
 
 
 @dataclasses.dataclass(kw_only=True)
-# TODO: b/311207032 - implements MergeableMetric interface.
-class StatsState:
+class StatsState(base.MergeableMetric):
   """State of a statistics aggregation."""
 
   batch_score_fn: Callable[..., types.NumbersT] | None = None
@@ -30,43 +30,43 @@ class StatsState:
   _max: types.NumbersT | None = None
   _count: int = 0
   _mean: types.NumbersT | None = None
-  _var_sum: types.NumbersT | None = None
-  _diff_sum: types.NumbersT | None = None
+  _var: types.NumbersT | None = None
 
-  def add(self, batch: types.NumbersT) -> None:
-    """Update the statistics with the given batch."""
-    # This assumes the first dimension is the batch dimension.
-    if self.batch_score_fn is not None:
-      batch = self.batch_score_fn(batch)
-    # Mininums and maximums.
-    if self._min is None:
-      self._min = np.min(batch, axis=0)
-    else:
-      self._min = np.minimum(self._min, np.min(batch, axis=0))
-    if self._max is None:
-      self._max = np.max(batch, axis=0)
-    else:
-      self._max = np.maximum(self._max, np.max(batch, axis=0))
-    # Sufficient statistics for Mean, variance and standard deviation.
+  def add(self, batch: types.NumbersT) -> 'StatsState':
+    """Update the statistics with the given batch.
+
+    Args:
+      batch:
+        A non-vacant series of numerical values.
+
+    Returns:
+      StatsState
+
+    Raise:
+      ValueError:
+        If the `batch` is empty.
+    """
+
+    if not list(batch):
+      raise ValueError('`batch` must not be empty.')
+
     if not self._count:
+      # This assumes the first dimension is the batch dimension.
+      if self.batch_score_fn is not None:
+        batch = self.batch_score_fn(batch)
+      # Mininums and maximums.
+      self._min = np.min(batch, axis=0)
+      self._max = np.max(batch, axis=0)
+      # Sufficient statistics for Mean, variance and standard deviation.
       self._count = len(batch)
       self._mean = np.mean(batch, axis=0)
-      self._diff_sum = np.sum(batch - self._mean, axis=0)
-      self._var_sum = np.sum(np.power(batch - self._mean, 2), axis=0)
-    else:
-      prev_mean, prev_count = self._mean, self._count
-      self._count += len(batch)
-      batch_sum = np.sum(batch, axis=0)
-      self._mean += (batch_sum - prev_mean * len(batch)) / self._count
-      mean_delta = self._mean - prev_mean
-      prev_diff_sum = self._diff_sum
-      self._diff_sum += -mean_delta * prev_count + np.sum(
-          batch - self._mean, axis=0
-      )
-      batch_var_sum = np.sum(np.power(batch - self._mean, 2), axis=0)
-      self._var_sum += (
-          -2 * prev_diff_sum + mean_delta**2 * prev_count + batch_var_sum
-      )
+      self._var = np.var(batch, axis=0)
+      return self.result()
+
+    batch_state = StatsState(batch_score_fn=self.batch_score_fn)
+    batch_state.add(batch)
+    self.merge(batch_state)
+    return batch_state.result()
 
   @property
   def min(self) -> types.NumbersT:
@@ -78,11 +78,11 @@ class StatsState:
 
   @property
   def var(self) -> types.NumbersT:
-    return self._var_sum and self._var_sum / self._count
+    return self._var
 
   @property
   def stddev(self) -> types.NumbersT:
-    return self._var_sum and np.sqrt(self.var)
+    return self._var and np.sqrt(self._var)
 
   @property
   def mean(self) -> types.NumbersT:
@@ -95,3 +95,27 @@ class StatsState:
   @property
   def total(self) -> types.NumbersT:
     return self._mean * self._count if self._count > 0 else 0.0
+
+  def merge(self, other: 'StatsState'):
+    if not self._count or not other.count:
+      raise ValueError('Both StatsStates must not be empty.')
+
+    self._min = min(self._min, other.min)
+    self._max = max(self._max, other.max)
+
+    prev_mean, prev_count = self._mean, self._count
+    self._count += other.count
+    self._mean += (other.mean - prev_mean) * (other.count / self._count)
+    # Reference
+    # (https://math.stackexchange.com/questions/2971315/how-do-i-combine-standard-deviations-of-two-groups)
+    prev_count_ratio = prev_count / self._count
+    other_count_ratio = other.count / self._count
+    self._var = (
+        prev_count_ratio * self._var
+        + other_count_ratio * other.var
+        + prev_count_ratio * (prev_mean - self._mean) ** 2
+        + other_count_ratio * (other.mean - self._mean) ** 2
+    )
+
+  def result(self) -> 'StatsState':
+    return self
