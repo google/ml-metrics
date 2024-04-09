@@ -11,27 +11,27 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Flip Counts."""
+"""Flip Masks."""
 
 from ml_metrics._src.aggregates import types
 import numpy as np
 
-# TODO: b/333106326 - Replace all flip counts with flip masks.
+# TODO: b/333429436 - Make default predictions 0 or 1 for efficiency.
 
 
-def binary_flip_counts(
+def binary_flip_mask(
     base_prediction: types.NumbersT,
     model_prediction: types.NumbersT,
     threshold: types.NumbersT = np.array(0.5),
 ) -> types.NumbersT:
-  """AKA symmetric flip counts. Returns a 1 if the predictions don't match."""
+  """AKA symmetric flip mask. Returns a 1 if the predictions don't match."""
   base_over_threshold = base_prediction > threshold
   model_over_threshold = model_prediction > threshold
 
   return np.logical_xor(base_over_threshold, model_over_threshold).astype(int)
 
 
-def neg_to_pos_flip_counts(
+def neg_to_pos_flip_mask(
     base_prediction: types.NumbersT,
     model_prediction: types.NumbersT,
     threshold: types.NumbersT = np.array(0.5),
@@ -43,7 +43,7 @@ def neg_to_pos_flip_counts(
   return np.logical_and(base_under_threshold, model_over_threshold).astype(int)
 
 
-def pos_to_neg_flip_counts(
+def pos_to_neg_flip_mask(
     base_prediction: types.NumbersT,
     model_prediction: types.NumbersT,
     threshold: types.NumbersT = np.array(0.5),

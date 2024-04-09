@@ -13,7 +13,7 @@
 # limitations under the License.
 """Tests for Flip Counts."""
 
-from ml_metrics._src.scores import flip_counts
+from ml_metrics._src.scores import flip_masks
 import numpy as np
 from numpy import testing
 
@@ -26,56 +26,55 @@ class FlipCountsTest(parameterized.TestCase):
   @parameterized.named_parameters(
       dict(
           testcase_name='binary',
-          flip_counts_fn=flip_counts.binary_flip_counts,
-          expected_flip_counts=(0, 1, 1, 0),
+          flip_mask_fn=flip_masks.binary_flip_mask,
+          expected_mask=(0, 1, 1, 0),
       ),
       dict(
           testcase_name='neg_to_pos',
-          flip_counts_fn=flip_counts.neg_to_pos_flip_counts,
-          expected_flip_counts=(0, 1, 0, 0),
+          flip_mask_fn=flip_masks.neg_to_pos_flip_mask,
+          expected_mask=(0, 1, 0, 0),
       ),
       dict(
           testcase_name='pos_to_neg',
-          flip_counts_fn=flip_counts.pos_to_neg_flip_counts,
-          expected_flip_counts=(0, 0, 1, 0),
+          flip_mask_fn=flip_masks.pos_to_neg_flip_mask,
+          expected_mask=(0, 0, 1, 0),
       ),
   )
-  def test_flip_counts(self, flip_counts_fn, expected_flip_counts):
+  def test_flip_counts(self, flip_mask_fn, expected_mask):
     base_predictions = np.array((0.1, 0.1, 0.9, 0.9))
     model_predictions = np.array((0.2, 0.9, 0.1, 0.8))
 
     for base_prediction, model_prediction, expected_flip_count in zip(
-        base_predictions, model_predictions, expected_flip_counts
+        base_predictions, model_predictions, expected_mask
     ):
       self.assertEqual(
-          flip_counts_fn(base_prediction, model_prediction),
+          flip_mask_fn(base_prediction, model_prediction),
           expected_flip_count,
       )
 
   @parameterized.named_parameters(
       dict(
           testcase_name='binary',
-          flip_counts_fn=flip_counts.binary_flip_counts,
-          expected_flip_counts=np.array((0, 1, 1, 0)),
+          flip_mask_fn=flip_masks.binary_flip_mask,
+          expected_mask=np.array((0, 1, 1, 0)),
       ),
       dict(
           testcase_name='neg_to_pos',
-          flip_counts_fn=flip_counts.neg_to_pos_flip_counts,
-          expected_flip_counts=np.array((0, 1, 0, 0)),
+          flip_mask_fn=flip_masks.neg_to_pos_flip_mask,
+          expected_mask=np.array((0, 1, 0, 0)),
       ),
       dict(
           testcase_name='pos_to_neg',
-          flip_counts_fn=flip_counts.pos_to_neg_flip_counts,
-          expected_flip_counts=np.array((0, 0, 1, 0)),
+          flip_mask_fn=flip_masks.pos_to_neg_flip_mask,
+          expected_mask=np.array((0, 0, 1, 0)),
       ),
   )
-  def test_flip_counts_batched(self, flip_counts_fn, expected_flip_counts):
+  def test_flip_counts_batched(self, flip_mask_fn, expected_mask):
     base_predictions = np.array((0.1, 0.1, 0.9, 0.9))
     model_predictions = np.array((0.2, 0.9, 0.1, 0.8))
 
     testing.assert_array_equal(
-        flip_counts_fn(base_predictions, model_predictions),
-        expected_flip_counts,
+        flip_mask_fn(base_predictions, model_predictions), expected_mask
     )
 
 
