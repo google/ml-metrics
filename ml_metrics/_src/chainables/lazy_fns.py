@@ -296,7 +296,10 @@ def _make(fn: LazyFn) -> Any:
     try:
       return _cached_make(fn)
     except TypeError:
-      return _cached_make(picklers.default.dumps(fn))
+      try:
+        return _cached_make(picklers.default.dumps(fn))
+      except TypeError as e:
+        raise TypeError(f'fn is not picklable: {fn}.') from e
 
   args = tuple(maybe_make(arg) for arg in fn.args)
   kwargs = {k: maybe_make(v) for k, v in fn.kwargs}
