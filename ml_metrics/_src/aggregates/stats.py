@@ -33,7 +33,23 @@ class StatsState(base.MergeableMetric):
   _var: types.NumbersT | None = None
 
   def add(self, batch: types.NumbersT) -> 'StatsState':
-    """Update the statistics with the given batch."""
+    """Update the statistics with the given batch.
+
+    Args:
+      batch:
+        A non-vacant series of numerical values.
+
+    Returns:
+      StatsState
+
+    Raise:
+      ValueError:
+        If the `batch` is empty.
+    """
+
+    if not list(batch):
+      raise ValueError('`batch` must not be empty.')
+
     if not self._count:
       # This assumes the first dimension is the batch dimension.
       if self.batch_score_fn is not None:
@@ -81,6 +97,9 @@ class StatsState(base.MergeableMetric):
     return self._mean * self._count if self._count > 0 else 0.0
 
   def merge(self, other: 'StatsState'):
+    if not self._count or not other.count:
+      raise ValueError('Both StatsStates must not be empty.')
+
     self._min = min(self._min, other.min)
     self._max = max(self._max, other.max)
 

@@ -112,6 +112,13 @@ class StatsTest(parameterized.TestCase):
           expected_result[metric], getattr(result, metric)
       )
 
+  def test_stats_state_initial_add_with_empty_batch(self):
+    state = stats.StatsState()
+    with self.assertRaisesRegex(
+        ValueError, '`batch` must not be empty.'
+    ):
+      state.add([])
+
   def test_stats_state_with_score_fn(self):
     batches = np.array([np.random.randn(30) for _ in range(30)])
     batch_score_fn = lambda x: x + 1
@@ -156,6 +163,29 @@ class StatsTest(parameterized.TestCase):
       np.testing.assert_allclose(
           expected_result[metric], getattr(result, metric)
       )
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='merge_empty_state',
+          self_empty=False,
+      ),
+      dict(
+          testcase_name='merge_to_empty_state',
+          self_empty=True,
+      ),
+  ])
+  def test_stats_state_merge_empty_state_stats(self, self_empty):
+    state_self = stats.StatsState()
+    state_other = stats.StatsState()
+    if self_empty:
+      state_other.add([1, 2, 3])
+    else:
+      state_self.add([1, 2, 3])
+
+    with self.assertRaisesRegex(
+        ValueError, 'Both StatsStates must not be empty.'
+    ):
+      state_self.merge(state_other)
 
 
 if __name__ == '__main__':
