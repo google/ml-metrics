@@ -125,7 +125,7 @@ class CombinedTreeFn:
   """Combining multiple transforms into one concrete TreeFn."""
 
   input_fns: Sequence[tree.MapLikeTreeCallable] = ()
-  agg_fns: dict[tree_fns.TreeAggregateFn, aggregates.Aggregatable] = (
+  agg_fns: dict[tree.TreeMapKeys, tree_fns.TreeAggregateFn] = (
       dataclasses.field(default_factory=dict)
   )
   output_fns: Sequence[tree.MapLikeTreeCallable] = ()
@@ -230,8 +230,9 @@ class CombinedTreeFn:
   def get_result(self, state: Any) -> tree.MapLikeTree[Any] | None:
     result = tree.TreeMapView()
     for key, fn_state in state.items():
-      fn_result = self.agg_fns[key].get_result(fn_state)
-      result = result | tree.TreeMapView.as_view(fn_result)
+      agg_fn = self.agg_fns[key]
+      outputs = agg_fn.actual_fn.get_result(fn_state)
+      result = result.copy_and_set(agg_fn.output_keys, outputs)
     result = result.data
     return _call_fns(self.output_fns, result)
 
