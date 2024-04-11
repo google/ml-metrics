@@ -114,7 +114,10 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       try:
         outputs = fn(*fn_inputs)
       except Exception as e:
-        raise ValueError(f'Failed to call {self.fn} with {fn_inputs=}') from e
+        raise ValueError(
+            f'Failed to call {self.fn} with inputs:'
+            f' {tree.tree_shape(fn_inputs)}'
+        ) from e
     else:
       # If the function is None, this serves as a select operation.
       outputs = fn_inputs
