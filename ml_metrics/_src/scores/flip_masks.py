@@ -16,27 +16,29 @@
 from ml_metrics._src.aggregates import types
 import numpy as np
 
-# TODO: b/333429436 - Make default predictions 0 or 1 for efficiency.
-
 
 def binary_flip_mask(
     base_prediction: types.NumbersT,
     model_prediction: types.NumbersT,
-    threshold: types.NumbersT = np.array(0.5),
+    threshold: types.NumbersT | None = None,
 ) -> types.NumbersT:
   """AKA symmetric flip mask. Returns a 1 if the predictions don't match."""
-  base_over_threshold = base_prediction > threshold
-  model_over_threshold = model_prediction > threshold
+  if threshold is not None:
+    base_prediction = base_prediction > threshold
+    model_prediction = model_prediction > threshold
 
-  return np.logical_xor(base_over_threshold, model_over_threshold).astype(int)
+  return np.logical_xor(base_prediction, model_prediction).astype(int)
 
 
 def neg_to_pos_flip_mask(
     base_prediction: types.NumbersT,
     model_prediction: types.NumbersT,
-    threshold: types.NumbersT = np.array(0.5),
+    threshold: types.NumbersT | None = None,
 ) -> types.NumbersT:
   """Returns a 1 if base_prediction <= threshold < model_prediction."""
+  if threshold is None:
+    return not base_prediction and model_prediction
+
   base_under_threshold = base_prediction <= threshold
   model_over_threshold = model_prediction > threshold
 
@@ -46,9 +48,12 @@ def neg_to_pos_flip_mask(
 def pos_to_neg_flip_mask(
     base_prediction: types.NumbersT,
     model_prediction: types.NumbersT,
-    threshold: types.NumbersT = np.array(0.5),
+    threshold: types.NumbersT | None = None,
 ) -> types.NumbersT:
   """Returns a 1 if base_prediction > threshold >= model_prediction."""
+  if threshold is None:
+    return base_prediction and not model_prediction
+
   base_over_threshold = base_prediction > threshold
   model_under_threshold = model_prediction <= threshold
 
