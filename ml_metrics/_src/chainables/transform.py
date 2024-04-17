@@ -62,7 +62,7 @@ class PrefetchableIterator:
       return self._data.pop(0)
     else:
       self.to_be_deleted = True
-      logging.info('Generator exhausted from %s.', self._generator)
+      logging.info('Chainables: Generator exhausted from %s.', self._generator)
       raise StopIteration
 
   def __iter__(self):
@@ -78,15 +78,17 @@ class PrefetchableIterator:
         self._data.append(next(self._generator))
         self._cnt += 1
         self._error_cnt = 0
-        logging.info('Prefetching %d from %s', self._cnt, self._generator)
+        logging.info(
+            'Chainables: Prefetching %d from %s', self._cnt, self._generator
+        )
       except StopIteration:
         exhausted = True
       except ValueError as e:
         if 'generator already executing' != str(e):
-          logging.warning('Got error during prefetch: %s', e)
+          logging.warning('Chainables: Got error during prefetch: %s', e)
           self._error_cnt += 1
           if self._error_cnt > 6:
-            logging.warning('Too many errors, stop prefetching.')
+            logging.warning('Chainables: Too many errors, stop prefetching.')
             break
         time.sleep(1)
 
@@ -125,7 +127,7 @@ class CombinedTreeFn:
   """Combining multiple transforms into one concrete TreeFn."""
 
   input_fns: Sequence[tree.MapLikeTreeCallable] = ()
-  agg_fns: dict[tree_fns.TreeAggregateFn, aggregates.Aggregatable] = (
+  agg_fns: dict[tree.TreeMapKeys, tree_fns.TreeAggregateFn] = (
       dataclasses.field(default_factory=dict)
   )
   output_fns: Sequence[tree.MapLikeTreeCallable] = ()
@@ -230,8 +232,9 @@ class CombinedTreeFn:
   def get_result(self, state: Any) -> tree.MapLikeTree[Any] | None:
     result = tree.TreeMapView()
     for key, fn_state in state.items():
-      fn_result = self.agg_fns[key].get_result(fn_state)
-      result = result | tree.TreeMapView.as_view(fn_result)
+      agg_fn = self.agg_fns[key]
+      outputs = agg_fn.actual_fn.get_result(fn_state)
+      result = result.copy_and_set(agg_fn.output_keys, outputs)
     result = result.data
     return _call_fns(self.output_fns, result)
 
@@ -408,7 +411,9 @@ class TreeTransform(Generic[TreeFnT]):
       )
     return input_transform
 
-  def make(self, *, recursive=True, mode: RunnerMode = RunnerMode.DEFAULT):
+  def make(
+      self, *, recursive=True, mode: RunnerMode = RunnerMode.DEFAULT
+  ) -> CombinedTreeFn:
     """Makes the concrete function instance from the transform."""
     return CombinedTreeFn.from_transform(self, recursive=recursive, mode=mode)
 
