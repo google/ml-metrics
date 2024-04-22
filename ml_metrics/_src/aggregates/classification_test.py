@@ -18,6 +18,7 @@ from ml_metrics._src.aggregates import classification
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
 from ml_metrics._src.chainables import lazy_fns
+from ml_metrics._src.utils import math_utils
 import numpy as np
 
 
@@ -380,7 +381,7 @@ class ClassificationTest(parameterized.TestCase):
               2 / 3,  # positive_predictive_value
               2 / 5,  # intersection_over_union
               4 / 7,  # prevalence
-              utils.pos_sqrt(6) - 2,  # prevalence_threshold
+              math_utils.pos_sqrt(6) - 2,  # prevalence_threshold
               1 / 6,  # matthews_correlation_coefficient
               1 / 6,  # informedness
               1 / 6,  # markedness
@@ -421,7 +422,7 @@ class ClassificationTest(parameterized.TestCase):
               (2 / 3 + 2 / 4) / 2,  # positive_predictive_value
               (2 / 5 + 2 / 5) / 2,  # intersection_over_union
               (4 / 7 + 3 / 7) / 2,  # prevalence
-              ((utils.pos_sqrt(6) - 2) + (2 * utils.pos_sqrt(3) - 3))
+              ((math_utils.pos_sqrt(6) - 2) + (2 * math_utils.pos_sqrt(3) - 3))
               / 2,  # prevalence_threshold
               (1 / 6 + 1 / 6) / 2,  # matthews_correlation_coefficient
               (1 / 6 + 1 / 6) / 2,  # informedness
@@ -463,7 +464,7 @@ class ClassificationTest(parameterized.TestCase):
               2 / 3,  # positive_predictive_value
               2 / 5,  # intersection_over_union
               4 / 7,  # prevalence
-              utils.pos_sqrt(6) - 2,  # prevalence_threshold
+              math_utils.pos_sqrt(6) - 2,  # prevalence_threshold
               1 / 6,  # matthews_correlation_coefficient
               1 / 6,  # informedness
               1 / 6,  # markedness
@@ -505,7 +506,7 @@ class ClassificationTest(parameterized.TestCase):
               2 / 3,  # positive_predictive_value
               2 / 5,  # intersection_over_union
               4 / 7,  # prevalence
-              utils.pos_sqrt(6) - 2,  # prevalence_threshold
+              math_utils.pos_sqrt(6) - 2,  # prevalence_threshold
               1 / 6,  # matthews_correlation_coefficient
               1 / 6,  # informedness
               1 / 6,  # markedness
@@ -693,7 +694,7 @@ class ClassificationTest(parameterized.TestCase):
               3 / 8,  # 'prevalence': MeanState(total=3, count=8)
               # prevalence_threshold =
               #               mean([0, (sqrt(0.5) - 0.5)/0.5, 1, 0, 0, 0, 1, 0])
-              (1 / utils.pos_sqrt(0.5) + 1) / 8,  # 'prevalence_threshold':
+              (1 / math_utils.pos_sqrt(0.5) + 1) / 8,  # 'prevalence_threshold':
               #                        MeanState(total=1.5 + sqrt(0.5), count=8)
               0.5,  # 'matthews_correlation_coefficient':
               #         MeanState(total=4, count=8)
