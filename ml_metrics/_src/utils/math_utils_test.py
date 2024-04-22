@@ -49,6 +49,53 @@ class MathUtilsTest(parameterized.TestCase):
     else:
       self.assertAlmostEqual(result, expected_result)
 
+  # Original Tests safe_to_scalar tests from:
+  # tensorflow_model_analysis/metrics/metric_util_test.py
+  @parameterized.named_parameters(
+      dict(testcase_name='tuple_int', arr=(1,), expected_scalar=1),
+      dict(testcase_name='tuple_float', arr=(1.0,), expected_scalar=1.0),
+      dict(
+          testcase_name='tuple_string',
+          arr=('string',),
+          expected_scalar='string',
+      ),
+      dict(testcase_name='list_int', arr=[1], expected_scalar=1),
+      dict(testcase_name='list_float', arr=[1.0], expected_scalar=1.0),
+      dict(
+          testcase_name='list_string', arr=['string'], expected_scalar='string'
+      ),
+      dict(testcase_name='np_array_int', arr=np.array(1), expected_scalar=1),
+      dict(
+          testcase_name='np_array_float', arr=np.array(1.0), expected_scalar=1.0
+      ),
+      dict(
+          testcase_name='np_array_string',
+          arr=np.array('string'),
+          expected_scalar='string',
+      ),
+  )
+  def test_safe_to_scalar_unpack_1d_iterable(self, arr, expected_scalar):
+    self.assertEqual(math_utils.safe_to_scalar(arr), expected_scalar)
+
+  @parameterized.named_parameters(
+      dict(testcase_name='empty_tuple', arr=()),
+      dict(testcase_name='empty_list', arr=[]),
+      dict(testcase_name='empty_np_array', arr=np.array([])),
+  )
+  def test_safe_to_scalar_empty_iterable(self, arr):
+    self.assertEqual(math_utils.safe_to_scalar(arr), 0.0)
+
+  @parameterized.named_parameters(
+      dict(testcase_name='2_elem_tuple', arr=(1, 2)),
+      dict(testcase_name='2_elem_list', arr=[1, 2]),
+      dict(testcase_name='2_elem_np_array', arr=np.array((1, 2))),
+  )
+  def test_safe_to_scalar_multi_elem_iterable_raises_value_error(self, arr):
+    with self.assertRaisesRegex(
+        ValueError, 'Array should have exactly 1 value to a Python scalar'
+    ):
+      math_utils.safe_to_scalar(arr)
+
 
 if __name__ == '__main__':
   absltest.main()

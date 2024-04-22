@@ -13,6 +13,8 @@
 # limitations under the License.
 """Math Utils."""
 
+from typing import Any
+
 from ml_metrics._src.aggregates import types
 import numpy as np
 
@@ -31,3 +33,35 @@ def safe_divide(a, b):
   )
 
   return result.item() if result.ndim == 0 else result
+
+
+def safe_to_scalar(arr: tuple[Any] | list[Any] | np.ndarray) -> Any:  # pylint: disable=g-one-element-tuple
+  """Returns tuple, list, or np.ndarray as a scalar. Returns 0.0 if empty.
+
+  Originally from tensorflow_model_analysis/metrics/metric_util.py
+
+  Args:
+    arr: A one element tuple, list, or numpy.ndarray to be converted to a
+      scalar.
+
+  Returns:
+    The Python scalar.
+  """
+  if isinstance(arr, np.ndarray):
+    if arr.size == 0:
+      # 0 elements.
+      return 0.0
+    if arr.size == 1:
+      # 1 element.
+      return arr.item()
+  else:
+    # arr is tuple or list.
+    if not arr:
+      # 0 elements.
+      return 0.0
+    if len(arr) == 1:
+      # 1 element.
+      return arr[0]
+
+  # >1 element.
+  raise ValueError('Array should have exactly 1 value to a Python scalar')
