@@ -172,6 +172,8 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
 
   Attributes:
     data: Nested MapLike (Tree) structure.
+    map_fn: A function that will be applied to the leaf value when accessing the
+      tree.
     strict: If True, non-existing key will cause a KeyError.
     consistent_type: If True, tries to maintain a consistent container type when
       the input container is immutable. e.g., tuple will be reconstructed as
@@ -180,6 +182,10 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
   """
 
   data: MapLikeTree = ()
+  map_fn: Callable[..., Any] | None = dataclasses.field(
+      kw_only=True,
+      default=None,
+  )
   strict: bool = dataclasses.field(kw_only=True, default=False)
   consistent_type: bool = dataclasses.field(kw_only=True, default=False)
 
@@ -187,11 +193,17 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
   def as_view(
       cls,
       tree_or_view: MapLikeTree[LeafValueT] | TreeMapView[LeafValueT],
+      map_fn: Callable[..., Any] | None = None,
   ) -> TreeMapView:
     """Util to use a MapLikeTree as a Map."""
     if not isinstance(tree_or_view, TreeMapView):
       tree_or_view = TreeMapView(tree_or_view)
+    if map_fn:
+      return dataclasses.replace(tree_or_view, map_fn=map_fn)
     return tree_or_view
+
+  def _maybe_map(self, data):
+    return self.map_fn(data) if self.map_fn else data
 
   def __get(self, key: TreeMapKey) -> MapLikeTree[LeafValueT] | None:
     """Gets the value from a single Key or Path."""
@@ -199,7 +211,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
     data = self.data
     for k in key:
       if _is_key(k, Key.SELF):
-        return data
+        return self._maybe_map(data)
       if isinstance(k, Index) and isinstance(data, Sequence):
         data = data[k]
       elif not isinstance(k, Index) and isinstance(data, Mapping):
@@ -208,7 +220,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
         raise ValueError(
             f'Cannot use {type(k)} ({k}) as a key for {type(data)} data.'
         )
-    return data
+    return self._maybe_map(data)
 
   def __getitem__(
       self, keys: TreeMapKey | TreeMapKeys
@@ -357,6 +369,11 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
       return self.copy_and_set(*zip(*other.items(), strict=True))
     else:
       return self
+
+  def copy_and_map(self, map_fn: Callable[..., Any]) -> MapLikeTree:
+    """Copy and apply a map function to the tree."""
+    view = TreeMapView.as_view(self, map_fn=map_fn)
+    return TreeMapView().copy_and_update(view.to_dict())
 
   def __or__(self, other: Mapping[TreeMapKey, Any]) -> TreeMapView:
     """Alias for `copy_and_update`."""
