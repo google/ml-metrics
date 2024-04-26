@@ -24,7 +24,9 @@ from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
 from ml_metrics._src.chainables import lazy_fns
+from ml_metrics._src.utils import math_utils
 import numpy as np
+
 
 AverageType = types.AverageType
 InputType = types.InputType
@@ -250,7 +252,7 @@ class _TopKConfusionMatrix(_ConfusionMatrix):
 
 
 def _precision(cm: _ConfusionMatrix):
-  return utils.safe_divide(cm.tp, cm.p)
+  return math_utils.safe_divide(cm.tp, cm.p)
 
 
 def _ppv(cm: _ConfusionMatrix):
@@ -259,13 +261,13 @@ def _ppv(cm: _ConfusionMatrix):
 
 
 def _recall(cm: _ConfusionMatrix):
-  return utils.safe_divide(cm.tp, cm.t)
+  return math_utils.safe_divide(cm.tp, cm.t)
 
 
 def _f1(cm: _ConfusionMatrix):
   precision = _precision(cm)
   recall = _recall(cm)
-  return utils.safe_divide(2 * precision * recall, precision + recall)
+  return math_utils.safe_divide(2 * precision * recall, precision + recall)
 
 
 def _accuracy(cm: _ConfusionMatrix) -> types.NumbersT:
@@ -275,7 +277,7 @@ def _accuracy(cm: _ConfusionMatrix) -> types.NumbersT:
 
 def _binary_accuracy(cm: _ConfusionMatrix) -> types.NumbersT:
   """Binary accuracy."""
-  return utils.safe_divide(cm.tp + cm.tn, cm.tp + cm.fp + cm.tn + cm.fn)
+  return math_utils.safe_divide(cm.tp + cm.tn, cm.tp + cm.fp + cm.tn + cm.fn)
 
 
 def _sensitivity(cm: _ConfusionMatrix) -> types.NumbersT:
@@ -290,7 +292,7 @@ def _tpr(cm: _ConfusionMatrix) -> types.NumbersT:
 
 def _specificity(cm: _ConfusionMatrix) -> types.NumbersT:
   """Specificity or Selectivity."""
-  return utils.safe_divide(cm.tn, (cm.tn + cm.fp))
+  return math_utils.safe_divide(cm.tn, (cm.tn + cm.fp))
 
 
 def _tnr(cm: _ConfusionMatrix) -> types.NumbersT:
@@ -300,7 +302,7 @@ def _tnr(cm: _ConfusionMatrix) -> types.NumbersT:
 
 def _fall_out(cm: _ConfusionMatrix) -> types.NumbersT:
   """Fall out rate."""
-  return utils.safe_divide(cm.fp, (cm.fp + cm.tn))
+  return math_utils.safe_divide(cm.fp, (cm.fp + cm.tn))
 
 
 def _fpr(cm: _ConfusionMatrix) -> types.NumbersT:
@@ -310,7 +312,7 @@ def _fpr(cm: _ConfusionMatrix) -> types.NumbersT:
 
 def _miss_rate(cm: _ConfusionMatrix) -> types.NumbersT:
   """MissRate."""
-  return utils.safe_divide(cm.fn, (cm.fn + cm.tp))
+  return math_utils.safe_divide(cm.fn, (cm.fn + cm.tp))
 
 
 def _fnr(cm: _ConfusionMatrix) -> types.NumbersT:
@@ -320,7 +322,7 @@ def _fnr(cm: _ConfusionMatrix) -> types.NumbersT:
 
 def _negative_prediction_value(cm: _ConfusionMatrix) -> types.NumbersT:
   """Negative predictive value (NPV)."""
-  return utils.safe_divide(cm.tn, (cm.tn + cm.fn))
+  return math_utils.safe_divide(cm.tn, (cm.tn + cm.fn))
 
 
 def _npv(cm: _ConfusionMatrix) -> types.NumbersT:
@@ -330,65 +332,67 @@ def _npv(cm: _ConfusionMatrix) -> types.NumbersT:
 
 def _false_discovery_rate(cm: _ConfusionMatrix) -> types.NumbersT:
   """False discovery rate (FDR)."""
-  return utils.safe_divide(cm.fp, (cm.p))
+  return math_utils.safe_divide(cm.fp, (cm.p))
 
 
 def _false_omission_rate(cm: _ConfusionMatrix) -> types.NumbersT:
   """False discovery rate (FDR)."""
-  return utils.safe_divide(cm.fn, (cm.fn + cm.tn))
+  return math_utils.safe_divide(cm.fn, (cm.fn + cm.tn))
 
 
 def _threat_score(cm: _ConfusionMatrix) -> types.NumbersT:
   """Threat score or critical success index (TS or CSI)."""
-  return utils.safe_divide(cm.tp, (cm.t + cm.fp))
+  return math_utils.safe_divide(cm.tp, (cm.t + cm.fp))
 
 
 def _positive_likelihood_ratio(cm: _ConfusionMatrix) -> types.NumbersT:
   """Postive Likelihood ratio."""
-  return utils.safe_divide(_tpr(cm), _fpr(cm))
+  return math_utils.safe_divide(_tpr(cm), _fpr(cm))
 
 
 def _negative_likelihood_ratio(cm: _ConfusionMatrix) -> types.NumbersT:
   """Negative Likelihodd ratio."""
-  return utils.safe_divide(_fnr(cm), _tnr(cm))
+  return math_utils.safe_divide(_fnr(cm), _tnr(cm))
 
 
 def _diagnostic_odds_ratio(cm: _ConfusionMatrix) -> types.NumbersT:
   """Diagnostic Odds ratio (tp*tn/fp*fn)."""
-  return utils.safe_divide(
+  return math_utils.safe_divide(
       _positive_likelihood_ratio(cm), _negative_likelihood_ratio(cm)
   )
 
 
 def _positive_predictive_value(cm: _ConfusionMatrix) -> types.NumbersT:
-  return utils.safe_divide(cm.tp, cm.p)
+  return math_utils.safe_divide(cm.tp, cm.p)
 
 
 def _intersection_over_union(cm: _ConfusionMatrix) -> types.NumbersT:
-  return utils.safe_divide(cm.tp, (cm.t + cm.fp))
+  return math_utils.safe_divide(cm.tp, (cm.t + cm.fp))
 
 
 def _prevalence(cm: _ConfusionMatrix) -> types.NumbersT:
   """Prevalence."""
-  return utils.safe_divide((cm.tp + cm.fn), (cm.tp + cm.tn + cm.fn + cm.fp))
+  return math_utils.safe_divide(
+      (cm.tp + cm.fn), (cm.tp + cm.tn + cm.fn + cm.fp)
+  )
 
 
 def _prevalence_threshold(cm: _ConfusionMatrix) -> types.NumbersT:
   """Prevalence threshold (PT)."""
   tnr = _tnr(cm)
   tpr = _tpr(cm)
-  return utils.safe_divide(
-      (utils.pos_sqrt(tpr * (1 - tnr)) + tnr - 1), (tpr + tnr - 1)
+  return math_utils.safe_divide(
+      (math_utils.pos_sqrt(tpr * (1 - tnr)) + tnr - 1), (tpr + tnr - 1)
   )
 
 
 def _matthews_correlation_coefficient(cm: _ConfusionMatrix) -> types.NumbersT:
   """Matthews corrrelation coefficient (MCC)."""
   numerator = cm.tp * cm.tn - cm.fp * cm.fn
-  denominator = utils.pos_sqrt(
+  denominator = math_utils.pos_sqrt(
       (cm.tp + cm.fp) * (cm.tp + cm.fn) * (cm.tn + cm.fp) * (cm.tn + cm.fn)
   )
-  return utils.safe_divide(numerator, denominator)
+  return math_utils.safe_divide(numerator, denominator)
 
 
 def _informedness(cm: _ConfusionMatrix) -> types.NumbersT:
