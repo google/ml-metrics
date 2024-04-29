@@ -177,6 +177,19 @@ class TreeMapViewTest(absltest.TestCase):
     self.assertEqual(expected, result)
     self.assertIsInstance(result, types.MappingProxyType)
 
+  def test_map_fn(self):
+    data = dict(a=dict(b=1, c=2), e=3)
+    mapped = TreeMapView.as_view(data).copy_and_map(lambda x: x * 2)
+    expected = dict(a=dict(b=2, c=4), e=6)
+    self.assertEqual(expected, mapped.data)
+
+  def test_view_with_map_fn(self):
+    data = dict(a=dict(b=1, c=2), e=3)
+    view = TreeMapView.as_view(data, map_fn=lambda x: x * 2)
+    mapped = TreeMapView().copy_and_update(view.to_dict())
+    expected = dict(a=dict(b=2, c=4), e=6)
+    self.assertEqual(expected, mapped.data)
+
   def test_copy_and_set_with_reserved_keys(self):
     result = (
         TreeMapView({})
