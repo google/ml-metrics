@@ -80,7 +80,7 @@ class TreeFnTest(absltest.TestCase):
       tree_fns.Assign.new(fn=lambda: 1, output_keys=())
 
   def test_tree_fn_call_failed_raises(self):
-    with self.assertRaisesRegex(ValueError, 'Failed to call .+ with fn_inputs'):
+    with self.assertRaisesRegex(ValueError, 'Failed to call .+ with inputs'):
       # (0,) + 1 is illegal. Should raise error.
       tree_fns.TreeFn.new(fn=lambda x: x + 1)((0,))
 
