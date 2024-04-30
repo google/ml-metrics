@@ -56,6 +56,10 @@ class PrefetchableIterator:
     self._error_cnt = 0
     self._cnt = 0
 
+  @property
+  def cnt(self) -> int:
+    return self._cnt
+
   def __next__(self):
     self.prefetch(1)
     if self._data:
@@ -83,13 +87,14 @@ class PrefetchableIterator:
         )
       except StopIteration:
         exhausted = True
-      except ValueError as e:
+      except Exception as e:  # pylint: disable=broad-exception-caught
         if 'generator already executing' != str(e):
-          logging.warning('Chainables: Got error during prefetch: %s', e)
+          logging.exception('Chainables: Got error during prefetch.')
           self._error_cnt += 1
-          if self._error_cnt > 6:
-            logging.warning('Chainables: Too many errors, stop prefetching.')
+          if self._error_cnt > 3:
+            logging.exception('Chainables: Too many errors, stop prefetching.')
             break
+
         time.sleep(1)
 
 
