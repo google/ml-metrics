@@ -361,6 +361,7 @@ class TransformTest(parameterized.TestCase):
         p.make().iterate(), prefetch_size=2
     )
     iterator.prefetch()
+    self.assertEqual(2, iterator.cnt)
     self.assertEqual([0, 1], iterator._data)
 
 

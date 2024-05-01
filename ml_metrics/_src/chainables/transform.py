@@ -56,6 +56,10 @@ class PrefetchableIterator:
     self._error_cnt = 0
     self._cnt = 0
 
+  @property
+  def cnt(self) -> int:
+    return self._cnt
+
   def __next__(self):
     self.prefetch(1)
     if self._data:
@@ -83,13 +87,14 @@ class PrefetchableIterator:
         )
       except StopIteration:
         exhausted = True
-      except ValueError as e:
+      except Exception as e:  # pylint: disable=broad-exception-caught
         if 'generator already executing' != str(e):
-          logging.warning('Chainables: Got error during prefetch: %s', e)
+          logging.exception('Chainables: Got error during prefetch.')
           self._error_cnt += 1
-          if self._error_cnt > 6:
-            logging.warning('Chainables: Too many errors, stop prefetching.')
+          if self._error_cnt > 3:
+            logging.exception('Chainables: Too many errors, stop prefetching.')
             break
+
         time.sleep(1)
 
 
@@ -114,6 +119,7 @@ class RunnerMode(base_types.StrEnum):
   DEFAULT = 'default'
   AGGREGATE = 'aggregate'
   SAMPLE = 'sample'
+  SEPARATE = 'separate'
 
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
@@ -239,11 +245,14 @@ class CombinedTreeFn:
     return _call_fns(self.output_fns, result)
 
   def _actual_inputs(self, inputs, input_iterator):
-    if inputs is not None and input_iterator:
-      raise ValueError(f'Cannot set inputs and input_iterator from: {self}')
+    if inputs is not None and input_iterator is not None:
+      raise ValueError(
+          'Inputs or input_iterator cannot be set at the same time, got both'
+          f' for {self}'
+      )
     # Overrides the internal input_iterator if either inputs or input_iterator
     # is provided.
-    if not input_iterator and not self.input_iterator:
+    if input_iterator is None and self.input_iterator is None:
       return [inputs]
     else:
       return input_iterator or self.input_iterator
@@ -297,7 +306,7 @@ class CombinedTreeFn:
       state: Any = None,
       inputs=None,
       *,
-      input_iterator: Iterable[Any] = (),
+      input_iterator: Iterable[Any] | None = None,
   ):
     """Updates the state by either the inputs or an iterator of the inputs."""
     input_iterator = self._actual_inputs(inputs, input_iterator)
@@ -307,7 +316,7 @@ class CombinedTreeFn:
       if isinstance(batch_output, AggregateResult):
         return batch_output.agg_state
 
-  def __call__(self, inputs=None, *, input_iterator=()):
+  def __call__(self, inputs=None, *, input_iterator=None):
     iter_input = self._actual_inputs(inputs, input_iterator)
     if self.agg_fns:
       return self.get_result(self.update_state(input_iterator=iter_input))
