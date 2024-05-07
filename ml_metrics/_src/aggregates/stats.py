@@ -14,8 +14,10 @@
 
 """Common statistics aggregations."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Sequence
 import dataclasses
+import math
+
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 import numpy as np
@@ -119,3 +121,138 @@ class StatsState(base.MergeableMetric):
 
   def result(self) -> 'StatsState':
     return self
+
+
+@dataclasses.dataclass(slots=True)
+class _PccState:
+  """State for the Pearson Correlation Coefficient."""
+
+  num_samples: int = 0
+  sum_x: float = 0
+  sum_y: float = 0
+  sum_xx: float = 0  # sum(x**2)
+  sum_yy: float = 0  # sum(y**2)
+  sum_xy: float = 0  # sum(x * y)
+
+  def __eq__(self, other: '_PccState') -> bool:
+    return (
+        self.num_samples == other.num_samples
+        and self.sum_x == other.sum_x
+        and self.sum_y == other.sum_y
+        and self.sum_xx == other.sum_xx
+        and self.sum_yy == other.sum_yy
+        and self.sum_xy == other.sum_xy
+    )
+
+  def from_inputs(self, x: Sequence[float], y: Sequence[float]) -> '_PccState':
+    x = np.array(x)
+    y = np.array(y)
+
+    return _PccState(
+        num_samples=x.size,
+        sum_x=np.sum(x),
+        sum_y=np.sum(y),
+        sum_xx=np.sum(x**2),
+        sum_yy=np.sum(y**2),
+        sum_xy=np.sum(x * y),
+    )
+
+  def merge(self, other: '_PccState') -> '_PccState':
+    self.num_samples += other.num_samples
+    self.sum_x += other.sum_x
+    self.sum_y += other.sum_y
+    self.sum_xx += other.sum_xx
+    self.sum_yy += other.sum_yy
+    self.sum_xy += other.sum_xy
+
+    return self
+
+  def result(self) -> float:
+    """Calculates the Pearson Correlation Coefficient (PCC).
+
+    PCC = cov(X, Y) / std(X) / std(Y)
+    where cov is the covariance, and std(X) is the standard deviation of X;
+    and analagously for std(Y).
+
+    After substituting estimates of the covariances and variances
+    PCC = sum((x_i - x_bar) * (y_i - y_bar))
+          / sqrt(sum((x_i - x_bar)**2)) / sqrt(sum((x_i - x_bar)**2))
+    where x_i and y_i are the individual sampled points indexed with i, and
+    x_bar is the sample mean; and analagously for y_bar.
+
+    Rearranging the PCC formula gives us
+    PCC = (n * sum(x_i * y_i) - sum(x_i) * sum(y_i))
+          / sqrt(n * sum(x_i ** 2) - sum(x_i)**2)
+          / sqrt(n * sum(y_i ** 2) - sum(y_i)**2)
+    where n is sample size, and x_i and y_i are defined as above.
+
+    Simplifying this yields
+    PCC = (sum(x_i * y_i) - n * x_bar * y_bar)
+          / sqrt(sum(x_i ** 2) - n * x_bar ** 2)
+          / sqrt(sum(y_i ** 2) - n * y_bar ** 2)
+    where n, x_i, y_i, x_bar, and y_bar are defined as above.
+
+    Returns:
+      The Pearson Correlation Coefficient.
+    """
+    if self.num_samples == 0:
+      return float('nan')
+
+    # For readability, we will seperate the numerator and denominator.
+    # Further, we will seperate the denominator such that
+    # numerator = sum(x_i * y_i) - n * x_bar * y_bar
+    # denominator_x = sqrt(sum(x_i ** 2) - n * x_bar ** 2)
+    # denominator_y = sqrt(sum(y_i ** 2) - n * y_bar ** 2)
+    # denominator = denominator_x * denominator_y
+
+    denominator_x = math.sqrt(self.sum_xx - self.sum_x**2 / self.num_samples)
+    denominator_y = math.sqrt(self.sum_yy - self.sum_y**2 / self.num_samples)
+    denominator = denominator_x * denominator_y
+
+    if denominator == 0.0:
+      return float('nan')
+
+    numerator = self.sum_xy - self.sum_x * self.sum_y / self.num_samples
+
+    return numerator / denominator
+
+
+class PearsonCorrelationCoefficientAggFn(base.AggregateFn):
+  """Computes the Pearson Correlation Coefficient (PCC).
+
+  The Pearson correlation coefficient (PCC) is a correlation coefficient that
+  measures linear correlation between two sets of data. It is the ratio between
+  the covariance of two variables and the product of their standard deviations;
+  thus, it is essentially a normalized measurement of the covariance, such that
+  the result always has a value between -1 and 1. As with covariance itself, the
+  measure can only reflect a linear correlation of variables, and ignores many
+  other types of relationships or correlations. As a simple example, one would
+  expect the age and height of a sample of teenagers from a high school to have
+  a Pearson correlation coefficient significantly greater than 0, but less than
+  1 (as 1 would represent an unrealistically perfect correlation).
+
+  https://en.wikipedia.org/wiki/Pearson_correlation_coefficient
+  """
+
+  def create_state(self):
+    return _PccState()
+
+  def update_state(
+      self,
+      state: _PccState,
+      x: Sequence[float],
+      y: Sequence[float],
+  ) -> _PccState:
+    return state.merge(state.from_inputs(x, y))
+
+  def merge_states(self, states: Iterable[_PccState]) -> _PccState:
+    states = iter(states)
+    result = next(states)
+
+    for state in states:
+      result.merge(state)
+
+    return result
+
+  def get_result(self, state: _PccState) -> float:
+    return state.result()

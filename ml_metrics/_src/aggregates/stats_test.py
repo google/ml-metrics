@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for stats."""
+
+import math
 
 from absl.testing import parameterized
-
 from ml_metrics._src.aggregates import stats
 import numpy as np
 
@@ -187,6 +187,57 @@ class StatsTest(parameterized.TestCase):
     ):
       state_self.merge(state_other)
 
+  def test_pearson_correlation_coefficient_one_batch(self):
+    x = ((1, 2, 3, 4, 5, 6, 7),)
+    y = ((10, 9, 2.5, 6, 4, 3, 2),)
+
+    actual_result = stats.PearsonCorrelationCoefficientAggFn()(x, y)
+    expected_result = -0.8285038835884279
+
+    self.assertAlmostEqual(actual_result, expected_result)
+
+  def test_pearson_correlation_coefficient_many_batches(self):
+    np.random.seed(seed=0)
+    x = np.random.rand(1000000)
+    y = np.random.rand(1000000)
+
+    expected_result = -0.00029321876957677745
+    actual_result = stats.PearsonCorrelationCoefficientAggFn()(x, y)
+
+    self.assertAlmostEqual(actual_result, expected_result)
+
+  @parameterized.named_parameters(
+      dict(testcase_name='empty_input', x=(), y=()),
+      dict(testcase_name='0_input', x=((0, 0),), y=((0, 0),)),
+  )
+  def test_pearson_correlation_coefficient_returns_nan(self, x, y):
+    self.assertTrue(
+        math.isnan(stats.PearsonCorrelationCoefficientAggFn()(x, y))
+    )
+
+  def test_pearson_correlation_coefficient_merge(self):
+    x_1 = (1, 2, 3, 4)
+    y_1 = (10, 9, 2.5, 6)
+
+    x_2 = (5, 6, 7)
+    y_2 = (4, 3, 2)
+
+    expected_result = stats._PccState(
+        num_samples=7,
+        sum_x=28,
+        sum_y=36.5,
+        sum_xx=140,
+        sum_yy=252.25,
+        sum_xy=111.5,
+    )
+
+    new_state = stats._PccState()
+    state_1 = new_state.from_inputs(x_1, y_1)
+    state_2 = new_state.from_inputs(x_2, y_2)
+
+    result = state_1.merge(state_2)
+
+    self.assertEqual(result, expected_result)
 
 if __name__ == '__main__':
   absltest.main()
