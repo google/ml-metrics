@@ -12,8 +12,9 @@ authors = [
 ]
 dependencies = [
     'absl-py',
-    'numpy',
     'cloudpickle',
+    'dm-launchpad',
+    'numpy',
 ]
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -25,7 +26,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-testing = ['dm-launchpad']
+testing = ['dill']
 
 [project.urls]
 homepage = "https://github.com/google/ml-metrics"
