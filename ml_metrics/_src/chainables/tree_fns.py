@@ -18,12 +18,13 @@ from __future__ import annotations
 import dataclasses
 import functools
 import typing
-from typing import Any, Generic, TypeVar
+from typing import Any, Callable, Generic, Hashable, Iterable, Iterator, Self, TypeVar
 
 from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
 
+SliceIteratorFn = Callable[..., Iterable[Hashable]]
 ValueT = TypeVar('ValueT')
 FnT = TypeVar('FnT')
 StateT = TypeVar('StateT')
@@ -166,6 +167,88 @@ class Select(TreeFn):
     assert self.fn is None, f'Select should have no fn, got {self.fn}.'
 
 
+@dataclasses.dataclass(frozen=True)
+class SliceKey:
+  features: tuple[tree.TreeMapKey, ...] = ()
+  values: tuple[Any, ...] = ()
+
+  def __post_init__(self):
+    assert isinstance(self.features, tuple)
+    assert isinstance(self.values, tuple)
+    if len(self.features) != len(self.values):
+      raise ValueError(
+          'SliceKey should have same number of features and values, got'
+          f' {self.features=} and {self.values=}'
+      )
+
+
+@dataclasses.dataclass(frozen=True)
+class Slicer:
+  """Generates slices given an input_keys and slicer iterator.
+
+  Note that the slicer_fn takes one row as input instead of a batch.
+  """
+
+  slice_fn: SliceIteratorFn
+  input_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
+  slice_name: str | tuple[str, ...] = ()
+  _default_constructor: bool = dataclasses.field(default=True, repr=False)
+
+  def __post_init__(self):
+    if self._default_constructor:
+      raise ValueError(
+          f'Do not use the constructor, use {self.__class__.__name__}.new().'
+      )
+
+  @classmethod
+  def new(
+      cls,
+      input_keys: tree.TreeMapKey | tree.TreeMapKeys = tree.Key.SELF,
+      *,
+      slice_name: tree.TreeMapKey | tree.TreeMapKeys = tree.Key.SELF,
+      slice_fn: (
+          SliceIteratorFn | lazy_fns.LazyFn[SliceIteratorFn] | None
+      ) = None,
+  ) -> Self:
+    """Normalizes the arguements before constructing a TreeFn."""
+    if slice_fn and not slice_name:
+      raise ValueError('Must provide output_key when slice_fn is provided.')
+    slice_fn = slice_fn or (lambda *args: (args,))
+    # Fn requires a tuple for positional inputs. Normalize_keys converts
+    # the keys into a tuple of keys to make sure the actual selected inputs
+    # are also wrapped in a tuple.
+    input_keys = tree.normalize_keys(input_keys)
+    slice_name = tree.normalize_keys(slice_name) or input_keys
+    return cls(
+        slice_fn=slice_fn,
+        slice_name=slice_name,
+        input_keys=input_keys,
+        _default_constructor=False,
+    )
+
+  def iterate_and_slice(
+      self, inputs: tree.MapLikeTree[Any]
+  ) -> Iterator[tuple[SliceKey, int]]:
+    """Iterates through each row of the batch and emits slice and row index."""
+    # The input_keys are always normalized to tuple, so the output will always
+    # be a tuple.
+    inputs = typing.cast(
+        tuple[Any, ...], tree.TreeMapView.as_view(inputs)[self.input_keys]
+    )
+    for i, row in enumerate(zip(*inputs)):
+      for slice_value in self.slice_fn(*row):
+        # slice_name is always normalized to a tuple, so slice_values have to
+        # be normalized here as well.
+        if not isinstance(slice_value, tuple):
+          slice_value = (slice_value,)
+        yield SliceKey(self.slice_name, slice_value), i
+
+  def maybe_make(self) -> Self:
+    return dataclasses.replace(
+        self, slice_fn=lazy_fns.maybe_make(self.slice_fn)
+    )
+
+
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class TreeAggregateFn(
     Generic[StateT, ValueT], TreeFn[aggregates.Aggregatable, ValueT]
@@ -187,11 +270,12 @@ class TreeAggregateFn(
       self, state: StateT, inputs: tree.MapLikeTree[ValueT]
   ) -> StateT:
     try:
-      inputs = tree.TreeMapView.as_view(inputs)[self.input_keys]
+      inputs = self.get_inputs(inputs)
       state = self.actual_fn.update_state(state, *inputs)
     except Exception as e:
       raise ValueError(
-          f'Cannot call {self=} with shape:\n{tree.tree_shape(inputs)}'
+          f'Cannot call {self.input_keys=}, {self.output_keys=},'
+          f' {self.fn.__name__} with shape:\n{tree.tree_shape(inputs)}'
       ) from e
     return state
 

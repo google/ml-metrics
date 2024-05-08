@@ -18,8 +18,11 @@ from absl.testing import parameterized
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
 from ml_metrics._src.chainables import tree
+from ml_metrics._src.chainables import tree_fns
 
 Key = tree.Key
+MetricKey = transform.MetricKey
+SliceKey = tree_fns.SliceKey
 
 
 # TODO: b/318463291 - Improves test coverage.
@@ -310,6 +313,112 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual(merged_t1, merged_t2)
     self.assertEqual(expected, agg1.get_result(state1))
     self.assertEqual(expected, agg2.get_result(state2))
+
+  def test_aggregate_with_slices(self):
+    inputs = {'a': [1, 2, 1], 'b': [1, 9, 5]}
+    agg = (
+        transform.TreeTransform.new()
+        .aggregate(
+            input_keys='b',
+            fn=TestAverageFn(),
+            output_keys='avg_b',
+        )
+        .add_slice('a')
+        .add_slice('b')
+    )
+    expected = {
+        'avg_b': [5.0],
+        MetricKey('avg_b', SliceKey(('a',), (1,))): [3.0],
+        MetricKey('avg_b', SliceKey(('a',), (2,))): [9.0],
+        MetricKey('avg_b', SliceKey(('b',), (1,))): [1.0],
+        MetricKey('avg_b', SliceKey(('b',), (9,))): [9.0],
+        MetricKey('avg_b', SliceKey(('b',), (5,))): [5.0],
+    }
+    self.assertEqual(expected, agg.make()(inputs))
+
+  def test_aggregate_with_slice_crosses(self):
+    inputs = {'a': [1, 2, 1], 'b': [1, 9, 5]}
+    agg = (
+        transform.TreeTransform.new()
+        .aggregate(
+            input_keys='b',
+            fn=TestAverageFn(),
+            output_keys='avg_b',
+        )
+        .add_slice(('a', 'b'))
+    )
+    expected = {
+        'avg_b': [5.0],
+        MetricKey('avg_b', SliceKey(('a', 'b'), (1, 1))): [1.0],
+        MetricKey('avg_b', SliceKey(('a', 'b'), (2, 9))): [9.0],
+        MetricKey('avg_b', SliceKey(('a', 'b'), (1, 5))): [5.0],
+    }
+    self.assertEqual(expected, agg.make()(inputs))
+
+  def test_aggregate_with_slice_fn_fanout(self):
+    inputs = {'a': ['x1 x2', 'x2', 'x1 x3'], 'b': [1, 9, 5]}
+
+    def foo(x):
+      return x.split(' ')
+
+    agg = (
+        transform.TreeTransform.new()
+        .aggregate(
+            input_keys='b',
+            fn=TestAverageFn(),
+            output_keys='avg_b',
+        )
+        .add_slice('a', slice_fn=foo)
+    )
+    expected = {
+        'avg_b': [5.0],
+        MetricKey('avg_b', SliceKey(('a',), ('x1',))): [3.0],
+        MetricKey('avg_b', SliceKey(('a',), ('x2',))): [5.0],
+        MetricKey('avg_b', SliceKey(('a',), ('x3',))): [5.0],
+    }
+    self.assertEqual(expected, agg.make()(inputs))
+
+  def test_aggregate_with_slice_fn_multi_fanout(self):
+    inputs = {'a': ['x1 x2', 'x2', 'x1 x3'], 'b': [1, 9, 5]}
+
+    def foo(x):
+      return ((i, x) for i, x in enumerate(x.split(' ')))
+
+    agg = (
+        transform.TreeTransform.new()
+        .aggregate(
+            input_keys='b',
+            fn=TestAverageFn(),
+            output_keys='avg_b',
+        )
+        .add_slice('a', slice_fn=foo, slice_name=('pos', 'token'))
+    )
+    expected = {
+        'avg_b': [5.0],
+        MetricKey('avg_b', SliceKey(('pos', 'token'), (0, 'x1'))): [3.0],
+        MetricKey('avg_b', SliceKey(('pos', 'token'), (0, 'x2'))): [9.0],
+        MetricKey('avg_b', SliceKey(('pos', 'token'), (1, 'x2'))): [1.0],
+        MetricKey('avg_b', SliceKey(('pos', 'token'), (1, 'x3'))): [5.0],
+    }
+    self.assertEqual(expected, agg.make()(inputs))
+
+  def test_aggregate_raises_when_slice_fn_emits_unhashable(self):
+    inputs = {'a': ['x1 x2', 'x2', 'x1 x3'], 'b': [1, 9, 5]}
+
+    def foo(x):
+      return ([i, x] for i, x in enumerate(x.split(' ')))
+
+    agg = (
+        transform.TreeTransform.new()
+        .aggregate(
+            input_keys='b',
+            fn=TestAverageFn(),
+            output_keys='avg_b',
+        )
+        .add_slice('a', slice_fn=foo, slice_name=('pos', 'a'))
+    )
+    with self.assertRaises(ValueError):
+      agg.make()(inputs)
 
   def test_input_iterator_transform(self):
     input_iterator = [[1, 2, 3], [2, 3, 4]]
