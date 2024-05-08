@@ -211,8 +211,8 @@ class StatsTest(parameterized.TestCase):
     self.assertEqual(result, expected_result)
 
   def test_pearson_correlation_coefficient_simple(self):
-    x = ((1, 2, 3, 4, 5, 6, 7),)
-    y = ((10, 9, 2.5, 6, 4, 3, 2),)
+    x = (1, 2, 3, 4, 5, 6, 7)
+    y = (10, 9, 2.5, 6, 4, 3, 2)
 
     actual_result = stats.PearsonCorrelationCoefficientAggFn()(x, y)
 
@@ -307,7 +307,7 @@ class StatsTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       dict(testcase_name='empty_input', x=(), y=()),
-      dict(testcase_name='0_input', x=((0, 0),), y=((0, 0),)),
+      dict(testcase_name='0_input', x=(0, 0), y=(0, 0)),
   )
   def test_pearson_correlation_coefficient_returns_nan(self, x, y):
     self.assertTrue(
