@@ -53,7 +53,7 @@ class CourierWorkerTest(absltest.TestCase):
   def test_worker_heartbeat(self):
     # server = courier_server.CourierServerWrapper().build_server()
     # Server is not started, thus it is never alive.
-    worker = courier_worker.Worker('wrong_address', heartbeat_threshold=0)
+    worker = courier_worker.Worker('wrong_address', heartbeat_threshold_secs=0)
     self.assertFalse(worker.is_alive)
 
   def test_worker_pendings(self):
@@ -95,7 +95,7 @@ class CourierWorkerTest(absltest.TestCase):
     self.assertTrue(worker.call(True))
     self.assertTrue(t.is_alive())
     worker.shutdown()
-    time.sleep(4)
+    time.sleep(3)
     self.assertFalse(t.is_alive())
 
 
@@ -105,7 +105,9 @@ class CourierWorkerGroupTest(absltest.TestCase):
     super().setUp()
     self.server = courier_server.CourierServerWrapper().build_server()
     self.server.Start()
-    self.worker_pool = courier_worker.WorkerPool([self.server.address])
+    worker_pool = courier_worker.WorkerPool([self.server.address])
+    worker_pool.wait_until_alive(num_attempts=3)
+    self.worker_pool = worker_pool
 
   def tearDown(self):
     super().tearDown()
@@ -157,8 +159,26 @@ class CourierWorkerGroupTest(absltest.TestCase):
     worker_group = courier_worker.WorkerPool([server.address])
     self.assertTrue(worker_group.call_and_wait(True))
     worker_group.shutdown()
-    time.sleep(4)
+    time.sleep(3)
     self.assertFalse(t.is_alive())
+
+  def test_worker_group_failed_to_start(self):
+    worker_group = courier_worker.WorkerPool(
+        ['wrong_address'], call_timeout=0.1
+    )
+    try:
+      with self.assertLogs(level='WARNING') as cm:
+        worker_group.wait_until_alive(num_attempts=1)
+      self.assertRegex(cm.output[0], '.*missed a heartbeat.*')
+      self.assertRegex(cm.output[1], 'Failed to connect to workers.*')
+    except ValueError:
+      pass  # The exception is tested below.
+    with self.assertRaises(ValueError):
+      worker_group.wait_until_alive(num_attempts=1)
+
+  def test_worker_group_num_workers(self):
+    worker_group = courier_worker.WorkerPool(['a', 'b'])
+    self.assertEqual(2, worker_group.num_workers)
 
 
 if __name__ == '__main__':

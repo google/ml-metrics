@@ -32,8 +32,8 @@ class Task:
 
   Attributes:
     courier_method: The courier method name to be called.
-    args: The positional arguements later used to pass in the fn.
-    kwargs: The named arguements later used to pass in the fn.
+    args: The positional arguments later used to pass in the fn.
+    kwargs: The named arguments later used to pass in the fn.
     blocking: Whether the wait for the call to complete.
     keep_result: Whether to keep the result.
     server_name: The server address this task is sent to.
@@ -192,9 +192,9 @@ class Worker:
   """Courier client wrapper that works as a chainable worker."""
 
   server_name: str
-  call_timeout: int = 30
+  call_timeout: int = 60
   max_parallelism: int = 1
-  heartbeat_threshold: int = 6
+  heartbeat_threshold_secs: int = 180
   _client: courier.Client | None = dataclasses.field(default=None, init=False)
   _pendings: list[futures.Future[Any]] = dataclasses.field(
       default_factory=list, init=False
@@ -202,7 +202,7 @@ class Worker:
   _heartbeat: futures.Future[Any] | None = dataclasses.field(
       default=None, init=False
   )
-  _missed_heartbeat: int = 0
+  _last_heartbeat: float = 0.0
 
   def __post_init__(self):
     self._client = courier.Client(
@@ -213,33 +213,34 @@ class Worker:
   def has_capacity(self) -> bool:
     return len(self.pendings) < self.max_parallelism
 
-  @property
-  def is_alive(self) -> bool:
-    """Checks whether the worker is alive."""
+  def _check_heartbeat(self) -> bool:
+    """Ping the worker to check the heartbeat once."""
     if not self._heartbeat:
       self._heartbeat = Worker(self.server_name, call_timeout=60).call('echo')
     try:
       if self._heartbeat.done():
         if self._heartbeat.result():
-          self._missed_heartbeat = 0
           self._heartbeat = None
+          self._last_heartbeat = time.time()
+          return True
     except Exception:  # pylint: disable=broad-exception-caught
-      self._missed_heartbeat += 1
       logging.warning(
-          'Chainables: Worker %s missed a heartbeat %d times',
-          self.server_name,
-          self._missed_heartbeat,
+          'Chainables: Worker %s missed a heartbeat.', self.server_name
       )
       self._heartbeat = None
-    result = self._missed_heartbeat < self.heartbeat_threshold
-    if not result:
-      self._missed_heartbeat = 0
-    return result
+    return False
 
-  def reset(self):
-    self._heartbeat = None
-    self._missed_heartbeat = 0
-    self._pendings = []
+  @property
+  def is_alive(self) -> bool:
+    """Checks whether the worker is alive."""
+    if self._check_heartbeat():
+      return True
+    # No last heartbeat recorded, consider it dead.
+    if self._last_heartbeat:
+      time_passed = time.time() - self._last_heartbeat
+      return time_passed < self.heartbeat_threshold_secs
+    else:
+      return False
 
   @property
   def pendings(self) -> list[futures.Future[Any]]:
@@ -277,6 +278,9 @@ class Worker:
       )
     return Task.from_list_of_tasks(result)
 
+  def clear_cache(self):
+    return self.call(courier_method='clear_cache')
+
   def set_timeout(self, call_timeout: int):
     self.call_timeout = call_timeout
     self._client = courier.Client(self.server_name, call_timeout=call_timeout)
@@ -306,7 +310,7 @@ class WorkerPool:
   server_names: list[str]
   call_timeout: int = 30
   max_parallelism: int = 1
-  heartbeat_threshold: int = 1
+  heartbeat_threshold_secs: int = 180
 
   def __post_init__(self):
     self._workers = {
@@ -314,10 +318,37 @@ class WorkerPool:
             name,
             call_timeout=self.call_timeout,
             max_parallelism=self.max_parallelism,
-            heartbeat_threshold=self.heartbeat_threshold,
+            heartbeat_threshold_secs=self.heartbeat_threshold_secs,
         )
         for name in self.server_names
     }
+
+  def wait_until_alive(
+      self,
+      num_attempts: int = 30,
+      minimum_num_workers: int = 1,
+      sleep_interval: float = 6.0,
+  ):
+    """Waits for the workers to be alive with retries."""
+    for _ in range(num_attempts):
+      try:
+        workers = self.idle_workers()
+        logging.info('chainables: Available workers: %d', len(workers))
+        assert get_results(
+            [worker.clear_cache() for worker in workers], blocking=True
+        ) == [None] * len(workers)
+        logging.info('chainables: %d workers connected.', len(workers))
+        # Proceed if reached minimum number of workers.
+        if len(workers) >= minimum_num_workers:
+          break
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        logging.warning('Exception when connecting: %s', e)
+      time.sleep(sleep_interval)
+    else:
+      raise ValueError(
+          f'Failed to connect to workers after {num_attempts} tries: workers:'
+          f' {self.server_names}'
+      )
 
   def call_and_wait(self, *args, courier_method='', **kwargs):
     states = [
@@ -338,6 +369,10 @@ class WorkerPool:
   @property
   def workers(self):
     return [c for c in self._workers.values() if c.is_alive]
+
+  @property
+  def num_workers(self):
+    return len(self.server_names)
 
   def get_worker_by_name(self, name: str) -> Worker:
     return self._workers[name]
