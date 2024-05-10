@@ -48,9 +48,9 @@ class CourierServerTest(absltest.TestCase):
 
     client.maybe_make(pickler.dumps(lazy_fns.trace(test_generator)(10)))
     actual = []
-    while (
+    while not lazy_fns.is_stop_iteration(
         t := pickler.loads(client.next_from_generator())
-    ) != lazy_fns.STOP_ITERATION:
+    ):
       actual.append(t)
     self.assertEqual(list(range(10)), actual)
     server.Stop()
@@ -83,9 +83,9 @@ class CourierServerTest(absltest.TestCase):
     client.maybe_make(pickler.dumps(lazy_fns.trace(test_generator)(10)))
     actual = []
     with self.assertLogs(level='ERROR') as cm:
-      while (
+      while not lazy_fns.is_stop_iteration(
           t := pickler.loads(client.next_from_generator())
-      ) != lazy_fns.STOP_ITERATION:
+      ):
         actual.append(t)
       client.shutdown()
       self.assertEqual(list(range(6)), actual)

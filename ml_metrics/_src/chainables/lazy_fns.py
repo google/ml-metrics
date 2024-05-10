@@ -33,6 +33,10 @@ Fn = Callable[..., ValueT]
 STOP_ITERATION = 'StopIteration_'
 
 
+def is_stop_iteration(inputs) -> bool:
+  return isinstance(inputs, str) and inputs == STOP_ITERATION
+
+
 # TODO: b/318463291 - support heterogeneous (de)serializations methods.
 @dataclasses.dataclass
 class Picklers:

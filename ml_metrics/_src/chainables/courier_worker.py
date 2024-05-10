@@ -435,7 +435,7 @@ class WorkerPool:
       still_running: list[Task] = []
       for task in running_tasks:
         if task.done:
-          if (result := task.result) != lazy_fns.STOP_ITERATION:
+          if not lazy_fns.is_stop_iteration(result := task.result):
             yield result
             still_running.append(task.iterate(self))
           else:
