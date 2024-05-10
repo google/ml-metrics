@@ -182,10 +182,12 @@ class StatsTest(parameterized.TestCase):
     else:
       state_self.add([1, 2, 3])
 
-    with self.assertRaisesRegex(
-        ValueError, 'Both StatsStates must not be empty.'
-    ):
+    if self_empty:
       state_self.merge(state_other)
+    else:
+      state_self.merge(state_other)
+    expected = stats.StatsState().add([1, 2, 3])
+    self.assertEqual(expected, state_self)
 
   def test_pearson_correlation_coefficient_merge(self):
     x_1 = (1, 2, 3, 4)

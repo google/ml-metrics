@@ -49,7 +49,8 @@ class StatsState(base.MergeableMetric):
         If the `batch` is empty.
     """
 
-    if not list(batch):
+    batch = np.asarray(batch)
+    if not batch.size:
       raise ValueError('`batch` must not be empty.')
 
     if not self._count:
@@ -99,8 +100,15 @@ class StatsState(base.MergeableMetric):
     return self._mean * self._count if self._count > 0 else 0.0
 
   def merge(self, other: 'StatsState'):
-    if not self._count or not other.count:
-      raise ValueError('Both StatsStates must not be empty.')
+    if not other.count:
+      return
+    if not self.count:
+      self._min = other.min
+      self._max = other.max
+      self._count = other.count
+      self._mean = other.mean
+      self._var = other.var
+      return
 
     self._min = min(self._min, other.min)
     self._max = max(self._max, other.max)
