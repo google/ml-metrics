@@ -225,7 +225,7 @@ class Worker:
           return True
     except Exception:  # pylint: disable=broad-exception-caught
       logging.warning(
-          'Chainables: Worker %s missed a heartbeat.', self.server_name
+          'chainables: Worker %s missed a heartbeat.', self.server_name
       )
       self._heartbeat = None
     return False
@@ -401,7 +401,7 @@ class WorkerPool:
           yield task
         elif not self._workers[task.server_name].is_alive:
           logging.warning(
-              'Chainables: Worker %s is not alive, re-appending task %s',
+              'chainables: Worker %s is not alive, re-appending task %s',
               task.server_name,
               dataclasses.replace(task, parent_task=None),
           )
@@ -440,11 +440,11 @@ class WorkerPool:
             still_running.append(task.iterate(self))
           else:
             logging.info(
-                'Chainables: worker %s generator exhausted.', task.server_name
+                'chainables: worker %s generator exhausted.', task.server_name
             )
         elif not self._workers[task.server_name].is_alive:
           logging.warning(
-              'Chainables: Worker %s is not alive, re-appending task %s',
+              'chainables: Worker %s is not alive, re-appending task %s',
               task.server_name,
               dataclasses.replace(task, parent_task=None),
           )
