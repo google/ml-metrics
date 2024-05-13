@@ -30,6 +30,11 @@ class CrossEntropyTest(absltest.TestCase):
     y_true = np.array((0, 1, 0, 1, 0, 1, 0, 1))
     y_pred = np.array((0.1, 0.1, 0.4, 0.4, 0.6, 0.6, 0.9, 0.9))
 
+    # How to reproduce expected_result:
+    # bce = tensorflow.keras.losses.BinaryCrossentropy()
+    # expected_result = tensorflow.get_static_value(
+    #     bce(y_true=y_true, y_pred=y_pred)
+    # )
     expected_result = 0.9587651091286978
 
     self.assertAlmostEqual(
@@ -61,6 +66,11 @@ class CrossEntropyTest(absltest.TestCase):
     y_true = np.array((0, 1, 0, 1, 0, 1, 0, 1))
     y_pred = np.array((0.1, 0.1, 0.4, 0.4, 0.6, 0.6, 0.9, 0.9))
 
+    # How to reproduce expected_result:
+    # cce = tensorflow.keras.losses.CategoricalCrossentropy()
+    # expected_result = tensorflow.get_static_value(
+    #     cce(y_true=y_true, y_pred=y_pred)
+    # )
     expected_result = 9.38023940877158
 
     self.assertAlmostEqual(
