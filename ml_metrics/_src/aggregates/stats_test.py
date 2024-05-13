@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import math
 
 from absl.testing import parameterized
@@ -189,19 +188,44 @@ class StatsTest(parameterized.TestCase):
     expected = stats.StatsState().add([1, 2, 3])
     self.assertEqual(expected, state_self)
 
-  def test_pearson_correlation_coefficient_merge(self):
+  def test_coeff_state_merge(self):
     x_1 = (1, 2, 3, 4)
     y_1 = (10, 9, 2.5, 6)
 
     x_2 = (5, 6, 7)
     y_2 = (4, 3, 2)
 
-    new_state = stats._PccState()
+    new_state = stats._CoeffState()
     state_1 = new_state.from_inputs(x_1, y_1)
     state_2 = new_state.from_inputs(x_2, y_2)
     result = state_1.merge(state_2)
 
-    expected_result = stats._PccState(
+    expected_result = stats._CoeffState(
+        num_samples=7,
+        sum_x=28,
+        sum_y=36.5,
+        sum_xx=140,
+        sum_yy=252.25,
+        sum_xy=111.5,
+    )
+
+    self.assertEqual(result, expected_result)
+
+  def test_coeff_agg_fn_base_merge_states(self):
+    x_1 = (1, 2, 3, 4)
+    y_1 = (10, 9, 2.5, 6)
+
+    x_2 = (5, 6, 7)
+    y_2 = (4, 3, 2)
+
+    new_state = stats._CoeffState()
+    state_1 = new_state.from_inputs(x_1, y_1)
+    state_2 = new_state.from_inputs(x_2, y_2)
+
+    new_agg_fn = stats.PearsonCorrelationCoefficientAggFn()
+    result = new_agg_fn.merge_states((state_1, state_2))
+
+    expected_result = stats._CoeffState(
         num_samples=7,
         sum_x=28,
         sum_y=36.5,
@@ -319,6 +343,112 @@ class StatsTest(parameterized.TestCase):
     self.assertTrue(
         math.isnan(stats.PearsonCorrelationCoefficientAggFn()(x, y))
     )
+
+  def test_coefficient_of_determination_simple(self):
+    x = (1, 2, 3, 4, 5, 6, 7)
+    y = (10, 9, 2.5, 6, 4, 3, 2)
+
+    actual_result = stats.CoefficientOfDeterminationAggFn()(x, y)
+
+    # From scipy.stats.pearsonr(x=x, y=y).statistic ** 2
+    expected_result = 0.6864186851211073
+
+    self.assertAlmostEqual(actual_result, expected_result)
+
+  def test_coefficient_of_determination_one_batch(self):
+    np.random.seed(seed=0)
+    x = np.random.uniform(low=-1e6, high=1e6, size=1000000)
+    y = np.random.uniform(low=-1e6, high=1e6, size=1000000)
+
+    actual_result = stats.CoefficientOfDeterminationAggFn()(x, y)
+
+    # From scipy.stats.pearsonr(x=x, y=y).statistic ** 2
+    expected_result = 8.597724683211943e-08
+
+    self.assertAlmostEqual(actual_result, expected_result)
+
+  def test_coefficient_of_determination_many_batches_little_correlation(
+      self,
+  ):
+    np.random.seed(seed=0)
+    x = np.array([
+        np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
+    ])
+    y = np.array([
+        np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
+    ])
+
+    state = stats.CoefficientOfDeterminationAggFn().create_state()
+    for x_i, y_i in zip(x, y):
+      stats.CoefficientOfDeterminationAggFn().update_state(state, x_i, y_i)
+
+    actual_result = stats.CoefficientOfDeterminationAggFn().get_result(state)
+
+    # From scipy.stats.pearsonr(x=x, y=y).statistic ** 2
+    expected_result = 1.7903494899129026e-09
+
+    self.assertAlmostEqual(actual_result, expected_result, places=15)
+
+  def test_coefficient_of_determination_many_batches_much_correlation(self):
+    np.random.seed(seed=0)
+    x = np.array([
+        np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
+    ])
+    y = x + np.array([
+        np.random.uniform(low=-1e5, high=1e5, size=10000) for _ in range(10000)
+    ])  # This is a noisy version of x.
+
+    state = stats.CoefficientOfDeterminationAggFn().create_state()
+    for x_i, y_i in zip(x, y):
+      stats.CoefficientOfDeterminationAggFn().update_state(state, x_i, y_i)
+
+    actual_result = stats.CoefficientOfDeterminationAggFn().get_result(state)
+
+    # From scipy.stats.pearsonr(x=x, y=y).statistic ** 2
+    expected_result = 0.9901000756276166
+
+    self.assertAlmostEqual(actual_result, expected_result, places=10)
+
+  def test_coefficient_of_determination_many_batches_direct_correlation(
+      self,
+  ):
+    x = np.array([
+        np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
+    ])
+
+    state = stats.CoefficientOfDeterminationAggFn().create_state()
+    for x_i in x:
+      stats.CoefficientOfDeterminationAggFn().update_state(state, x_i, x_i)
+
+    actual_result = stats.CoefficientOfDeterminationAggFn().get_result(state)
+
+    expected_result = 1
+
+    self.assertAlmostEqual(actual_result, expected_result, places=15)
+
+  def test_coefficient_of_determination_many_batches_inverse_correlation(
+      self,
+  ):
+    x = np.array([
+        np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
+    ])
+
+    state = stats.CoefficientOfDeterminationAggFn().create_state()
+    for x_i in x:
+      stats.CoefficientOfDeterminationAggFn().update_state(state, x_i, -x_i)
+
+    actual_result = stats.CoefficientOfDeterminationAggFn().get_result(state)
+
+    expected_result = 1
+
+    self.assertAlmostEqual(actual_result, expected_result, places=15)
+
+  @parameterized.named_parameters(
+      dict(testcase_name='empty_input', x=(), y=()),
+      dict(testcase_name='0_input', x=(0, 0), y=(0, 0)),
+  )
+  def test_coefficient_of_determination_returns_nan(self, x, y):
+    self.assertTrue(math.isnan(stats.CoefficientOfDeterminationAggFn()(x, y)))
 
 
 if __name__ == '__main__':

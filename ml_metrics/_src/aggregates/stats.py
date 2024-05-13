@@ -11,9 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Common statistics aggregations."""
 
+import abc
 from collections.abc import Callable, Iterable, Sequence
 import dataclasses
 import math
@@ -132,8 +132,8 @@ class StatsState(base.MergeableMetric):
 
 
 @dataclasses.dataclass(slots=True)
-class _PccState:
-  """State for the Pearson Correlation Coefficient."""
+class _CoeffState:
+  """The State for Coefficient Metrics."""
 
   num_samples: int = 0
   sum_x: float = 0
@@ -142,7 +142,7 @@ class _PccState:
   sum_yy: float = 0  # sum(y**2)
   sum_xy: float = 0  # sum(x * y)
 
-  def __eq__(self, other: '_PccState') -> bool:
+  def __eq__(self, other: '_CoeffState') -> bool:
     return (
         self.num_samples == other.num_samples
         and self.sum_x == other.sum_x
@@ -152,11 +152,13 @@ class _PccState:
         and self.sum_xy == other.sum_xy
     )
 
-  def from_inputs(self, x: Sequence[float], y: Sequence[float]) -> '_PccState':
+  def from_inputs(
+      self, x: Sequence[float], y: Sequence[float]
+  ) -> '_CoeffState':
     x = np.array(x)
     y = np.array(y)
 
-    return _PccState(
+    return _CoeffState(
         num_samples=x.size,
         sum_x=np.sum(x),
         sum_y=np.sum(y),
@@ -165,7 +167,7 @@ class _PccState:
         sum_xy=np.sum(x * y),
     )
 
-  def merge(self, other: '_PccState') -> '_PccState':
+  def merge(self, other: '_CoeffState') -> '_CoeffState':
     self.num_samples += other.num_samples
     self.sum_x += other.sum_x
     self.sum_y += other.sum_y
@@ -175,7 +177,53 @@ class _PccState:
 
     return self
 
-  def result(self) -> float:
+
+class _CoeffAggFnBase(base.AggregateFn, abc.ABC):
+  """Base class for Coefficient Aggreation Functions."""
+
+  def create_state(self):
+    return _CoeffState()
+
+  def update_state(
+      self,
+      state: _CoeffState,
+      x: Sequence[float],
+      y: Sequence[float],
+  ) -> _CoeffState:
+    return state.merge(state.from_inputs(x, y))
+
+  def merge_states(self, states: Iterable[_CoeffState]) -> _CoeffState:
+    states = iter(states)
+    result = next(states)
+
+    for state in states:
+      result.merge(state)
+
+    return result
+
+  @abc.abstractmethod
+  def get_result(self, state: _CoeffState) -> float:
+    raise NotImplementedError('get_result() is not implemented.')
+
+
+class PearsonCorrelationCoefficientAggFn(_CoeffAggFnBase):
+  """Computes the Pearson Correlation Coefficient (PCC).
+
+  The Pearson correlation coefficient (PCC) is a correlation coefficient that
+  measures linear correlation between two sets of data. It is the ratio between
+  the covariance of two variables and the product of their standard deviations;
+  thus, it is essentially a normalized measurement of the covariance, such that
+  the result always has a value between -1 and 1. As with covariance itself, the
+  measure can only reflect a linear correlation of variables, and ignores many
+  other types of relationships or correlations. As a simple example, one would
+  expect the age and height of a sample of teenagers from a high school to have
+  a Pearson correlation coefficient significantly greater than 0, but less than
+  1 (as 1 would represent an unrealistically perfect correlation).
+
+  https://en.wikipedia.org/wiki/Pearson_correlation_coefficient
+  """
+
+  def get_result(self, state: _CoeffState) -> float:
     """Calculates the Pearson Correlation Coefficient (PCC).
 
     PCC = cov(X, Y) / std(X) / std(Y)
@@ -200,10 +248,14 @@ class _PccState:
           / sqrt(sum(y_i ** 2) - n * y_bar ** 2)
     where n, x_i, y_i, x_bar, and y_bar are defined as above.
 
+    Args:
+      state: The _CoeffState containing the necessary sums to calculate the
+        Pearson Correlation Coefficient.
+
     Returns:
       The Pearson Correlation Coefficient.
     """
-    if self.num_samples == 0:
+    if state.num_samples == 0:
       return float('nan')
 
     # For readability, we will seperate the numerator and denominator.
@@ -213,54 +265,71 @@ class _PccState:
     # denominator_y = sqrt(sum(y_i ** 2) - n * y_bar ** 2)
     # denominator = denominator_x * denominator_y
 
-    denominator_x = math.sqrt(self.sum_xx - self.sum_x**2 / self.num_samples)
-    denominator_y = math.sqrt(self.sum_yy - self.sum_y**2 / self.num_samples)
+    denominator_x = math.sqrt(state.sum_xx - state.sum_x**2 / state.num_samples)
+    denominator_y = math.sqrt(state.sum_yy - state.sum_y**2 / state.num_samples)
     denominator = denominator_x * denominator_y
 
     if denominator == 0.0:
       return float('nan')
 
-    numerator = self.sum_xy - self.sum_x * self.sum_y / self.num_samples
+    numerator = state.sum_xy - state.sum_x * state.sum_y / state.num_samples
 
     return numerator / denominator
 
 
-class PearsonCorrelationCoefficientAggFn(base.AggregateFn):
-  """Computes the Pearson Correlation Coefficient (PCC).
+class CoefficientOfDeterminationAggFn(_CoeffAggFnBase):
+  """Computes the Coefficient of Determination (r^2).
 
-  The Pearson correlation coefficient (PCC) is a correlation coefficient that
-  measures linear correlation between two sets of data. It is the ratio between
-  the covariance of two variables and the product of their standard deviations;
-  thus, it is essentially a normalized measurement of the covariance, such that
-  the result always has a value between -1 and 1. As with covariance itself, the
-  measure can only reflect a linear correlation of variables, and ignores many
-  other types of relationships or correlations. As a simple example, one would
-  expect the age and height of a sample of teenagers from a high school to have
-  a Pearson correlation coefficient significantly greater than 0, but less than
-  1 (as 1 would represent an unrealistically perfect correlation).
+  The Coefficient of Determination is a statistic used in the context of
+  statistical models whose main purpose is either the prediction of future
+  outcomes or the testing of hypotheses, on the basis of other related
+  information. It provides a measure of how well observed outcomes are
+  replicated by the model, based on the proportion of total variation of
+  outcomes explained by the model.
 
-  https://en.wikipedia.org/wiki/Pearson_correlation_coefficient
+  https://en.wikipedia.org/wiki/Coefficient_of_determination
   """
 
-  def create_state(self):
-    return _PccState()
+  def get_result(self, state: _CoeffState) -> float:
+    """Calculates the Coefficient of Determination (r^2).
 
-  def update_state(
-      self,
-      state: _PccState,
-      x: Sequence[float],
-      y: Sequence[float],
-  ) -> _PccState:
-    return state.merge(state.from_inputs(x, y))
+    Since this is linear regression, r^2 is equivalent to the square of the
+    Pearson Correlation Coefficient.
+    r^2 = (sum(x_i * y_i) - n * x_bar * y_bar) ** 2
+    / (sum(x_i ** 2) - n * x_bar ** 2)
+    / (sum(y_i ** 2) - n * y_bar ** 2)
+    where x_i and y_i are the individual sampled points indexed with i,
+    x_bar is the sample mean; analagously for y_bar, and n is the sample size.
 
-  def merge_states(self, states: Iterable[_PccState]) -> _PccState:
-    states = iter(states)
-    result = next(states)
+    Args:
+      state: The _CoeffState containing the necessary sums to calculate the
+        Coefficient of Determination.
 
-    for state in states:
-      result.merge(state)
+    Returns:
+      The Coefficient of Determination
+    """
+    # Since we kept track of the running sums, it is easiest to simplify by
+    # multiplying the numerator and denominator by n^2. Thus,
+    # r^2 = (sum(x_i * y_i) * n - x_bar * n * y_bar * n) ** 2
+    # / (sum(x_i ** 2) * n - (x_bar * n) ** 2)
+    # / (sum(y_i ** 2) * n - (y_bar * n) ** 2)
 
-    return result
+    # For readability, we will seperate the numerator and denominator.
+    # Further, we will seperate the denominator such that
+    # numerator = (sum(x_i * y_i) * n - x_bar * n * y_bar * n) ** 2
+    # denominator_x = sum(x_i ** 2) * n - (x_bar * n) ** 2
+    # denominator_y = sum(y_i ** 2) * n - (y_bar * n) ** 2
+    # denominator = denominator_x * denominator_y
 
-  def get_result(self, state: _PccState) -> float:
-    return state.result()
+    denominator_x = state.sum_xx * state.num_samples - state.sum_x**2
+    denominator_y = state.sum_yy * state.num_samples - state.sum_y**2
+    denominator = denominator_x * denominator_y
+
+    if denominator == 0.0:
+      return float('nan')
+
+    numerator = (
+        state.sum_xy * state.num_samples - state.sum_x * state.sum_y
+    ) ** 2
+
+    return numerator / denominator
