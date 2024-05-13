@@ -218,6 +218,7 @@ class StatsTest(parameterized.TestCase):
 
     actual_result = stats.PearsonCorrelationCoefficientAggFn()(x, y)
 
+    # From scipy.stats.pearsonr(x=x, y=y).statistic
     expected_result = -0.8285038835884279
 
     self.assertAlmostEqual(actual_result, expected_result)
@@ -229,6 +230,7 @@ class StatsTest(parameterized.TestCase):
 
     actual_result = stats.PearsonCorrelationCoefficientAggFn()(x, y)
 
+    # From scipy.stats.pearsonr(x=x, y=y).statistic
     expected_result = -0.00029321876957677745
 
     self.assertAlmostEqual(actual_result, expected_result)
@@ -250,6 +252,7 @@ class StatsTest(parameterized.TestCase):
 
     actual_result = stats.PearsonCorrelationCoefficientAggFn().get_result(state)
 
+    # From scipy.stats.pearsonr(x=x, y=y).statistic
     expected_result = 4.231252166809374e-05
 
     self.assertAlmostEqual(actual_result, expected_result, places=15)
@@ -269,6 +272,7 @@ class StatsTest(parameterized.TestCase):
 
     actual_result = stats.PearsonCorrelationCoefficientAggFn().get_result(state)
 
+    # From scipy.stats.pearsonr(x=x, y=y).statistic
     expected_result = 0.9950377257308471
 
     self.assertAlmostEqual(actual_result, expected_result, places=10)
