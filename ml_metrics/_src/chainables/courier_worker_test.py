@@ -15,24 +15,35 @@ import threading
 import time
 
 from absl.testing import absltest
+from courier.python import testutil
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
+import portpicker
 
 Task = courier_worker.Task
+
+
+# Required for BNS resolution.
+def setUpModule():
+  testutil.SetupMockBNS()
 
 
 class CourierWorkerTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server = courier_server.CourierServerWrapper().build_server()
-    self.server.Start()
+    self.server_wrapper = courier_server.CourierServerWrapper()
+    self.server = self.server_wrapper.build_server()
+    self.t = threading.Thread(target=self.server_wrapper.run_until_shutdown)
+    self.t.start()
     self.worker = courier_worker.Worker(self.server.address)
+    self.worker.wait_until_alive()
 
   def tearDown(self):
+    self.worker.shutdown()
+    self.t.join()
     super().tearDown()
-    self.server.Stop()
 
   def test_worker_call(self):
     self.assertEqual(
@@ -51,9 +62,12 @@ class CourierWorkerTest(absltest.TestCase):
     )
 
   def test_worker_heartbeat(self):
-    # server = courier_server.CourierServerWrapper().build_server()
     # Server is not started, thus it is never alive.
-    worker = courier_worker.Worker('wrong_address', heartbeat_threshold_secs=0)
+    worker = courier_worker.Worker(
+        f'localhost:{portpicker.pick_unused_port()}',
+        heartbeat_threshold_secs=0,
+        call_timeout=0.01,
+    )
     self.assertFalse(worker.is_alive)
 
   def test_worker_pendings(self):
@@ -103,15 +117,17 @@ class CourierWorkerGroupTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server = courier_server.CourierServerWrapper().build_server()
-    self.server.Start()
-    worker_pool = courier_worker.WorkerPool([self.server.address])
-    worker_pool.wait_until_alive(num_attempts=3)
-    self.worker_pool = worker_pool
+    self.server_wrapper = courier_server.CourierServerWrapper()
+    self.server = self.server_wrapper.build_server()
+    self.t = threading.Thread(target=self.server_wrapper.run_until_shutdown)
+    self.t.start()
+    self.worker_pool = courier_worker.WorkerPool([self.server.address])
+    self.worker_pool.wait_until_alive(num_attempts=3)
 
   def tearDown(self):
+    self.worker_pool.shutdown()
+    self.t.join()
     super().tearDown()
-    self.server.Stop()
 
   def test_worker_group_call(self):
     actual = self.worker_pool.call_and_wait('echo')
@@ -126,16 +142,28 @@ class CourierWorkerGroupTest(absltest.TestCase):
             lazy_fns.trace(mock_generator)(3), blocking=True
         )
     ] * 3
-    results = [result for result in self.worker_pool.run_and_iterate(tasks)]
+    courier_worker._LOGGING_INTERVAL_SEC = 0.1
+    with self.assertLogs(level='INFO') as cm:
+      results = [
+          result
+          for result in self.worker_pool.run_and_iterate(
+              tasks, sleep_interval=0.01, num_total_failures_threshold=0
+          )
+      ]
+    self.assertNotEmpty([l for l in cm.output if 'iterate progress' in l])
     self.assertLen(results, 9)
-    self.assertEqual(list(range(3)) * 3, results)
+    self.assertCountEqual(list(range(3)) * 3, results)
 
   def test_worker_group_run_and_iterate_invalid_iterator(self):
     tasks = [
         Task.new('echo').add_task(lazy_fns.trace(len)([3]), blocking=True)
     ] * 3
-    with self.assertRaises(TypeError):
-      list(self.worker_pool.run_and_iterate(tasks))  # pylint: disable=expression-not-assigned
+    with self.assertRaises(ValueError):
+      list(
+          self.worker_pool.run_and_iterate(
+              tasks, num_total_failures_threshold=0
+          )
+      )
 
   def test_worker_group_run_tasks(self):
     tasks = [
@@ -164,7 +192,8 @@ class CourierWorkerGroupTest(absltest.TestCase):
 
   def test_worker_group_failed_to_start(self):
     worker_group = courier_worker.WorkerPool(
-        ['wrong_address'], call_timeout=0.1
+        [f'localhost:{portpicker.pick_unused_port()}'],
+        call_timeout=0.01,
     )
     try:
       with self.assertLogs(level='WARNING') as cm:

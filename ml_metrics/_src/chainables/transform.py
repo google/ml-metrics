@@ -21,7 +21,7 @@ Following is an example of an evaluation pipeline where:
  2. Model takes "inputs" for inference generating "outputs".
  3. Some metrics are computed using "outputs" and "labels".
   a. The metrics can be sliced by single or multiple features (slice crossed).
-  b. The metrics can be sliced by slice_fn with arbitary feature transform and
+  b. The metrics can be sliced by slice_fn with arbitrary feature transform and
     fanout logic.
 
   eval_pipeline = (
@@ -71,6 +71,8 @@ Map = Mapping[TreeMapKeyT, Any]
 TreeTransformT = TypeVar('TreeTransformT', bound='TreeTransform')
 TreeFn = tree_fns.TreeFn
 
+_LOGGING_INTERVAL_SECS = 30
+
 
 class PrefetchableIterator:
   """An iterator that can also prefetch before iterated."""
@@ -82,7 +84,6 @@ class PrefetchableIterator:
     self._generator = generator
     self._prefetch_size = prefetch_size
     self._exhausted = False
-    self.to_be_deleted = False
     self._error_cnt = 0
     self._cnt = 0
 
@@ -90,13 +91,20 @@ class PrefetchableIterator:
   def cnt(self) -> int:
     return self._cnt
 
+  @property
+  def data_size(self) -> int:
+    return len(self._data)
+
+  @property
+  def exhausted(self) -> bool:
+    return self._exhausted
+
   def __next__(self):
     self.prefetch(1)
     if self._data:
       return self._data.pop(0)
     else:
-      self.to_be_deleted = True
-      logging.info('Chainables: Generator exhausted from %s.', self._generator)
+      logging.info('chainables: Generator exhausted from %s.', self._generator)
       raise StopIteration
 
   def __iter__(self):
@@ -104,25 +112,24 @@ class PrefetchableIterator:
 
   def prefetch(self, num_items: int = 0):
     """Prefeches items from the undelrying generator."""
-    exhausted = False
-    while not exhausted and len(self._data) < (
+    while not self._exhausted and len(self._data) < (
         num_items or self._prefetch_size
     ):
       try:
         self._data.append(next(self._generator))
-        self._cnt += 1
         self._error_cnt = 0
         logging.info(
-            'Chainables: Prefetching %d from %s', self._cnt, self._generator
+            'chainables: Prefetching %d from %s', self._cnt, self._generator
         )
+        self._cnt += 1
       except StopIteration:
-        exhausted = True
+        self._exhausted = True
       except Exception as e:  # pylint: disable=broad-exception-caught
         if 'generator already executing' != str(e):
-          logging.exception('Chainables: Got error during prefetch.')
+          logging.exception('chainables: Got error during prefetch.')
           self._error_cnt += 1
           if self._error_cnt > 3:
-            logging.exception('Chainables: Too many errors, stop prefetching.')
+            logging.exception('chainables: Too many errors, stop prefetching.')
             break
 
         time.sleep(1)
@@ -176,11 +183,45 @@ def _mask(indices, inputs):
   return [inputs[i] for i in indices]
 
 
+def _extract_states(states: Iterable[Any | AggregateResult]) -> Iterator[Any]:
+  """Extracts the states from the mixed outputs from `iterate` method."""
+  batch_cnt, prev_batch_cnt, agg_cnt, prev_agg_cnt = 0, 0, 0, 0
+  start_ticker = ticker = time.time()
+  for state in states:
+    if isinstance(state, AggregateResult):
+      agg_cnt += 1
+      yield state.agg_state
+    else:
+      batch_cnt += 1
+    # logging for throughput.
+    if (delta_time := time.time() - ticker) > _LOGGING_INTERVAL_SECS:
+      logging.info(
+          'chainables: processed %d batches, throughput: %.2f batches/sec.',
+          batch_cnt,
+          (batch_cnt - prev_batch_cnt) / delta_time,
+      )
+      logging.info(
+          'chainables: merged %d states, throughput: %.2f states/sec.',
+          agg_cnt,
+          (agg_cnt - prev_agg_cnt) / delta_time,
+      )
+      ticker = time.time()
+      prev_batch_cnt = batch_cnt
+      prev_agg_cnt = agg_cnt
+  logging.info(
+      'chainables: finished iterating states, total: %d batches, %d agg_states,'
+      ' took %.2f secs.',
+      batch_cnt,
+      agg_cnt,
+      time.time() - start_ticker,
+  )
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CombinedTreeFn:
   """Combining multiple transforms into concrete functions.
 
-  This class encapsulates all in-process logics of a TreeTransform.
+  This class encapsulates all in-process logic of a TreeTransform.
   The ordering of the execution is as follows:
     input_iterator -> input_fns (w/ slicers) -> agg_fns -> output_fns.
 
@@ -328,17 +369,39 @@ class CombinedTreeFn:
     return state
 
   def merge_states(
-      self, states: Iterable[dict[MetricKey, Any]]
+      self,
+      states: Iterable[dict[MetricKey, Any]],
+      strict_states_cnt: int = 0,
+      mixed_input_types: bool = False,
   ) -> dict[MetricKey, Any]:
-    """Merges multiple states into one."""
-    states_by_fn = collections.defaultdict(list)
+    """Merges multiple states into one.
+
+    Args:
+      states: the states to be merged.
+      strict_states_cnt: the expected number of states to be merged.
+      mixed_input_types: whether the inputs are AggregationResult mixed with
+        other inputs.
+
+    Returns:
+      The merged state.
+    """
+    states_by_fn = {}
+    states_cnt = 0
+    states = _extract_states(states) if mixed_input_types else states
     for state in states:
       for key, fn_state in state.items():
-        states_by_fn[key].append(fn_state)
-    return {
-        key: self.agg_fns[key.metrics].merge_states(fn_states)
-        for key, fn_states in states_by_fn.items()
-    }
+        agg_fn = self.agg_fns[key.metrics]
+        states_by_fn[key] = agg_fn.merge_states(
+            [states_by_fn.setdefault(key, agg_fn.create_state()), fn_state]
+        )
+      states_cnt += 1
+    if strict_states_cnt and states_cnt != strict_states_cnt:
+      raise ValueError(
+          'chainables: unexpected number of aggregation states, workers'
+          f' might have partially crashed: got {states_cnt} states, '
+          f'needs {strict_states_cnt}.'
+      )
+    return states_by_fn
 
   def get_result(
       self, state: dict[MetricKey, Any]
@@ -372,7 +435,7 @@ class CombinedTreeFn:
 
   def iterate(
       self,
-      input_iterator: Iterable[Any] = (),
+      input_iterator: Iterable[Any] | None = None,
       *,
       with_result: bool = True,
       with_agg_state: bool = False,
@@ -401,18 +464,20 @@ class CombinedTreeFn:
     """
     input_iterator = self._actual_inputs(None, input_iterator)
     state = state or self.create_state()
-    for batch in input_iterator:
+    with_agg_state = with_agg_state or with_agg_result
+    for i, batch in enumerate(input_iterator):
+      logging.info('chainables: calculating for batch %d.', i)
       batch_output = _call_fns(self.input_fns, batch)
-      if with_agg_state or with_agg_result:
-        state = self._update_state(state, batch_output)
       yield batch_output if with_result else None
+      if with_agg_state:
+        state = self._update_state(state, batch_output)
     # Special logic to also get the agg_state and the agg_result at the end of
-    # the iteration.It is up to the callsite to distinguish the types when
+    # the iteration. It is up to the callsite to distinguish the types when
     # aggregation is enabled.
+    agg_result = self.get_result(state) if with_agg_result else None
     if with_agg_state:
-      yield AggregateResult(agg_state=state)
-    if with_agg_result:
-      yield AggregateResult(agg_result=self.get_result(state))
+      logging.info('chainables: yields aggregation.')
+      yield AggregateResult(agg_state=state, agg_result=agg_result)
 
   def update_state(
       self,
@@ -457,7 +522,7 @@ class TreeTransform(Generic[TreeFnT]):
       aggregation results.
 
   note: the transform can be chainable by themselves by initializing with an
-  input trasnform. `aggregate()` automatically separates the transform into two
+  input transform. `aggregate()` automatically separates the transform into two
   transforms by assigning the pre-aggregate transform as the input_transform
   of the new AggregateTransform constructed by calling `aggregate()`.
 
@@ -505,6 +570,8 @@ class TreeTransform(Generic[TreeFnT]):
   Attributes:
     input_transform: the transform that outputs the input of this transform.
     fns: the underlying routines of the transforms.
+    is_noop: whether the transform is a no-op, e.g., no function to execute.
+      This is useful at the beginning of a chain by calling `Transform.new()`.
   """
 
   input_transform: TreeTransform | None = None
@@ -520,10 +587,14 @@ class TreeTransform(Generic[TreeFnT]):
 
   @classmethod
   def new(cls, *, input_transform: TreeTransformT | None = None):
-    if input_transform and not input_transform.fns:
-      # Skip the input_transform if there is no routine to execute.
+    if input_transform and input_transform.is_noop:
+      # Skip the input_transform if there is a no-op logically.
       input_transform = input_transform.input_transform
     return cls(input_transform=input_transform, _default_constructor=False)
+
+  @property
+  def is_noop(self):
+    return not self.fns
 
   def chain(self, transform: TreeTransform):
     """Chains self to the input of the first node in the other transform."""
@@ -541,7 +612,7 @@ class TreeTransform(Generic[TreeFnT]):
     """Makes the concrete function instance from the transform."""
     return CombinedTreeFn.from_transform(self, recursive=recursive, mode=mode)
 
-  def data_source(self, iterator: Any = None):
+  def data_source(self, iterator: Any = None) -> IteratorSource:
     if self.input_transform:
       raise ValueError(
           f'Cannot add data_source to {self} when there is already an'
@@ -591,8 +662,6 @@ class TreeTransform(Generic[TreeFnT]):
       fn: lazy_fns.LazyFn | aggregates.Aggregatable | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
   ) -> AggregateTransform:
-    # TODO: b/318463291 - fix a bug when self.fns is empty, the runner
-    # skips its own input transform.
     return AggregateTransform.new(input_transform=self).add_aggregate(
         input_keys=input_keys, output_keys=output_keys, fn=fn
     )
@@ -656,6 +725,10 @@ class IteratorSource(TreeTransform):
   def new(cls, iterator: Any):
     return cls(iterator=iterator, _default_constructor=False)
 
+  @property
+  def is_noop(self):
+    return not self.iterator
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
@@ -707,7 +780,7 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
     This can be used in the following ways:
       * Slice on a single feature: `add_slice('feature')`.
       * Slice crosses with multiple features: `add_slice(('a', 'b')).
-      * Slice with arbitary slicing function: `add_slice('a', slice_fn, 'new')`.
+      * Slice with arbitrary slicing function: `add_slice('a', slice_fn, 'b')`.
       * Multiple slices: `add_slice('a').add_slice('b')`.
 
     Args:

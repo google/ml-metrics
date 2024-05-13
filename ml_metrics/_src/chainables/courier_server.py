@@ -58,19 +58,32 @@ class CourierServerWrapper:
         return pickler.dumps(repr(result))
       return pickler.dumps(result)
 
+    def next_batch_from_generator():
+      assert self._generator is not None, (
+          'Generator is not set, the worker might crashed unexpectedly'
+          ' previously.'
+      )
+      result = [next(self._generator) for _ in range(self._generator.data_size)]
+      if not result and self._generator.exhausted:
+        result = lazy_fns.STOP_ITERATION
+      return pickler.dumps(result)
+
+    # TODO: b/318463291 - Considers deprecating in favor of
+    # `next_batch_from_generator`.
     def next_from_generator():
       try:
         result = next(self._generator)
       except StopIteration:
         result = lazy_fns.STOP_ITERATION
       except Exception as e:  # pylint: disable=broad-exception-caught
-        logging.warning('Chainables: Exception while iterating: %s', e)
+        logging.exception('Chainables: Exception while iterating: %s', e)
         result = lazy_fns.STOP_ITERATION
       return pickler.dumps(result)
 
     server = courier.Server(self.server_name, port=self.port)
     server.Bind('maybe_make', pickled_maybe_make)
     server.Bind('next_from_generator', next_from_generator)
+    server.Bind('next_batch_from_generator', next_batch_from_generator)
     server.Bind('shutdown', shutdown)
     # TODO: b/318463291 - Add unit tests.
     server.Bind('clear_cache', lazy_fns.clear_cache)
@@ -80,6 +93,7 @@ class CourierServerWrapper:
 
   def run_until_shutdown(self):
     """Run until shutdown requested."""
+    assert self._server is not None, 'Server is not built.'
     if not self._server.has_started:
       self._server.Start()
     while not self._shutdown_requested[_DEFAULT]:
@@ -88,3 +102,15 @@ class CourierServerWrapper:
       time.sleep(0.01)
     logging.info('Chainables: Shutdown requested, shutting down server.')
     self._server.Stop()
+
+
+def run_courier_server(name=None, port=None, prefetch_size: int = 128):
+  # TODO: b/318463291 - Preloaded task to start running prefetching even before
+  # master started.
+  server_wrapper = CourierServerWrapper(
+      server_name=name,
+      port=port,
+      prefetch_size=prefetch_size,
+  )
+  server_wrapper.build_server()
+  server_wrapper.run_until_shutdown()

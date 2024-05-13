@@ -23,6 +23,9 @@ from absl import logging
 import courier
 from ml_metrics._src.chainables import lazy_fns
 
+
+_LOGGING_INTERVAL_SEC = 60
+_NUM_TOTAL_FAILURES_THRESHOLD = 60
 picklers = lazy_fns.picklers
 
 
@@ -69,7 +72,7 @@ class Task:
 
   def iterate(self, worker_pool):
     state = worker_pool.get_worker_by_name(self.server_name).call(
-        courier_method='next_from_generator'
+        courier_method='next_batch_from_generator'
     )
     return dataclasses.replace(self, state=state)
 
@@ -83,7 +86,7 @@ class Task:
     return task
 
   @property
-  def done(self) -> bool:
+  def done(self) -> bool | None:
     """Checks whether the task is done."""
     if self.state is not None:
       return self.state.done()
@@ -186,7 +189,7 @@ def _normalize_args(args, kwargs):
   return result_args, result_kwargs
 
 
-# TODO(b/311207032): Adds unit test to cover logics for disconneted worker.
+# TODO(b/311207032): Adds unit test to cover logic for disconneted worker.
 @dataclasses.dataclass
 class Worker:
   """Courier client wrapper that works as a chainable worker."""
@@ -216,19 +219,39 @@ class Worker:
   def _check_heartbeat(self) -> bool:
     """Ping the worker to check the heartbeat once."""
     if not self._heartbeat:
-      self._heartbeat = Worker(self.server_name, call_timeout=60).call('echo')
+      self._heartbeat = Worker(
+          self.server_name, call_timeout=self.call_timeout
+      ).call('p')
     try:
-      if self._heartbeat.done():
-        if self._heartbeat.result():
-          self._heartbeat = None
-          self._last_heartbeat = time.time()
-          return True
+      if self._heartbeat.done() and self._heartbeat.result():
+        self._heartbeat = None
+        self._last_heartbeat = time.time()
+        return True
     except Exception:  # pylint: disable=broad-exception-caught
       logging.warning(
           'chainables: Worker %s missed a heartbeat.', self.server_name
       )
       self._heartbeat = None
     return False
+
+  def wait_until_alive(
+      self,
+      num_attempts: int = 30,
+      sleep_interval: float = 6.0,
+  ):
+    """Waits for the workers to be alive with retries."""
+    for _ in range(num_attempts):
+      try:
+        if self.is_alive:
+          break
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        logging.warning('chainables: exception when connecting: %s', e)
+      time.sleep(sleep_interval)
+    else:
+      raise ValueError(
+          f'Failed to connect to worker {self.server_name} after'
+          f' {num_attempts} tries.'
+      )
 
   @property
   def is_alive(self) -> bool:
@@ -290,13 +313,8 @@ class Worker:
     return self.state
 
 
-def _raise_if_return_not_iterator(task: Task):
-  # The return of the state has to be a generator for this call.
-  if (
-      not (result := task.state)
-      or not (result := picklers.default.loads(task.state.result()))
-      or 'generator' not in str(result)
-  ):
+def _raise_if_return_error(task: Task):
+  if not (result := task.state) or (result := task.exception):
     raise TypeError(
         f'Expected iterator, got {result} from'
         f' task: {dataclasses.replace(task, parent_task=None)}'
@@ -342,7 +360,7 @@ class WorkerPool:
         if len(workers) >= minimum_num_workers:
           break
       except Exception as e:  # pylint: disable=broad-exception-caught
-        logging.warning('Exception when connecting: %s', e)
+        logging.warning('chainables: exception when connecting: %s', e)
       time.sleep(sleep_interval)
     else:
       raise ValueError(
@@ -412,11 +430,19 @@ class WorkerPool:
       time.sleep(sleep_interval)
 
   def run_and_iterate(
-      self, tasks: list[Task], sleep_interval: float = 0.01
+      self,
+      tasks: list[Task],
+      sleep_interval: float = 0.0,
+      num_total_failures_threshold: int = _NUM_TOTAL_FAILURES_THRESHOLD,
   ) -> Iterator[Any]:
     """Iterates through the result of a generator if the iterator task."""
+    tasks = [task for task in tasks]
+    pending_tasks = []
     running_tasks = []
-    while tasks or running_tasks:
+    total_tasks = len(tasks)
+    total_failures_cnt = 0
+    ticker = time.time()
+    while tasks or running_tasks or pending_tasks:
       if not self.workers:
         raise ValueError(
             'No workers are alive, remaining'
@@ -424,24 +450,47 @@ class WorkerPool:
         )
       # Assign to the iterator tasks
       for worker in self.idle_workers():
+        # Only assign non-running tasks to the workers that are not running.
         if worker.server_name not in {
             task.server_name for task in running_tasks
         }:
           if tasks:
             task = worker.run_task(tasks.pop())
-            _raise_if_return_not_iterator(task)
-            running_tasks.append(task.iterate(self))
-      # Fetching finsihed outputs.
+            pending_tasks.append(task)
+      # Check the instantiated iterator, then assign iteratate if successful.
+      new_pending_tasks: list[Task] = []
+      for task in pending_tasks:
+        if task.done:
+          _raise_if_return_error(task)
+          running_tasks.append(task.iterate(self))
+        else:
+          new_pending_tasks.append(task)
+      pending_tasks = new_pending_tasks
+      # Fetching finsihed outputs. Re-collect task if failed during iteration.
       still_running: list[Task] = []
       for task in running_tasks:
         if task.done:
-          if not lazy_fns.is_stop_iteration(result := task.result):
-            yield result
-            still_running.append(task.iterate(self))
-          else:
-            logging.info(
-                'chainables: worker %s generator exhausted.', task.server_name
+          try:
+            if not lazy_fns.is_stop_iteration(result := task.result):
+              yield from result
+              still_running.append(task.iterate(self))
+            else:
+              logging.info(
+                  'chainables: worker %s generator exhausted.', task.server_name
+              )
+          except Exception as e:  # pylint: disable=broad-exception-caught
+            logging.warning(
+                'chainables: exception when iterating, reappending task %s, \n'
+                ' exception: %s',
+                dataclasses.replace(task, parent_task=None),
+                e,
             )
+            total_failures_cnt += 1
+            if total_failures_cnt > num_total_failures_threshold:
+              raise ValueError(
+                  'chainables: too many failures, stopping the iteration.'
+              ) from e
+            tasks.append(task)
         elif not self._workers[task.server_name].is_alive:
           logging.warning(
               'chainables: Worker %s is not alive, re-appending task %s',
@@ -452,4 +501,14 @@ class WorkerPool:
         else:
           still_running.append(task)
       running_tasks = still_running
+      if time.time() - ticker > _LOGGING_INTERVAL_SEC:
+        logging.info(
+            'chainables: iterate progress: %d/%d/%d/%d'
+            ' (pending/running/remaining/total).',
+            len(pending_tasks),
+            len(running_tasks),
+            len(tasks),
+            total_tasks,
+        )
+        ticker = time.time()
       time.sleep(sleep_interval)

@@ -18,30 +18,44 @@ import time
 
 from absl.testing import absltest
 import courier
+from courier.python import testutil
 from ml_metrics._src.chainables import courier_server
+from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
+
 
 pickler = lazy_fns.picklers.default
 
 
+def setUpModule():
+  testutil.SetupMockBNS()
+
+
 class CourierServerTest(absltest.TestCase):
 
+  def setUp(self):
+    super().setUp()
+    self.server_wrapper = courier_server.CourierServerWrapper()
+    self.server = self.server_wrapper.build_server()
+    self.t = threading.Thread(target=self.server_wrapper.run_until_shutdown)
+    self.t.start()
+    self.client = courier_worker.Worker(self.server.address)
+    self.client.wait_until_alive()
+
+  def tearDown(self):
+    self.client.shutdown()
+    self.t.join()
+    super().tearDown()
+
   def test_courier_server_maybe_make(self):
-    server_wrapper = courier_server.CourierServerWrapper()
-    server = server_wrapper.build_server()
-    server.Start()
-    client = courier.Client(server.address, call_timeout=6)
+    client = courier.Client(self.server.address, call_timeout=1)
     self.assertEqual('hello', pickler.loads(client.maybe_make('hello')))
     self.assertEqual(
         2, pickler.loads(client.maybe_make(lazy_fns.trace(len)([1, 2])))
     )
-    server.Stop()
 
   def test_courier_server_generator(self):
-    server_wrapper = courier_server.CourierServerWrapper()
-    server = server_wrapper.build_server()
-    server.Start()
-    client = courier.Client(server.address, call_timeout=6)
+    client = courier.Client(self.server.address, call_timeout=1)
 
     def test_generator(n):
       yield from range(n)
@@ -53,7 +67,20 @@ class CourierServerTest(absltest.TestCase):
     ):
       actual.append(t)
     self.assertEqual(list(range(10)), actual)
-    server.Stop()
+
+  def test_courier_server_batch_generator(self):
+    client = courier.Client(self.server.address, call_timeout=1)
+
+    def test_generator(n):
+      yield from range(n)
+
+    client.maybe_make(pickler.dumps(lazy_fns.trace(test_generator)(10)))
+    actual = []
+    while not lazy_fns.is_stop_iteration(
+        t := pickler.loads(client.next_batch_from_generator())
+    ):
+      actual.extend(t)
+    self.assertEqual(list(range(10)), actual)
 
   def test_courier_server_shutdown(self):
     server_wrapper = courier_server.CourierServerWrapper()
@@ -66,13 +93,10 @@ class CourierServerTest(absltest.TestCase):
     client.shutdown()
     time.sleep(7)
     self.assertFalse(t.is_alive())
+    t.join()
 
   def test_courier_exception_during_prefetch(self):
-    server_wrapper = courier_server.CourierServerWrapper()
-    server = server_wrapper.build_server()
-    t = threading.Thread(target=server_wrapper.run_until_shutdown)
-    t.start()
-    client = courier.Client(server.address, call_timeout=6)
+    client = courier.Client(self.server.address, call_timeout=1)
 
     def test_generator(n):
       for i in range(n):
@@ -87,7 +111,6 @@ class CourierServerTest(absltest.TestCase):
           t := pickler.loads(client.next_from_generator())
       ):
         actual.append(t)
-      client.shutdown()
       self.assertEqual(list(range(6)), actual)
     self.assertRegex(cm.output[0], '.*Traceback.*')
 

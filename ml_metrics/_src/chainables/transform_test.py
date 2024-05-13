@@ -442,9 +442,38 @@ class TransformTest(parameterized.TestCase):
         .apply(fn=lazy_fns.iterate_fn(lambda x: x + 10))
         .aggregate(fn=TestAverageFn())
     )
-    actual_fn = t.make()
+    actual_fn: transform.CombinedTreeFn = t.make()
     self.assertEqual([13.5], actual_fn())
     self.assertEqual([13.5], actual_fn(input_iterator=input_iterator))
+
+    state = actual_fn.merge_states(
+        actual_fn.iterate(with_agg_state=True), mixed_input_types=True
+    )
+    self.assertEqual([13.5], actual_fn.get_result(state))
+
+    state = actual_fn.merge_states(
+        actual_fn.iterate(input_iterator=input_iterator, with_agg_state=True),
+        mixed_input_types=True,
+    )
+    self.assertEqual([13.5], actual_fn.get_result(state))
+
+  def test_input_iterator_aggregate_incorrect_states_count_raises_error(self):
+    input_iterator = [[1, 2, 3], [2, 3, 4]]
+    t = (
+        transform.TreeTransform.new()
+        .data_source(iterator=lazy_fns.trace(lambda: input_iterator)())
+        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 1))
+        .aggregate(fn=TestAverageFn())
+        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 10))
+        .aggregate(fn=TestAverageFn())
+    )
+    actual_fn: transform.CombinedTreeFn = t.make()
+    with self.assertRaises(ValueError):
+      actual_fn.merge_states(
+          actual_fn.iterate(with_agg_state=True),
+          mixed_input_types=True,
+          strict_states_cnt=2,
+      )
 
   def test_chain(self):
     input_iterator = [[1, 2, 3], [2, 3, 4]]
@@ -471,7 +500,7 @@ class TransformTest(parameterized.TestCase):
     )
     iterator.prefetch()
     self.assertEqual(2, iterator.cnt)
-    self.assertEqual([0, 1], iterator._data)
+    self.assertEqual(list(range(10)), list(iterator))
 
 
 if __name__ == '__main__':
