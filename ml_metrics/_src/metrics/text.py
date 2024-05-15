@@ -16,7 +16,10 @@
 from collections.abc import Sequence
 
 from ml_metrics import aggregates
+from ml_metrics import pipeline
+from ml_metrics._src.aggregates import stats
 from ml_metrics._src.aggregates import text
+from ml_metrics._src.scores import text as text_scores
 
 
 def topk_word_ngrams(
@@ -105,4 +108,16 @@ def pattern_frequency(
       metric=text.PatternFrequency(
           patterns=patterns, count_duplicate=count_duplicate
       )
+  )(texts)
+
+
+def avg_alphabetical_char_count(texts: Sequence[str]) -> stats.StatsState:
+  """Average alphabetical character count metric."""
+
+  if not list(texts):
+    raise ValueError('`texts` must not be empty.')
+
+  batch_scorer_fn = pipeline.iterate_fn(text_scores.alphabetical_char_count)
+  return aggregates.MergeableMetricAggFn(
+      metric=stats.StatsState(batch_score_fn=batch_scorer_fn)
   )(texts)
