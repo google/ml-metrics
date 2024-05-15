@@ -71,7 +71,7 @@ Map = Mapping[TreeMapKeyT, Any]
 TreeTransformT = TypeVar('TreeTransformT', bound='TreeTransform')
 TreeFn = tree_fns.TreeFn
 
-_LOGGING_INTERVAL_SECS = 30
+_LOGGING_INTERVAL_SECS = 60
 
 
 class PrefetchableIterator:
@@ -118,9 +118,6 @@ class PrefetchableIterator:
       try:
         self._data.append(next(self._generator))
         self._error_cnt = 0
-        logging.info(
-            'chainables: Prefetching %d from %s', self._cnt, self._generator
-        )
         self._cnt += 1
       except StopIteration:
         self._exhausted = True
@@ -209,11 +206,13 @@ def _extract_states(states: Iterable[Any | AggregateResult]) -> Iterator[Any]:
       prev_batch_cnt = batch_cnt
       prev_agg_cnt = agg_cnt
   logging.info(
-      'chainables: finished iterating states, total: %d batches, %d agg_states,'
-      ' took %.2f secs.',
+      'chainables: finished iterating, total: %d batches, %d agg_states,'
+      ' took %.2f secs (%.2f batches/sec, %.2f agg_states/sec).',
       batch_cnt,
       agg_cnt,
       time.time() - start_ticker,
+      batch_cnt / (time.time() - start_ticker),
+      agg_cnt / (time.time() - start_ticker),
   )
 
 
@@ -273,6 +272,7 @@ class CombinedTreeFn:
     if mode == RunnerMode.AGGREGATE:
       iterator_node = None
       input_nodes = []
+      assert agg_node, 'No aggregation is required for "Aggregate" mode.'
     elif mode == RunnerMode.SAMPLE:
       agg_node = None
       output_nodes = []
@@ -465,8 +465,12 @@ class CombinedTreeFn:
     input_iterator = self._actual_inputs(None, input_iterator)
     state = state or self.create_state()
     with_agg_state = with_agg_state or with_agg_result
-    for i, batch in enumerate(input_iterator):
-      logging.info('chainables: calculating for batch %d.', i)
+    prev_ticker = time.time()
+    batch_index = -1
+    for batch_index, batch in enumerate(input_iterator):
+      if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SECS:
+        logging.info('chainables: calculating for batch %d.', batch_index)
+        prev_ticker = ticker
       batch_output = _call_fns(self.input_fns, batch)
       yield batch_output if with_result else None
       if with_agg_state:
@@ -476,7 +480,9 @@ class CombinedTreeFn:
     # aggregation is enabled.
     agg_result = self.get_result(state) if with_agg_result else None
     if with_agg_state:
-      logging.info('chainables: yields aggregation.')
+      logging.info(
+          'chainables: yields aggregation after %d batches.', batch_index + 1
+      )
       yield AggregateResult(agg_state=state, agg_result=agg_result)
 
   def update_state(

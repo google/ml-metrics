@@ -221,7 +221,7 @@ class Worker:
     if not self._heartbeat:
       self._heartbeat = Worker(
           self.server_name, call_timeout=self.call_timeout
-      ).call('p')
+      ).call(None)
     try:
       if self._heartbeat.done() and self._heartbeat.result():
         self._heartbeat = None
@@ -441,8 +441,9 @@ class WorkerPool:
     running_tasks = []
     total_tasks = len(tasks)
     total_failures_cnt = 0
+    finished_tasks_cnt = 0
     ticker = time.time()
-    while tasks or running_tasks or pending_tasks:
+    while tasks or pending_tasks or running_tasks:
       if not self.workers:
         raise ValueError(
             'No workers are alive, remaining'
@@ -471,16 +472,20 @@ class WorkerPool:
       for task in running_tasks:
         if task.done:
           try:
-            if not lazy_fns.is_stop_iteration(result := task.result):
-              yield from result
-              still_running.append(task.iterate(self))
-            else:
+            states = task.result
+            if states and lazy_fns.is_stop_iteration(states[-1]):
               logging.info(
-                  'chainables: worker %s generator exhausted.', task.server_name
+                  'chainables: worker %s generator exhausted.',
+                  task.server_name,
               )
+              yield from states[:-1]
+              finished_tasks_cnt += 1
+            else:
+              yield from states
+              still_running.append(task.iterate(self))
           except Exception as e:  # pylint: disable=broad-exception-caught
-            logging.warning(
-                'chainables: exception when iterating, reappending task %s, \n'
+            logging.exception(
+                'chainables: exception when iterating, re-appending task %s, \n'
                 ' exception: %s',
                 dataclasses.replace(task, parent_task=None),
                 e,
@@ -488,7 +493,8 @@ class WorkerPool:
             total_failures_cnt += 1
             if total_failures_cnt > num_total_failures_threshold:
               raise ValueError(
-                  'chainables: too many failures, stopping the iteration.'
+                  f'chainables: too many failures: {total_failures_cnt} >'
+                  f' {num_total_failures_threshold}, stopping the iteration.'
               ) from e
             tasks.append(task)
         elif not self._workers[task.server_name].is_alive:
@@ -501,14 +507,22 @@ class WorkerPool:
         else:
           still_running.append(task)
       running_tasks = still_running
+      assert (
+          finished_tasks_cnt
+          + len(running_tasks)
+          + len(pending_tasks)
+          + len(tasks)
+      ) == total_tasks, 'Total tasks mismatch.'
       if time.time() - ticker > _LOGGING_INTERVAL_SEC:
         logging.info(
-            'chainables: iterate progress: %d/%d/%d/%d'
-            ' (pending/running/remaining/total).',
-            len(pending_tasks),
+            'chainables: iterate progress: %d/%d/%d/%d/%d in %.2f secs.'
+            ' (running/pending/remaining/finished/total).',
             len(running_tasks),
+            len(pending_tasks),
             len(tasks),
+            finished_tasks_cnt,
             total_tasks,
+            time.time() - ticker,
         )
         ticker = time.time()
       time.sleep(sleep_interval)

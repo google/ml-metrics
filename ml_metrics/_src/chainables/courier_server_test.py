@@ -76,10 +76,13 @@ class CourierServerTest(absltest.TestCase):
 
     client.maybe_make(pickler.dumps(lazy_fns.trace(test_generator)(10)))
     actual = []
-    while not lazy_fns.is_stop_iteration(
-        t := pickler.loads(client.next_batch_from_generator())
-    ):
-      actual.extend(t)
+    while True:
+      states = pickler.loads(client.next_batch_from_generator())
+      if states and lazy_fns.is_stop_iteration(states[-1]):
+        actual.extend(states[:-1])
+        break
+      else:
+        actual.extend(states)
     self.assertEqual(list(range(10)), actual)
 
   def test_courier_server_shutdown(self):

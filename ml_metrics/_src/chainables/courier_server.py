@@ -64,8 +64,8 @@ class CourierServerWrapper:
           ' previously.'
       )
       result = [next(self._generator) for _ in range(self._generator.data_size)]
-      if not result and self._generator.exhausted:
-        result = lazy_fns.STOP_ITERATION
+      if self._generator.exhausted:
+        result.append(lazy_fns.STOP_ITERATION)
       return pickler.dumps(result)
 
     # TODO: b/318463291 - Considers deprecating in favor of
