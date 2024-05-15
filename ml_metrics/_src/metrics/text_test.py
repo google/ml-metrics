@@ -18,7 +18,7 @@ from ml_metrics._src.metrics import text
 from absl.testing import absltest
 
 
-class TextTest(parameterized.TestCase):
+class TopKWordNgramsTest(parameterized.TestCase):
 
   @parameterized.named_parameters([
       dict(
@@ -135,6 +135,62 @@ class TextTest(parameterized.TestCase):
           ValueError, 'k and n must be positive integers.'
       ):
         text.topk_word_ngrams(texts=['a'], k=k, n=n)
+
+
+class PatternFrequencyTest(parameterized.TestCase):
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='not_count_duplicate',
+          count_duplicate=False,
+          expected_result=[
+              ('ab', 1 / 2),
+              ('mmm', 0),
+              ('xyx', 2 / 2),
+          ],
+      ),
+      dict(
+          testcase_name='count_duplicate',
+          count_duplicate=True,
+          expected_result=[
+              ('ab', 2 / 2),
+              ('mmm', 0),
+              ('xyx', 3 / 2),
+          ],
+      ),
+  ])
+  def test_pattern_frequency(self, count_duplicate, expected_result):
+    batch = ['ab ab xyx', 'xyxyx']
+    result = text.pattern_frequency(
+        texts=batch,
+        patterns=['ab', 'xyx', 'mmm'],
+        count_duplicate=count_duplicate,
+    )
+    self.assertSequenceAlmostEqual(expected_result, sorted(result))
+
+  def test_pattern_frequency_empty(self):
+    result = text.pattern_frequency(
+        texts=[], patterns=['ab', 'xyx'], count_duplicate=False
+    )
+    self.assertSequenceEqual([], result)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='empty_pattern',
+          patterns=[],
+          expected_regex='Patterns must not be empty.',
+      ),
+      dict(
+          testcase_name='duplicate_patterns',
+          patterns=['a', 'a', 'b'],
+          expected_regex='Patterns must be unique:',
+      ),
+  ])
+  def test_pattern_frequency_invalid_patterns(self, patterns, expected_regex):
+    with self.assertRaisesRegex(ValueError, expected_regex):
+      # `texts` is randomly assigned.
+      text.pattern_frequency(texts=['a'], patterns=patterns)
+
 
 if __name__ == '__main__':
   absltest.main()

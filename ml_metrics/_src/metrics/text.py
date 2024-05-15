@@ -70,3 +70,39 @@ def topk_word_ngrams(
           count_duplicate=count_duplicate,
       )
   )(texts)
+
+
+def pattern_frequency(
+    texts: Sequence[str], patterns: Sequence[str], count_duplicate: bool = True
+) -> list[tuple[str, float]]:
+  """Pattern frequency metric.
+
+  Identify the frequency of occurrence for each pattern found within the given
+  texts.
+
+
+  Args:
+    texts:
+      Sequence of texts.
+    patterns:
+      Sequence of text patterns.
+    count_duplicate:
+      If `True`, duplicate pattern within the text are included in the total
+      count. Otherwise, the count of a pattern will only consider its first
+      occurrence. Default to `False`.
+
+  Returns:
+    List of tuples of pattern and its frequency of appearance as a pair.
+  """
+
+  if not patterns:
+    raise ValueError('Patterns must not be empty.')
+
+  if len(set(patterns)) != len(patterns):
+    raise ValueError(f'Patterns must be unique: {patterns}')
+
+  return aggregates.MergeableMetricAggFn(
+      metric=text.PatternFrequency(
+          patterns=patterns, count_duplicate=count_duplicate
+      )
+  )(texts)
