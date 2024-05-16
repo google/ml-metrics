@@ -16,9 +16,13 @@ import time
 
 from absl.testing import absltest
 from courier.python import testutil
+from ml_metrics import aggregates
+from ml_metrics import pipeline
+from ml_metrics._src.aggregates import stats
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
+import numpy as np
 import portpicker
 
 Task = courier_worker.Task
@@ -122,7 +126,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
     self.t = threading.Thread(target=self.server_wrapper.run_until_shutdown)
     self.t.start()
     self.worker_pool = courier_worker.WorkerPool([self.server.address])
-    self.worker_pool.wait_until_alive(num_attempts=3)
+    self.worker_pool.wait_until_alive(deadline_secs=12)
 
   def tearDown(self):
     self.worker_pool.shutdown()
@@ -197,17 +201,78 @@ class CourierWorkerGroupTest(absltest.TestCase):
     )
     try:
       with self.assertLogs(level='WARNING') as cm:
-        worker_group.wait_until_alive(num_attempts=1)
+        worker_group.wait_until_alive(deadline_secs=12)
       self.assertRegex(cm.output[0], '.*missed a heartbeat.*')
       self.assertRegex(cm.output[1], 'Failed to connect to workers.*')
     except ValueError:
       pass  # The exception is tested below.
     with self.assertRaises(ValueError):
-      worker_group.wait_until_alive(num_attempts=1)
+      worker_group.wait_until_alive(deadline_secs=12)
 
   def test_worker_group_num_workers(self):
     worker_group = courier_worker.WorkerPool(['a', 'b'])
     self.assertEqual(2, worker_group.num_workers)
+
+
+class CourierWorkerCoordiationTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.servers = []
+    self.threads = []
+    for _ in range(2):
+      server_wrapper = courier_server.CourierServerWrapper()
+      self.servers.append(server_wrapper.build_server().address)
+      self.threads.append(
+          threading.Thread(target=server_wrapper.run_until_shutdown)
+      )
+    for t in self.threads:
+      t.start()
+    self.worker_pool = courier_worker.WorkerPool(self.servers)
+    self.worker_pool.wait_until_alive(deadline_secs=12)
+
+  def tearDown(self):
+    _ = [t.join() for t in self.threads]
+    super().tearDown()
+
+  def test_coordinate_call(self):
+
+    def random_numbers_iterator(
+        shard_index: int,
+        num_shards: int,
+        total_numbers: int,
+        batch_size: int,
+    ):
+      num_batches = max(total_numbers // batch_size, 1)
+      for i in range(num_batches):
+        if i % num_shards == shard_index:
+          yield np.random.randint(100, size=batch_size)
+
+    def define_pipeline(total_numbers: int, shard_index: int, num_shards: int):
+      return (
+          pipeline.Pipeline.new()
+          .data_source(
+              random_numbers_iterator(
+                  shard_index,
+                  num_shards,
+                  total_numbers=total_numbers,
+                  batch_size=100,
+              )
+          )
+          .aggregate(
+              output_keys='stats',
+              fn=aggregates.MergeableMetricAggFn(stats.StatsState()),
+          )
+      )
+
+    results = self.worker_pool.aggregate_by_pipeline(
+        define_pipeline,
+        total_numbers=1000,
+    )
+    self.worker_pool.shutdown()
+    self.assertIsNotNone(results)
+    self.assertIn('stats', results)
+    self.assertIsInstance(results['stats'], stats.StatsState)
 
 
 if __name__ == '__main__':

@@ -13,7 +13,7 @@
 # limitations under the License.
 """Courier worker that can take and run a registered makeable instance."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent import futures
 import dataclasses
 import time
@@ -22,6 +22,7 @@ from typing import Any
 from absl import logging
 import courier
 from ml_metrics._src.chainables import lazy_fns
+from ml_metrics._src.chainables import transform
 
 
 _LOGGING_INTERVAL_SEC = 60
@@ -329,6 +330,7 @@ class WorkerPool:
   call_timeout: int = 30
   max_parallelism: int = 1
   heartbeat_threshold_secs: int = 180
+  _workers: dict[str, Worker] = dataclasses.field(default_factory=dict)
 
   def __post_init__(self):
     self._workers = {
@@ -343,11 +345,13 @@ class WorkerPool:
 
   def wait_until_alive(
       self,
-      num_attempts: int = 30,
+      deadline_secs: int = 180,
+      *,
       minimum_num_workers: int = 1,
-      sleep_interval: float = 6.0,
+      sleep_interval_secs: int = 6,
   ):
     """Waits for the workers to be alive with retries."""
+    num_attempts = max(deadline_secs // sleep_interval_secs, 1)
     for _ in range(num_attempts):
       try:
         workers = self.idle_workers()
@@ -361,7 +365,7 @@ class WorkerPool:
           break
       except Exception as e:  # pylint: disable=broad-exception-caught
         logging.warning('chainables: exception when connecting: %s', e)
-      time.sleep(sleep_interval)
+      time.sleep(sleep_interval_secs)
     else:
       raise ValueError(
           f'Failed to connect to workers after {num_attempts} tries: workers:'
@@ -526,3 +530,94 @@ class WorkerPool:
         )
         ticker = time.time()
       time.sleep(sleep_interval)
+
+  def iterate_from_pipeline(
+      self,
+      define_pipeline: Callable[..., transform.TreeTransform],
+      /,
+      *pipeline_args,
+      shard_per_worker: int = 1,
+      with_result: bool = True,
+      with_agg_state: bool = True,
+      with_agg_result: bool = False,
+      **pipeline_kwargs,
+  ) -> Iterator[Any]:
+    """The orchestration for the remote distributed chainable workers."""
+    # logging.info('chainables: resolved address: %s', resolved_addrs)
+    # pool = WorkerPool(
+    #     list(resolved_addrs), call_timeout=3000, heartbeat_threshold_secs=300
+    # )
+    num_shards = shard_per_worker * self.num_workers
+    self.wait_until_alive(deadline_secs=600)
+    sharded_tasks = [
+        Task.new(
+            lazy_fns.trace(define_pipeline)(
+                *pipeline_args,
+                shard_index=i,
+                num_shards=num_shards,
+                **pipeline_kwargs,
+            )
+            .make()
+            .iterate(
+                with_agg_state=with_agg_state,
+                with_result=with_result,
+                with_agg_result=with_agg_result,
+            ),
+            blocking=True,
+        )
+        for i in range(num_shards)
+    ]
+    # Does not allow 10% of total number of tasks failed.
+    batch_outputs_iterator = self.run_and_iterate(
+        sharded_tasks,
+        num_total_failures_threshold=int(len(sharded_tasks) * 0.5) + 1,
+    )
+    logging.info('chainables: running %d remote tasks', len(sharded_tasks))
+    yield from batch_outputs_iterator
+
+  def aggregate_by_pipeline(
+      self,
+      define_pipeline: Callable[..., transform.TreeTransform],
+      /,
+      *pipeline_args,
+      shard_per_worker: int = 1,
+      **pipeline_kwargs,
+  ):
+    """The orchestration for the remote distributed chainable workers."""
+    batch_outputs_iterator = self.iterate_from_pipeline(
+        define_pipeline,
+        *pipeline_args,
+        with_result=False,
+        shard_per_worker=shard_per_worker,
+        **pipeline_kwargs,
+    )
+    try:
+      assert next(batch_outputs_iterator) is None
+    except StopIteration as e:
+      raise StopIteration(
+          f'chainables: empty dataset from {define_pipeline}.'
+      ) from e
+
+    # Inference and aggregations.
+    num_shards = self.num_workers * shard_per_worker
+    agg_fn = define_pipeline(
+        *pipeline_args, shard_index=0, num_shards=num_shards, **pipeline_kwargs
+    ).make(mode=transform.RunnerMode.AGGREGATE)
+    merged_state = None
+    assert hasattr(agg_fn, 'merge_states')
+    try:
+      merged_state = agg_fn.merge_states(
+          batch_outputs_iterator,
+          mixed_input_types=True,
+          strict_states_cnt=num_shards,
+      )
+    except ValueError as e:
+      logging.exception('chainables: error during merging, exception: %s', e)
+    results = None
+    if merged_state is not None:
+      results = agg_fn.get_result(merged_state)
+      logging.info('chainables: results: %s', results)
+
+    # Chainable pipeline user code end
+    logging.info('chainables: shutting down pool')
+    return results
