@@ -58,12 +58,12 @@ class StatsState(base.MergeableMetric):
       if self.batch_score_fn is not None:
         batch = self.batch_score_fn(batch)
       # Mininums and maximums.
-      self._min = np.min(batch, axis=0)
-      self._max = np.max(batch, axis=0)
+      self._min = np.nanmin(batch, axis=0)
+      self._max = np.nanmax(batch, axis=0)
       # Sufficient statistics for Mean, variance and standard deviation.
-      self._count = len(batch)
-      self._mean = np.mean(batch, axis=0)
-      self._var = np.var(batch, axis=0)
+      self._count = np.nansum(~np.isnan(batch), axis=0)
+      self._mean = np.nanmean(batch, axis=0)
+      self._var = np.nanvar(batch, axis=0)
       return self.result()
 
     batch_state = StatsState(batch_score_fn=self.batch_score_fn)
@@ -110,8 +110,8 @@ class StatsState(base.MergeableMetric):
       self._var = other.var
       return
 
-    self._min = min(self._min, other.min)
-    self._max = max(self._max, other.max)
+    self._min = np.minimum(self._min, other.min)
+    self._max = np.maximum(self._max, other.max)
 
     prev_mean, prev_count = self._mean, self._count
     self._count += other.count
