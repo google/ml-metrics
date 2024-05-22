@@ -28,35 +28,42 @@ class StatsState(base.MergeableMetric):
   """State of a statistics aggregation."""
 
   batch_score_fn: Callable[..., types.NumbersT] | None = None
-  _min: types.NumbersT | None = None
-  _max: types.NumbersT | None = None
+  _min: types.NumbersT = np.nan
+  _max: types.NumbersT = np.nan
   _count: int = 0
-  _mean: types.NumbersT | None = None
-  _var: types.NumbersT | None = None
+  _mean: types.NumbersT = np.nan
+  _var: types.NumbersT = np.nan
 
   def add(self, batch: types.NumbersT) -> 'StatsState':
     """Update the statistics with the given batch.
 
+    If `batch_score_fn` is provided, it will evaluate the batch and assign a
+    score to each item. Subsequently, the statistics are computed based on
+    non-nan values within the batch.
+
     Args:
-      batch:
-        A non-vacant series of numerical values.
+      batch: A non-vacant series of values.
 
     Returns:
       StatsState
 
     Raise:
       ValueError:
-        If the `batch` is empty.
+        If `batch_score_fn` is provided and the returned series is not the same
+        length as the `batch`.
     """
-
-    batch = np.asarray(batch)
-    if not batch.size:
-      raise ValueError('`batch` must not be empty.')
 
     if not self._count:
       # This assumes the first dimension is the batch dimension.
       if self.batch_score_fn is not None:
+        org_batch_size = len(batch)
         batch = self.batch_score_fn(batch)
+        if len(batch) != org_batch_size:
+          raise ValueError(
+              'The `batch_score_fn` must return a series of the same length as'
+              ' the `batch`.'
+          )
+
       # Mininums and maximums.
       self._min = np.nanmin(batch, axis=0)
       self._max = np.nanmax(batch, axis=0)
@@ -85,7 +92,7 @@ class StatsState(base.MergeableMetric):
 
   @property
   def stddev(self) -> types.NumbersT:
-    return self._var and np.sqrt(self._var)
+    return np.sqrt(self._var)
 
   @property
   def mean(self) -> types.NumbersT:
@@ -100,9 +107,11 @@ class StatsState(base.MergeableMetric):
     return self._mean * self._count if self._count > 0 else 0.0
 
   def merge(self, other: 'StatsState'):
-    if not other.count:
+    # TODO: b/311207032 - Support multi dimensional merge.
+    if other.count == 0:
       return
-    if not self.count:
+
+    if self.count == 0:
       self._min = other.min
       self._max = other.max
       self._count = other.count

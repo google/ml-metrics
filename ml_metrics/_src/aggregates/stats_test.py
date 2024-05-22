@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Tests for stats.py."""
+
 import dataclasses
 import math
 from typing import Any
@@ -22,36 +24,37 @@ import numpy as np
 from absl.testing import absltest
 
 
-def get_expected_result(batches, batch_score_fn=None):
+def get_expected_stats_state(batches, batch_score_fn=None):
   if batch_score_fn is not None:
     batches = [batch_score_fn(batch) for batch in batches]
   batches = np.asarray(batches)
   batch = np.asarray(batches).reshape(-1, *batches.shape[2:])
   return stats.StatsState(
       batch_score_fn=batch_score_fn,
-      _min=np.nanmin(batch, axis=0),
-      _max=np.nanmax(batch, axis=0),
+      # Since the truth value of an array with more than one element is
+      # ambiguous, we need to use .size to check if the array is empty or not.
+      _min=np.nanmin(batch, axis=0) if batch.size else np.nan,
+      _max=np.nanmax(batch, axis=0) if batch.size else np.nan,
       _mean=np.nanmean(batch, axis=0),
       _var=np.nanvar(batch, axis=0),
       _count=np.nansum(~np.isnan(batch), axis=0),
   )
 
 
-class StatsTest(parameterized.TestCase):
+class StatsStateTest(parameterized.TestCase):
 
   def assertDataclassAlmostEqual(
-      self, d1: dict[str, Any], d2: dict[str, Any], msg=None, places=7
+      self, expected: dict[str, Any], got: dict[str, Any]
   ):
     """Helper function for using assertAlmostEquals in dictionaries."""
-    d1 = dataclasses.asdict(d1)
-    d2 = dataclasses.asdict(d2)
-    self.assertEqual(d1.keys(), d2.keys())
-    for k, v in d1.items():
-      self.assertEqual(type(v), type(d2[k]))
-      if isinstance(v, dict):
-        self.assertDataclassAlmostEqual(v, d2[k], msg=msg)
+    expected = dataclasses.asdict(expected)
+    got = dataclasses.asdict(got)
+    self.assertEqual(expected.keys(), got.keys())
+    for key, value in expected.items():
+      if key == 'batch_score_fn':
+        self.assertAlmostEqual(value, got[key])
       else:
-        self.assertAlmostEqual(v, d2[k], places=places, msg=msg)
+        np.testing.assert_allclose(value, got[key])
 
   @parameterized.named_parameters([
       dict(
@@ -111,80 +114,135 @@ class StatsTest(parameterized.TestCase):
       last_batch_result = state.add(batch)
     self.assertIsInstance(last_batch_result, stats.StatsState)
 
-    expected_last_batch_result = get_expected_result(batches[-1])
+    expected_last_batch_result = get_expected_stats_state(batches[-1])
     self.assertDataclassAlmostEqual(
         expected_last_batch_result, last_batch_result
     )
 
-    expected_result = get_expected_result(batches)
-    self.assertDataclassAlmostEqual(expected_result, state.result())
+    expected_state = get_expected_stats_state(batches)
+    self.assertDataclassAlmostEqual(expected_state, state)
 
-  # TODO: b/311207032 - Add tests for nan inputs.
-  # TODO: b/311207032 - Add tests for multi dimensional inputs.
-
-  def test_stats_state_initial_add_with_empty_batch(self):
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='all_nan',
+          partial_nan=False,
+      ),
+      dict(
+          testcase_name='partial_nan',
+          partial_nan=True,
+      ),
+  ])
+  def test_stats_state_batch_with_nan(self, partial_nan):
+    batch = [np.nan] * 3 + [1, 2, 3] * int(partial_nan)
     state = stats.StatsState()
-    with self.assertRaisesRegex(
-        ValueError, '`batch` must not be empty.'
-    ):
+    state.add(batch)
+
+    expected_state = get_expected_stats_state(batch)
+    self.assertDataclassAlmostEqual(expected_state, state)
+
+  def test_stats_state_add_with_empty_batch(self):
+    # Numpy will raise exception if the batch is empty.
+    state = stats.StatsState()
+    with self.assertRaises(Exception):
       state.add([])
 
-  def test_stats_state_with_score_fn(self):
+  def test_stats_state_invalid_batch_score_fn(self):
+    batch = [1, 2, 3]
+    state = stats.StatsState(batch_score_fn=lambda x: [0])
+    with self.assertRaisesRegex(
+        ValueError,
+        'The `batch_score_fn` must return a series of the same length as the'
+        ' `batch`.',
+    ):
+      state.add(batch)
+
+  def test_stats_state_with_batch_score_fn(self):
     batches = np.array([np.random.randn(30) for _ in range(30)])
     batch_score_fn = lambda x: x + 1
-    expected_result = get_expected_result(batches, batch_score_fn)
-    expected_last_batch_result = get_expected_result(
-        batches[-1], batch_score_fn
-    )
-    state = stats.StatsState(batch_score_fn=batch_score_fn)
 
+    state = stats.StatsState(batch_score_fn=batch_score_fn)
     last_batch_result = None
     for batch in batches:
       last_batch_result = state.add(batch)
 
-    self.assertDataclassAlmostEqual(
-        last_batch_result, expected_last_batch_result
+    expected_last_batch_state = get_expected_stats_state(
+        batches[-1], batch_score_fn
     )
-    self.assertDataclassAlmostEqual(state.result(), expected_result)
+    self.assertDataclassAlmostEqual(
+        expected_last_batch_state, last_batch_result
+    )
 
-  def test_stats_state_merge(self):
-    batches = np.array([np.random.randn(30) for _ in range(2)])
-    expected_result = get_expected_result(batches)
-
-    state_0 = stats.StatsState()
-    state_0.add(batches[0])
-    state_1 = stats.StatsState()
-    state_1.add(batches[1])
-
-    state_0.merge(state_1)
-    result = state_0.result()
-
-    self.assertDataclassAlmostEqual(expected_result, result)
+    expected_state = get_expected_stats_state(batches, batch_score_fn)
+    self.assertDataclassAlmostEqual(expected_state, state)
 
   @parameterized.named_parameters([
       dict(
-          testcase_name='merge_empty_state',
-          self_empty=False,
+          testcase_name='merge_nonempty_states',
+          is_self_empty=False,
+          is_other_empty=False,
       ),
       dict(
-          testcase_name='merge_to_empty_state',
-          self_empty=True,
+          testcase_name='merge_nonempty_with_empty_state',
+          is_self_empty=False,
+          is_other_empty=True,
+      ),
+      dict(
+          testcase_name='merge_empty_with_nonempty_state',
+          is_self_empty=True,
+          is_other_empty=False,
+      ),
+      dict(
+          testcase_name='merge_empty_states',
+          is_self_empty=True,
+          is_other_empty=True,
       ),
   ])
-  def test_stats_state_merge_empty_state_stats(self, self_empty):
-    state_self = stats.StatsState()
-    state_other = stats.StatsState()
-    if self_empty:
-      state_other.add([1, 2, 3])
-    else:
-      state_self.add([1, 2, 3])
+  def test_stats_state_merge(self, is_self_empty, is_other_empty):
+    self_batch = np.random.randn(30 * int(not is_self_empty))
+    other_batch = np.random.randn(30 * int(not is_other_empty))
+    self_state = stats.StatsState()
+    other_state = stats.StatsState()
 
-    if self_empty:
-      state_self.merge(state_other)
-    else:
-      state_self.merge(state_other)
-    expected = stats.StatsState().add([1, 2, 3])
-    self.assertEqual(expected, state_self)
+    if not is_self_empty:
+      self_state.add(self_batch)
+    if not is_other_empty:
+      other_state.add(other_batch)
+    self_state.merge(other_state)
+
+    expected_state = get_expected_stats_state(
+        np.append(self_batch, other_batch)
+    )
+    self.assertDataclassAlmostEqual(expected_state, self_state)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='init_state',
+          add_batch=False,
+      ),
+      dict(
+          testcase_name='non_empty_batch',
+          add_batch=True,
+      ),
+  ])
+  def test_stats_state_properties(self, add_batch):
+    batch = [1, 2, 3, np.nan] * int(add_batch)
+    state = stats.StatsState()
+    if add_batch:
+      state.add(batch)
+
+    expected_properties_dict = {
+        'min': np.nanmin(batch, axis=0) if batch else np.nan,
+        'max': np.nanmax(batch, axis=0) if batch else np.nan,
+        'mean': np.nanmean(batch, axis=0),
+        'var': np.nanvar(batch, axis=0),
+        'stddev': np.nanstd(batch, axis=0),
+        'count': np.nansum(~np.isnan(batch), axis=0),
+        'total': np.nansum(batch, axis=0),
+    }
+    for property_name, value in expected_properties_dict.items():
+      np.testing.assert_allclose(
+          getattr(state.result(), property_name), value
+      )
 
 
 class CoeffStateTest(parameterized.TestCase):
