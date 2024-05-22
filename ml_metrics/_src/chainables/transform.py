@@ -390,10 +390,10 @@ class CombinedTreeFn:
     states = _extract_states(states) if mixed_input_types else states
     for state in states:
       for key, fn_state in state.items():
-        agg_fn = self.agg_fns[key.metrics]
-        states_by_fn[key] = agg_fn.merge_states(
-            [states_by_fn.setdefault(key, agg_fn.create_state()), fn_state]
-        )
+        if key in states_by_fn:
+          agg_fn = self.agg_fns[key.metrics]
+          fn_state = agg_fn.merge_states([states_by_fn[key], fn_state])
+        states_by_fn[key] = fn_state
       states_cnt += 1
     if strict_states_cnt and states_cnt != strict_states_cnt:
       raise ValueError(
