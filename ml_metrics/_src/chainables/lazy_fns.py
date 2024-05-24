@@ -89,7 +89,7 @@ def _as_awaitable(fn: Callable[..., Any], *args, **kwargs):
 def async_iterate_fn(fn):
   """Wraps a callable to apply it on each item in an iterable.
 
-  Note that, we assume only the positional arguements are consuming the
+  Note that, we assume only the positional arguments are consuming the
   iterables. All the kwargs are directly passed through.
 
   Args:
@@ -108,7 +108,7 @@ def async_iterate_fn(fn):
     outputs_future = asyncio.gather(*tasks)
     await asyncio.wait_for(outputs_future, timeout=None)
     outputs = outputs_future.result()
-    # Only transpose when mutliple items returned.
+    # Only transpose when multiple items returned.
     if outputs and isinstance(outputs[0], tuple):
       return tuple(zip(*outputs))
     else:
@@ -120,7 +120,7 @@ def async_iterate_fn(fn):
 def iterate_fn(fn):
   """Wraps a callable to apply it on each item in an iterable.
 
-  Note that, we assume only the positional arguements are consuming the
+  Note that, we assume only the positional arguments are consuming the
   iterables. All the kwargs are directly passed through.
 
   Args:
@@ -133,7 +133,7 @@ def iterate_fn(fn):
   @functools.wraps(fn)
   def wrapped_fun(*inputs, **kwargs) -> tuple[ValueT, ...] | ValueT:
     outputs = [fn(*row_inputs, **kwargs) for row_inputs in zip(*inputs)]
-    # Only transpose when mutliple items returned.
+    # Only transpose when multiple items returned.
     if outputs and isinstance(outputs[0], tuple):
       return tuple(zip(*outputs))
     else:
@@ -148,11 +148,11 @@ def normalize_kwargs(kwargs: Mapping[str, Hashable]):
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class Args:
-  """Positional and keyword arguements.
+  """Positional and keyword arguments.
 
   Attributes:
-    args: The positional arguements later used to pass in the fn.
-    kwargs: The named arguements later used to pass in the fn.
+    args: The positional arguments later used to pass in the fn.
+    kwargs: The named arguments later used to pass in the fn.
   """
 
   args: tuple[Hashable | LazyFn, ...] = ()
@@ -160,7 +160,7 @@ class Args:
 
 
 def trace_args(*args, **kwargs) -> Args:
-  """Traces positional and keyword arguements."""
+  """Traces positional and keyword arguments."""
   return Args(args=args, kwargs=normalize_kwargs(kwargs))
 
 
@@ -204,8 +204,8 @@ class LazyFn(Generic[ValueT], Callable[..., 'LazyFn']):
 
   Attributes:
     fn: The function to be called.
-    args: The positional arguements later used to pass in the fn.
-    kwargs: The named arguements later used to pass in the fn.
+    args: The positional arguments later used to pass in the fn.
+    kwargs: The named arguments later used to pass in the fn.
     cache_result: If True, cache the result of the make LazyFn.
   """
 
@@ -223,7 +223,7 @@ class LazyFn(Generic[ValueT], Callable[..., 'LazyFn']):
       kwargs: Mapping[str, Hashable] | None = None,
       cache_result: bool = False,
   ) -> LazyFn[ValueT]:
-    """Normalizes the arguements before constructing a LazyFn."""
+    """Normalizes the arguments before constructing a LazyFn."""
     kwargs = (kwargs or {}).items()
     return cls(
         fn=fn, args=tuple(args), kwargs=tuple(kwargs), cache_result=cache_result
@@ -333,12 +333,12 @@ def cache_info():
 def trace(
     fn: Callable[..., ValueT], use_cache: bool = False
 ) -> Callable[..., LazyFn[ValueT]]:
-  """Traces a callable to record the function and its arguements.
+  """Traces a callable to record the function and its arguments.
 
   A lazy function is the lazy counterpart of the actual function. We can convert
   a lazy function using `lazy`: fn -> lazy(fn) -> lazy_fn. Calling a lazy
   counterpart
-  of the function doesn't call the actual function, but record the arguements
+  of the function doesn't call the actual function, but record the arguments
   used to call the function later. To call the actual function, uses.
   `lazy_fn.call()`. E.g.,
   ```
@@ -373,7 +373,7 @@ def trace(
     use_cache: If True, uses cache for the result of the make LazyFn.
 
   Returns:
-    A function that records the fn and its arguements to be called later.
+    A function that records the fn and its arguments to be called later.
   """
 
   def wrapped(*args, **kwargs):

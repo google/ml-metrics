@@ -67,7 +67,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       fn: FnT | lazy_fns.LazyFn[FnT] | None = None,
       input_keys: tree.TreeMapKey | tree.TreeMapKeys = tree.Key.SELF,
   ) -> TreeFn[FnT, ValueT]:
-    """Normalizes the arguements before constructing a TreeFn."""
+    """Normalizes the arguments before constructing a TreeFn."""
     if fn:
       # Fn requires a tuple for positional inputs. Normalize_keys converts
       # the keys into a tuple of keys to make sure the actual selected inputs
@@ -210,7 +210,7 @@ class Slicer:
           SliceIteratorFn | lazy_fns.LazyFn[SliceIteratorFn] | None
       ) = None,
   ) -> Self:
-    """Normalizes the arguements before constructing a TreeFn."""
+    """Normalizes the arguments before constructing a TreeFn."""
     if slice_fn and not slice_name:
       raise ValueError('Must provide output_key when slice_fn is provided.')
     slice_fn = slice_fn or (lambda *args: (args,))
