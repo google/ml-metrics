@@ -15,6 +15,7 @@
 
 import dataclasses
 import inspect
+import threading
 import time
 
 from absl import logging
@@ -41,6 +42,10 @@ class CourierServerWrapper:
       default=None, init=False
   )
 
+  @property
+  def address(self) -> str:
+    return self._server.address if self._server else ''
+
   def build_server(self):
     """Build and run a courier server."""
     # Verify the registered makeables.
@@ -51,37 +56,44 @@ class CourierServerWrapper:
 
     def pickled_maybe_make(maybe_lazy):
       result = lazy_fns.maybe_make(maybe_lazy)
-      if inspect.isgenerator(result):
-        self._generator = transform.PrefetchableIterator(
-            result, prefetch_size=self.prefetch_size
-        )
-        return pickler.dumps(repr(result))
       return pickler.dumps(result)
 
-    def next_batch_from_generator():
+    def pickled_init_generator(maybe_lazy):
+      result = lazy_fns.maybe_make(maybe_lazy)
+      if not inspect.isgenerator(result):
+        raise ValueError(
+            f'The {result} is not a generator, but a {type(result)}.'
+        )
+      self._generator = transform.PrefetchableIterator(
+          result,
+          prefetch_size=self.prefetch_size,
+      )
+
+    def _next_batch_from_generator(batch_size: int = 0):
       assert self._generator is not None, (
           'Generator is not set, the worker might crashed unexpectedly'
           ' previously.'
       )
-      result = [next(self._generator) for _ in range(self._generator.data_size)]
-      if self._generator.exhausted:
-        result.append(lazy_fns.STOP_ITERATION)
-      return pickler.dumps(result)
+      result = self._generator.flush_prefetched(batch_size)
+      # The sequence of the result will always end with an exception.
+      # Any non-StopIteration means the generator crashed.
+      if not self._generator.data_size:
+        if self._generator.exceptions:
+          result.append(self._generator.exceptions[-1])
+        elif self._generator.exhausted:
+          result.append(StopIteration())
+      return result
 
-    # TODO: b/318463291 - Considers deprecating in favor of
-    # `next_batch_from_generator`.
+    def next_batch_from_generator(batch_size: int | bytes = 0):
+      batch_size = lazy_fns.maybe_make(batch_size)
+      return pickler.dumps(_next_batch_from_generator(batch_size))
+
     def next_from_generator():
-      try:
-        result = next(self._generator)
-      except StopIteration:
-        result = lazy_fns.STOP_ITERATION
-      except Exception as e:  # pylint: disable=broad-exception-caught
-        logging.exception('Chainables: Exception while iterating: %s', e)
-        result = lazy_fns.STOP_ITERATION
-      return pickler.dumps(result)
+      return pickler.dumps(_next_batch_from_generator(batch_size=1)[0])
 
     server = courier.Server(self.server_name, port=self.port)
     server.Bind('maybe_make', pickled_maybe_make)
+    server.Bind('init_generator', pickled_init_generator)
     server.Bind('next_from_generator', next_from_generator)
     server.Bind('next_batch_from_generator', next_batch_from_generator)
     server.Bind('shutdown', shutdown)
@@ -93,24 +105,20 @@ class CourierServerWrapper:
 
   def run_until_shutdown(self):
     """Run until shutdown requested."""
+    if self._server is None:
+      self.build_server()
     assert self._server is not None, 'Server is not built.'
     if not self._server.has_started:
       self._server.Start()
     while not self._shutdown_requested[_DEFAULT]:
       if self._generator:
         self._generator.prefetch()
-      time.sleep(0.01)
+      time.sleep(0.00)
     logging.info('Chainables: Shutdown requested, shutting down server.')
     self._server.Stop()
 
-
-def run_courier_server(name=None, port=None, prefetch_size: int = 128):
-  # TODO: b/318463291 - Preloaded task to start running prefetching even before
-  # master started.
-  server_wrapper = CourierServerWrapper(
-      server_name=name,
-      port=port,
-      prefetch_size=prefetch_size,
-  )
-  server_wrapper.build_server()
-  server_wrapper.run_until_shutdown()
+  def start(self):
+    """Start the server from a different thread."""
+    server_thread = threading.Thread(target=self.run_until_shutdown)
+    server_thread.start()
+    return server_thread

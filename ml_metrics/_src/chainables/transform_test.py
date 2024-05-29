@@ -496,11 +496,12 @@ class TransformTest(parameterized.TestCase):
     input_iterator = range(10)
     p = transform.TreeTransform.new().data_source(iterator=input_iterator)
     iterator = transform.PrefetchableIterator(
-        p.make().iterate(), prefetch_size=2
+        p.make().iterate(), prefetch_size=3
     )
     iterator.prefetch()
-    self.assertEqual(2, iterator.cnt)
-    self.assertEqual(list(range(10)), list(iterator))
+    self.assertEqual(3, iterator.cnt)
+    self.assertEqual([0, 1, 2], iterator.flush_prefetched())
+    self.assertEqual(list(range(3, 10)), list(iterator))
 
 
 if __name__ == '__main__':

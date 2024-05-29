@@ -50,6 +50,7 @@ import dataclasses
 import functools
 import inspect
 import itertools
+import queue
 import time
 from typing import Any, Generic, TypeVar
 
@@ -78,14 +79,16 @@ class PrefetchableIterator:
   """An iterator that can also prefetch before iterated."""
 
   def __init__(self, generator, prefetch_size: int = 2):
-    self._data = []
+    self._data = queue.SimpleQueue()
     if not inspect.isgenerator(generator):
       generator = iter(generator)
     self._generator = generator
+    self._exceptions = []
     self._prefetch_size = prefetch_size
     self._exhausted = False
     self._error_cnt = 0
     self._cnt = 0
+    self._data_size = 0
 
   @property
   def cnt(self) -> int:
@@ -93,16 +96,44 @@ class PrefetchableIterator:
 
   @property
   def data_size(self) -> int:
-    return len(self._data)
+    return self._data_size
 
   @property
   def exhausted(self) -> bool:
     return self._exhausted
 
+  @property
+  def exceptions(self) -> list[Exception]:
+    return self._exceptions
+
+  def flush_prefetched(self, batch_size: int = 0) -> list[Any]:
+    """Flushes the prefetched data.
+
+    Args:
+      batch_size: the batch size of the data to be flushed. If batch_size = 0,
+        it takes all prefetche immediately.
+
+    Returns:
+      The flushed data.
+    """
+    result = []
+    while (
+        self.data_size < batch_size
+        and not self._exhausted
+        and not self._exceptions
+    ):
+      time.sleep(0)
+    batch_size = batch_size or self.data_size
+    while self.data_size and len(result) < batch_size:
+      result.append(self._data.get())
+      self._data_size -= 1
+    logging.info('Chainables: flush_prefetched: %s', len(result))
+    return result
+
   def __next__(self):
     self.prefetch(1)
-    if self._data:
-      return self._data.pop(0)
+    if not self._data.empty():
+      return self._data.get()
     else:
       logging.info('chainables: Generator exhausted from %s.', self._generator)
       raise StopIteration
@@ -112,24 +143,27 @@ class PrefetchableIterator:
 
   def prefetch(self, num_items: int = 0):
     """Prefeches items from the undelrying generator."""
-    while not self._exhausted and len(self._data) < (
+    while not self._exhausted and self._data.qsize() < (
         num_items or self._prefetch_size
     ):
       try:
-        self._data.append(next(self._generator))
-        self._error_cnt = 0
+        self._data.put(next(self._generator))
         self._cnt += 1
+        self._data_size += 1
       except StopIteration:
         self._exhausted = True
+        logging.info(
+            'chainables: prefetch exhausted after %d items.', self._cnt
+        )
       except Exception as e:  # pylint: disable=broad-exception-caught
+        logging.exception('chainables: Got error during prefetch.')
         if 'generator already executing' != str(e):
-          logging.exception('chainables: Got error during prefetch.')
-          self._error_cnt += 1
-          if self._error_cnt > 3:
+          self._exceptions.append(e)
+          if len(self._exceptions) > 3:
             logging.exception('chainables: Too many errors, stop prefetching.')
             break
 
-        time.sleep(1)
+        time.sleep(0)
 
 
 def _call_fns(
@@ -311,6 +345,10 @@ class CombinedTreeFn:
         output_fns=output_fns,
         input_iterator=input_iterator,
     )
+
+  @property
+  def has_agg(self):
+    return True if self.agg_fns else False
 
   def _slice_iterator(
       self, inputs

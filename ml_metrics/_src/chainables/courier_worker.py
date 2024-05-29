@@ -12,19 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Courier worker that can take and run a registered makeable instance."""
+from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from concurrent import futures
 import dataclasses
 import time
 from typing import Any
+from typing import Self
 
 from absl import logging
 import courier
 from ml_metrics._src.chainables import lazy_fns
 
 
-_LOGGING_INTERVAL_SEC = 60
+_LOGGING_INTERVAL_SEC = 30
 _NUM_TOTAL_FAILURES_THRESHOLD = 60
 picklers = lazy_fns.picklers
 
@@ -34,7 +36,6 @@ class Task:
   """Lazy function that runs on courier methods.
 
   Attributes:
-    courier_method: The courier method name to be called.
     args: The positional arguments later used to pass in the fn.
     kwargs: The named arguments later used to pass in the fn.
     blocking: Whether the wait for the call to complete.
@@ -46,7 +47,6 @@ class Task:
     result: get the result of the task if there is any.
   """
 
-  courier_method: str = ''
   args: tuple[Any, ...] = ()
   kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
   blocking: bool = False
@@ -58,23 +58,15 @@ class Task:
   def new(
       cls,
       *args,
-      courier_method: str = '',
       blocking: bool = False,
       **kwargs,
   ):
     """Convenient function to make a Task."""
     return cls(
-        courier_method=courier_method,
         args=args,
         kwargs=kwargs,
         blocking=blocking,
     )
-
-  def iterate(self, worker_pool):
-    state = worker_pool.get_worker_by_name(self.server_name).call(
-        courier_method='next_batch_from_generator'
-    )
-    return dataclasses.replace(self, state=state)
 
   @classmethod
   def from_list_of_tasks(cls, tasks: list['Task']) -> 'Task':
@@ -101,14 +93,13 @@ class Task:
       return None
     return picklers.default.loads(self.state.result())
 
-  def set(self, **kwargs):
+  def set(self, **kwargs) -> Self:
     return dataclasses.replace(self, **kwargs)
 
   def add_task(
       self,
-      task: 'Task | Any',
+      task: Task | Any,
       *,
-      courier_method: str = '',
       blocking: bool = False,
   ):
     """Append a task behind this task."""
@@ -116,17 +107,54 @@ class Task:
       task = Task.new(
           task,
           blocking=blocking,
-          courier_method=courier_method,
       )
     result = self
     for each_task in task.flatten():
       result = dataclasses.replace(each_task, parent_task=result)
     return result
 
+  def add_generator_task(
+      self,
+      task: GeneratorTask | Any,
+      *,
+      blocking: bool = False,
+  ):
+    """Append a task behind this task."""
+    if not isinstance(task, GeneratorTask):
+      task = GeneratorTask.new(
+          task,
+          blocking=blocking,
+      )
+    return self.add_task(task)
+
   def flatten(self) -> list['Task']:
     if self.parent_task is None:
       return [self]
     return self.parent_task.flatten() + [self]
+
+
+@dataclasses.dataclass(kw_only=True, frozen=True)
+class GeneratorTask(Task):
+  """Courier worker communication for generator.
+
+  Attributes:
+    args: The positional arguments later used to pass in the fn.
+    kwargs: The named arguments later used to pass in the fn.
+    blocking: Whether the wait for the call to complete.
+    keep_result: Whether to keep the result.
+    server_name: The server address this task is sent to.
+    parent_task: The parent task that has to be run first.
+    state: the result of the task.
+    exception: the exception of the running this task if there is any.
+    result: get the result of the task if there is any.
+  """
+
+  def next_batch(self, worker_pool: WorkerPool):
+    return self.set(
+        state=worker_pool.get_worker_by_name(
+            self.server_name
+        ).next_batch_from_generator()
+    )
 
 
 def get_results(
@@ -198,9 +226,14 @@ class Worker:
   call_timeout: int = 60
   max_parallelism: int = 1
   heartbeat_threshold_secs: int = 180
+  iterate_batch_size: int = 1
+  _shutdown_requested: bool = False
   _client: courier.Client | None = dataclasses.field(default=None, init=False)
   _pendings: list[futures.Future[Any]] = dataclasses.field(
       default_factory=list, init=False
+  )
+  _heartbeat_client: courier.Client | None = dataclasses.field(
+      default=None, init=False
   )
   _heartbeat: futures.Future[Any] | None = dataclasses.field(
       default=None, init=False
@@ -211,6 +244,9 @@ class Worker:
     self._client = courier.Client(
         self.server_name, call_timeout=self.call_timeout
     )
+    self._heartbeat_client = courier.Client(
+        self.server_name, call_timeout=self.heartbeat_threshold_secs
+    )
 
   @property
   def has_capacity(self) -> bool:
@@ -219,9 +255,7 @@ class Worker:
   def _check_heartbeat(self) -> bool:
     """Ping the worker to check the heartbeat once."""
     if not self._heartbeat:
-      self._heartbeat = Worker(
-          self.server_name, call_timeout=self.call_timeout
-      ).call(None)
+      self._heartbeat = self._heartbeat_client.futures.maybe_make(None)
     try:
       if self._heartbeat.done() and self._heartbeat.result():
         self._heartbeat = None
@@ -236,17 +270,19 @@ class Worker:
 
   def wait_until_alive(
       self,
-      num_attempts: int = 30,
-      sleep_interval: float = 6.0,
+      deadline_secs: int = 180,
+      *,
+      sleep_interval_secs: int = 6,
   ):
-    """Waits for the workers to be alive with retries."""
+    """Waits for the worker to be alive with retries."""
+    num_attempts = max(deadline_secs // sleep_interval_secs, 1)
     for _ in range(num_attempts):
       try:
         if self.is_alive:
           break
       except Exception as e:  # pylint: disable=broad-exception-caught
         logging.warning('chainables: exception when connecting: %s', e)
-      time.sleep(sleep_interval)
+      time.sleep(sleep_interval_secs)
     else:
       raise ValueError(
           f'Failed to connect to worker {self.server_name} after'
@@ -256,6 +292,8 @@ class Worker:
   @property
   def is_alive(self) -> bool:
     """Checks whether the worker is alive."""
+    if self._shutdown_requested:
+      return False
     if self._check_heartbeat():
       return True
     # No last heartbeat recorded, consider it dead.
@@ -281,25 +319,40 @@ class Worker:
     self._pendings.append(state)
     return state
 
-  def run_task(
-      self,
-      tasks: Task,
-      sleep_interval: float = 0.01,
-  ) -> Task:
+  def run_task(self, task: Task) -> Task:
     """Runs tasks sequentially and returns the futures."""
     result = []
-    for task in tasks.flatten():
+    for task in task.flatten():
       while not self.has_capacity:
-        time.sleep(sleep_interval)
-      state = self.call(
-          *task.args, courier_method=task.courier_method, **task.kwargs
-      )
+        time.sleep(0)
+      state = self.call(*task.args, **task.kwargs)
       if task.blocking:
         wait_until_done([state])
-      result.append(
-          dataclasses.replace(task, state=state, server_name=self.server_name)
-      )
+      result.append(task.set(state=state, server_name=self.server_name))
     return Task.from_list_of_tasks(result)
+
+  def init_generator(self, task: GeneratorTask) -> GeneratorTask:
+    parent_task = None
+    if task.parent_task is not None:
+      parent_task = self.run_task(task.parent_task)
+    return task.set(
+        server_name=self.server_name,
+        state=self.call(
+            *task.args, courier_method='init_generator', **task.kwargs
+        ),
+        parent_task=parent_task,
+    )
+
+  def next_batch_from_generator(
+      self, batch_size: int = 0
+  ) -> futures.Future[Any]:
+    batch_size = batch_size or self.iterate_batch_size
+    return self.call(
+        courier_method='next_batch_from_generator', batch_size=batch_size
+    )
+
+  def next_from_generator(self) -> futures.Future[Any]:
+    return self.call(courier_method='next_from_generator')
 
   def clear_cache(self):
     return self.call(courier_method='clear_cache')
@@ -308,7 +361,8 @@ class Worker:
     self.call_timeout = call_timeout
     self._client = courier.Client(self.server_name, call_timeout=call_timeout)
 
-  def shutdown(self):
+  def shutdown(self) -> futures.Future[Any]:
+    self._shutdown_requested = True
     self.state = self._client.futures.shutdown()
     return self.state
 
@@ -329,6 +383,8 @@ class WorkerPool:
   call_timeout: int = 30
   max_parallelism: int = 1
   heartbeat_threshold_secs: int = 180
+  iterate_batch_size: int = 1
+  _workers: dict[str, Worker] = dataclasses.field(default_factory=dict)
 
   def __post_init__(self):
     self._workers = {
@@ -337,31 +393,30 @@ class WorkerPool:
             call_timeout=self.call_timeout,
             max_parallelism=self.max_parallelism,
             heartbeat_threshold_secs=self.heartbeat_threshold_secs,
+            iterate_batch_size=self.iterate_batch_size,
         )
         for name in self.server_names
     }
 
   def wait_until_alive(
       self,
-      num_attempts: int = 30,
+      deadline_secs: int = 180,
+      *,
       minimum_num_workers: int = 1,
-      sleep_interval: float = 6.0,
   ):
     """Waits for the workers to be alive with retries."""
+    sleep_interval_secs: int = 6
+    num_attempts = max(deadline_secs // sleep_interval_secs, 1)
     for _ in range(num_attempts):
       try:
         workers = self.idle_workers()
         logging.info('chainables: Available workers: %d', len(workers))
-        assert get_results(
-            [worker.clear_cache() for worker in workers], blocking=True
-        ) == [None] * len(workers)
-        logging.info('chainables: %d workers connected.', len(workers))
         # Proceed if reached minimum number of workers.
         if len(workers) >= minimum_num_workers:
           break
       except Exception as e:  # pylint: disable=broad-exception-caught
         logging.warning('chainables: exception when connecting: %s', e)
-      time.sleep(sleep_interval)
+      time.sleep(sleep_interval_secs)
     else:
       raise ValueError(
           f'Failed to connect to workers after {num_attempts} tries: workers:'
@@ -396,8 +451,16 @@ class WorkerPool:
     return self._workers[name]
 
   def shutdown(self):
-    states = [c.shutdown() for c in self._workers.values()]
-    wait_until_done(states)
+    remaining_workers = self.idle_workers()
+    logging.info(
+        'chainables: shutting down %d workers, remaining %d workers are not'
+        ' connected, needs to be manually shutdown.',
+        len(remaining_workers),
+        len(self.workers) - len(remaining_workers),
+    )
+    states = [worker.shutdown() for worker in remaining_workers]
+    time.sleep(0.1)
+    return states
 
   def run_tasks(
       self, tasks: list[Task], sleep_interval: float = 0.01
@@ -431,73 +494,73 @@ class WorkerPool:
 
   def run_and_iterate(
       self,
-      tasks: list[Task],
-      sleep_interval: float = 0.0,
+      tasks: Iterable[GeneratorTask],
       num_total_failures_threshold: int = _NUM_TOTAL_FAILURES_THRESHOLD,
   ) -> Iterator[Any]:
     """Iterates through the result of a generator if the iterator task."""
-    tasks = [task for task in tasks]
-    pending_tasks = []
-    running_tasks = []
+    tasks = list(tasks)
+    pending_tasks, running_tasks = [], []
     total_tasks = len(tasks)
-    total_failures_cnt = 0
-    finished_tasks_cnt = 0
-    ticker = time.time()
+    total_failures_cnt, finished_tasks_cnt = 0, 0
+    batch_cnt, prev_batch_cnt = 0, 0
+    self.wait_until_alive()
+    start_time = prev_ticker = time.time()
     while tasks or pending_tasks or running_tasks:
-      if not self.workers:
-        raise ValueError(
-            'No workers are alive, remaining'
-            f' {len(tasks)+len(running_tasks)} tasks.'
-        )
       # Assign to the iterator tasks
+      iterating_servers = {
+          task.server_name for task in running_tasks + pending_tasks
+      }
       for worker in self.idle_workers():
-        # Only assign non-running tasks to the workers that are not running.
-        if worker.server_name not in {
-            task.server_name for task in running_tasks
-        }:
+        # Only assign non-running tasks to the non-iterating workers.
+        if worker.server_name not in iterating_servers:
           if tasks:
-            task = worker.run_task(tasks.pop())
+            task = worker.init_generator(tasks.pop())
             pending_tasks.append(task)
       # Check the instantiated iterator, then assign iteratate if successful.
-      new_pending_tasks: list[Task] = []
+      new_pending_tasks: list[GeneratorTask] = []
       for task in pending_tasks:
         if task.done:
           _raise_if_return_error(task)
-          running_tasks.append(task.iterate(self))
+          running_tasks.append(task.next_batch(self))
         else:
           new_pending_tasks.append(task)
       pending_tasks = new_pending_tasks
       # Fetching finsihed outputs. Re-collect task if failed during iteration.
-      still_running: list[Task] = []
+      still_running: list[GeneratorTask] = []
       for task in running_tasks:
         if task.done:
-          try:
-            states = task.result
-            if states and lazy_fns.is_stop_iteration(states[-1]):
-              logging.info(
-                  'chainables: worker %s generator exhausted.',
+          states = task.result
+          if states and isinstance(states[-1], Exception):
+            batch_cnt += len(states[:-1])
+            yield from states[:-1]
+            try:
+              if lazy_fns.is_stop_iteration(states[-1]):
+                logging.info(
+                    'chainables: worker %s generator exhausted.',
+                    task.server_name,
+                )
+                finished_tasks_cnt += 1
+              else:
+                raise states[-1]
+            except Exception:  # pylint: disable=broad-exception-caught
+              logging.exception(
+                  'chainables: exception when iterating, re-appending task %s,'
+                  ' \n worker: %s.',
+                  dataclasses.replace(task, parent_task=None),
                   task.server_name,
               )
-              yield from states[:-1]
-              finished_tasks_cnt += 1
-            else:
-              yield from states
-              still_running.append(task.iterate(self))
-          except Exception as e:  # pylint: disable=broad-exception-caught
-            logging.exception(
-                'chainables: exception when iterating, re-appending task %s, \n'
-                ' exception: %s',
-                dataclasses.replace(task, parent_task=None),
-                e,
-            )
-            total_failures_cnt += 1
-            if total_failures_cnt > num_total_failures_threshold:
-              raise ValueError(
-                  f'chainables: too many failures: {total_failures_cnt} >'
-                  f' {num_total_failures_threshold}, stopping the iteration.'
-              ) from e
-            tasks.append(task)
-        elif not self._workers[task.server_name].is_alive:
+              total_failures_cnt += 1
+              if total_failures_cnt > num_total_failures_threshold:
+                raise ValueError(
+                    f'chainables: too many failures: {total_failures_cnt} >'
+                    f' {num_total_failures_threshold}, stopping the iteration.'
+                ) from states[-1]
+              tasks.append(task)
+          else:
+            batch_cnt += len(states)
+            yield from states
+            still_running.append(task.next_batch(self))
+        elif not self.get_worker_by_name(task.server_name).is_alive:
           logging.warning(
               'chainables: Worker %s is not alive, re-appending task %s',
               task.server_name,
@@ -513,16 +576,23 @@ class WorkerPool:
           + len(pending_tasks)
           + len(tasks)
       ) == total_tasks, 'Total tasks mismatch.'
-      if time.time() - ticker > _LOGGING_INTERVAL_SEC:
+      if time.time() - prev_ticker > _LOGGING_INTERVAL_SEC:
         logging.info(
-            'chainables: iterate progress: %d/%d/%d/%d/%d in %.2f secs.'
-            ' (running/pending/remaining/finished/total).',
-            len(running_tasks),
-            len(pending_tasks),
+            'chainables: iterate throughput: %.2f; progress: %d/%d/%d/%d in'
+            ' %.2f secs. (running/remaining/finished/total).',
+            (batch_cnt - prev_batch_cnt) / (time.time() - prev_ticker),
+            len(running_tasks) + len(pending_tasks),
             len(tasks),
             finished_tasks_cnt,
             total_tasks,
-            time.time() - ticker,
+            time.time() - prev_ticker,
         )
-        ticker = time.time()
-      time.sleep(sleep_interval)
+        prev_ticker = time.time()
+        prev_batch_cnt = batch_cnt
+      time.sleep(0)
+    logging.info(
+        'chainables: finished iterating %d/%d in %.2f secs.',
+        finished_tasks_cnt,
+        total_tasks,
+        time.time() - start_time,
+    )

@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import threading
 import time
 
 from absl.testing import absltest
@@ -33,16 +32,15 @@ class CourierWorkerTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server_wrapper = courier_server.CourierServerWrapper()
-    self.server = self.server_wrapper.build_server()
-    self.t = threading.Thread(target=self.server_wrapper.run_until_shutdown)
-    self.t.start()
+    self.server = courier_server.CourierServerWrapper()
+    self.server.build_server()
+    self.server_thread = self.server.start()
     self.worker = courier_worker.Worker(self.server.address)
-    self.worker.wait_until_alive()
+    self.worker.wait_until_alive(deadline_secs=12)
 
   def tearDown(self):
     self.worker.shutdown()
-    self.t.join()
+    self.server_thread.join()
     super().tearDown()
 
   def test_worker_call(self):
@@ -101,10 +99,9 @@ class CourierWorkerTest(absltest.TestCase):
     self.assertIsInstance(exceptions[0], Exception)
 
   def test_worker_shutdown(self):
-    server_wrapper = courier_server.CourierServerWrapper()
-    server = server_wrapper.build_server()
-    t = threading.Thread(target=server_wrapper.run_until_shutdown)
-    t.start()
+    server = courier_server.CourierServerWrapper()
+    server.build_server()
+    t = server.start()
     worker = courier_worker.Worker(server.address)
     self.assertTrue(worker.call(True))
     self.assertTrue(t.is_alive())
@@ -117,16 +114,15 @@ class CourierWorkerGroupTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server_wrapper = courier_server.CourierServerWrapper()
-    self.server = self.server_wrapper.build_server()
-    self.t = threading.Thread(target=self.server_wrapper.run_until_shutdown)
-    self.t.start()
+    self.server = courier_server.CourierServerWrapper()
+    self.server.build_server()
+    self.server_thread = self.server.start()
     self.worker_pool = courier_worker.WorkerPool([self.server.address])
-    self.worker_pool.wait_until_alive(num_attempts=3)
+    self.worker_pool.wait_until_alive(deadline_secs=12)
 
   def tearDown(self):
     self.worker_pool.shutdown()
-    self.t.join()
+    self.server_thread.join()
     super().tearDown()
 
   def test_worker_group_call(self):
@@ -138,27 +134,23 @@ class CourierWorkerGroupTest(absltest.TestCase):
       yield from range(n)
 
     tasks = [
-        Task.new('echo').add_task(
-            lazy_fns.trace(mock_generator)(3), blocking=True
-        )
+        Task.new('echo').add_generator_task(lazy_fns.trace(mock_generator)(3))
     ] * 3
-    courier_worker._LOGGING_INTERVAL_SEC = 0.1
+    courier_worker._LOGGING_INTERVAL_SEC = 0.01
     with self.assertLogs(level='INFO') as cm:
       results = [
           result
           for result in self.worker_pool.run_and_iterate(
-              tasks, sleep_interval=0.01, num_total_failures_threshold=0
+              tasks, num_total_failures_threshold=0
           )
       ]
-    self.assertNotEmpty([l for l in cm.output if 'iterate progress' in l])
     self.assertLen(results, 9)
     self.assertCountEqual(list(range(3)) * 3, results)
+    self.assertNotEmpty([l for l in cm.output if 'progress' in l])
 
   def test_worker_group_run_and_iterate_invalid_iterator(self):
-    tasks = [
-        Task.new('echo').add_task(lazy_fns.trace(len)([3]), blocking=True)
-    ] * 3
-    with self.assertRaises(ValueError):
+    tasks = [Task.new('echo').add_generator_task(lazy_fns.trace(len)([3]))] * 3
+    with self.assertRaises(TypeError):
       list(
           self.worker_pool.run_and_iterate(
               tasks, num_total_failures_threshold=0
@@ -175,16 +167,19 @@ class CourierWorkerGroupTest(absltest.TestCase):
     self.assertEqual([2] * 3, actual)
 
   def test_worker_group_idle_workers(self):
-    self.assertLen(self.worker_pool.idle_workers(), 1)
-    self.worker_pool.idle_workers()[0].call(lazy_fns.trace(time.sleep)(0.3))
-    self.assertEmpty(self.worker_pool.idle_workers())
+    worker_pool = courier_worker.WorkerPool([self.server.address])
+    worker_pool.wait_until_alive(deadline_secs=12)
+    idle_workers = worker_pool.idle_workers()
+    self.assertLen(idle_workers, 1)
+    idle_workers[0].call(lazy_fns.trace(time.sleep)(3))
+    self.assertEmpty(worker_pool.idle_workers())
 
   def test_worker_group_shutdown(self):
-    server_wrapper = courier_server.CourierServerWrapper()
-    server = server_wrapper.build_server()
-    t = threading.Thread(target=server_wrapper.run_until_shutdown)
-    t.start()
+    server = courier_server.CourierServerWrapper()
+    server.build_server()
+    t = server.start()
     worker_group = courier_worker.WorkerPool([server.address])
+    worker_group.wait_until_alive(deadline_secs=12)
     self.assertTrue(worker_group.call_and_wait(True))
     worker_group.shutdown()
     time.sleep(3)
@@ -194,16 +189,17 @@ class CourierWorkerGroupTest(absltest.TestCase):
     worker_group = courier_worker.WorkerPool(
         [f'localhost:{portpicker.pick_unused_port()}'],
         call_timeout=0.01,
+        heartbeat_threshold_secs=3,
     )
     try:
       with self.assertLogs(level='WARNING') as cm:
-        worker_group.wait_until_alive(num_attempts=1)
+        worker_group.wait_until_alive(deadline_secs=6)
       self.assertRegex(cm.output[0], '.*missed a heartbeat.*')
       self.assertRegex(cm.output[1], 'Failed to connect to workers.*')
     except ValueError:
       pass  # The exception is tested below.
     with self.assertRaises(ValueError):
-      worker_group.wait_until_alive(num_attempts=1)
+      worker_group.wait_until_alive(deadline_secs=6)
 
   def test_worker_group_num_workers(self):
     worker_group = courier_worker.WorkerPool(['a', 'b'])

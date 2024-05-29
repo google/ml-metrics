@@ -30,11 +30,9 @@ import cloudpickle as pickle
 ValueT = TypeVar('ValueT')
 Fn = Callable[..., ValueT]
 
-STOP_ITERATION = 'StopIteration_'
-
 
 def is_stop_iteration(inputs) -> bool:
-  return isinstance(inputs, str) and inputs == STOP_ITERATION
+  return isinstance(inputs, StopIteration)
 
 
 # TODO: b/318463291 - support heterogeneous (de)serializations methods.
@@ -356,7 +354,7 @@ def trace(
   lazy_foo = lazy(Foo)(a=1)
   lazy_foo(3).call() == Foo(a=1)(3)
   ```
-  The arguement to the call() function is arbitarily bindable; e.g.,
+  The argument to the call() function is arbitrarily bindable; e.g.,
   ```
   lazy_foo = lazy(Foo)(a=1)
   lazy_foo().call(3) == lazy_foo(3).call().
