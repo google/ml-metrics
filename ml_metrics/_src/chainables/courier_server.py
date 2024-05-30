@@ -61,7 +61,7 @@ class CourierServerWrapper:
     def pickled_init_generator(maybe_lazy):
       result = lazy_fns.maybe_make(maybe_lazy)
       if not inspect.isgenerator(result):
-        raise ValueError(
+        raise TypeError(
             f'The {result} is not a generator, but a {type(result)}.'
         )
       self._generator = transform.PrefetchableIterator(
