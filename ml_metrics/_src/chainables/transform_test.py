@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Tests for transform."""
+import dataclasses
 import functools
+import itertools
 from absl.testing import absltest
 from absl.testing import parameterized
+from ml_metrics._src.aggregates import base as aggretates
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
 from ml_metrics._src.chainables import tree
@@ -23,6 +26,20 @@ from ml_metrics._src.chainables import tree_fns
 Key = tree.Key
 MetricKey = transform.MetricKey
 SliceKey = tree_fns.SliceKey
+
+
+def _reduce_sum(inputs):
+  if isinstance(inputs, bool):
+    return int(inputs)
+  return sum(_reduce_sum(elem) for elem in inputs)
+
+
+def _reduce_size(inputs):
+  if isinstance(inputs, (tuple, list)):
+    result = sum(_reduce_size(elem) for elem in inputs)
+  else:
+    result = 1
+  return result
 
 
 # TODO: b/318463291 - Improves test coverage.
@@ -49,6 +66,33 @@ class TestAverageFn:
     result = state[0] / state[1]
     result = [result] if self.batch_output else result
     return (result, 0) if self.return_tuple else result
+
+
+@dataclasses.dataclass
+class TestPrecisionRecall:
+  pred_tp: int = 0
+  gp_tp: int = 0
+  pred_p: int = 0
+  gt_p: int = 0
+
+  @classmethod
+  def make(cls):
+    return cls()
+
+  def add(self, matched_pred, matched_label):
+    self.pred_tp += _reduce_sum(matched_pred)
+    self.gp_tp += _reduce_sum(matched_label)
+    self.pred_p += _reduce_size(matched_pred)
+    self.gt_p += _reduce_size(matched_label)
+
+  def precision(self):
+    return self.pred_tp / self.pred_p if self.pred_p else float('nan')
+
+  def recall(self):
+    return self.gp_tp / self.gt_p if self.gt_p else float('nan')
+
+  def result(self):
+    return self.precision(), self.recall()
 
 
 class TransformTest(parameterized.TestCase):
@@ -419,6 +463,132 @@ class TransformTest(parameterized.TestCase):
     )
     with self.assertRaises(ValueError):
       agg.make()(inputs)
+
+  def test_transform_with_slice_mask_fn(self):
+    inputs = [{
+        'pred': [[0, 0], [0, 1]],
+        'label': [[0, 1, 2], [1, 1]],
+        # This attributes only align with prediction.
+        'attr_pred': [['a', 'b'], ['a', 'b']],
+        # This attributes only align with label attributes.
+        'attr_label': [['e', 'f', 'g'], ['f', 'g']],
+    }]
+
+    # Matcher results:
+    # 'pred_tp': [[True, True], [False, True]]
+    # 'label_tp:  [[True, False, False], [True, True]]
+    # Aggregate results:
+    # Overall precision:  3 / 4 = 0.75
+    # Overall recall:    3 / 5 = 0.6
+    # slice on 'attr_pred' 'a':
+    #   precision: 1 / 2 = 0.5
+    #   recall:    0.6 (same as overall)
+    # slice on 'attr_pred' 'b':
+    #   precision: 2 / 2 = 1.0
+    #   recall:   0.6 (same as overall)
+    # slice on 'attr_label' 'e':
+    #   precision: 2 / 2 = 1.0 because the 2nd example is filtered out.
+    #   recall:    1 / 1 = 1.0
+    # slice on 'attr_label' 'g':
+    #   precision: 0.75 (same as overall)
+    #   recall:   1 / 2 = 0.5
+    # slice on 'classes' 0:
+    #   precision: 1 / 1
+    #   recall:   1 / 1
+    # slice on 'classes' 1:
+    #   precision: 1 / 1
+    #   recall:   2 / 3
+
+    def matcher(pred, label):
+      # We need two tp table to avoid deduping for different derived metrics.
+      # e.g., precision only uses pred_tp, and recall only uses label_tp.
+      pred_tp = [elem in label for elem in pred]
+      label_tp = [elem in pred for elem in label]
+      return pred_tp, label_tp
+
+    def get_mask(inputs, key):
+      if isinstance(inputs, list):
+        return [get_mask(elem, key) for elem in inputs]
+      else:
+        return inputs == key
+
+    def single_slicer(inputs, for_pred=True, within=()):
+      keys = set()
+      for elems in inputs:
+        for elem in elems:
+          keys.add(elem)
+      within = within or keys
+      for key in sorted(keys):
+        if key in within:
+          mask = get_mask(inputs, key)
+          masks = (mask, True) if for_pred else (True, mask)
+          yield key, masks
+
+    def multi_slicer(preds, labels, within=()):
+      keys = set()
+      for elem in itertools.chain(preds, labels):
+        keys.add(elem)
+      within = within or keys
+      for key in sorted(keys):
+        if key in within:
+          pred_mask = get_mask(preds, key)
+          label_mask = get_mask(labels, key)
+          masks = (pred_mask, label_mask)
+          yield key, masks
+
+    agg = (
+        transform.TreeTransform.new()
+        .data_source(inputs)
+        .assign(
+            ('pred_matched', 'label_matched'),
+            fn=lazy_fns.iterate_fn(matcher),
+            input_keys=('pred', 'label'),
+        )
+        .aggregate(
+            output_keys=('precision', 'recall'),
+            fn=aggretates.MergeableMetricAggFn(TestPrecisionRecall()),
+            input_keys=('pred_matched', 'label_matched'),
+        )
+        .add_slice(
+            'attr_pred',
+            slice_mask_fn=functools.partial(single_slicer, within=('a', 'b')),
+            slice_name='pred_class',
+        )
+        .add_slice(
+            'attr_label',
+            slice_mask_fn=functools.partial(
+                single_slicer, for_pred=False, within=('e', 'g')
+            ),
+            slice_name='label_class',
+        )
+        .add_slice(
+            ('pred', 'label'),
+            slice_mask_fn=functools.partial(multi_slicer, within=(0, 1)),
+            slice_name='classes',
+        )
+    )
+    agg_result = None
+    for batch_outputs in agg.make().iterate(with_agg_result=True):
+      if isinstance(batch_outputs, transform.AggregateResult):
+        agg_result = batch_outputs.agg_result
+
+    expected = {
+        'precision': 0.75,
+        'recall': 0.6,
+        MetricKey('precision', SliceKey(('pred_class',), ('a',))): 0.5,
+        MetricKey('precision', SliceKey(('pred_class',), ('b',))): 1.0,
+        MetricKey('precision', SliceKey(('label_class',), ('e',))): 1.0,
+        MetricKey('precision', SliceKey(('label_class',), ('g',))): 0.75,
+        MetricKey('precision', SliceKey(('classes',), (0,))): 2 / 3,
+        MetricKey('precision', SliceKey(('classes',), (1,))): 1 / 1,
+        MetricKey('recall', SliceKey(('pred_class',), ('a',))): 0.6,
+        MetricKey('recall', SliceKey(('pred_class',), ('b',))): 0.6,
+        MetricKey('recall', SliceKey(('label_class',), ('e',))): 1.0,
+        MetricKey('recall', SliceKey(('label_class',), ('g',))): 0.5,
+        MetricKey('recall', SliceKey(('classes',), (0,))): 1 / 1,
+        MetricKey('recall', SliceKey(('classes',), (1,))): 2 / 3,
+    }
+    self.assertEqual(expected, agg_result)
 
   def test_input_iterator_transform(self):
     input_iterator = [[1, 2, 3], [2, 3, 4]]

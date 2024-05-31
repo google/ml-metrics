@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import collections
 import dataclasses
 import functools
 import typing
@@ -25,6 +26,7 @@ from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
 
 SliceIteratorFn = Callable[..., Iterable[Hashable]]
+SliceMaskIteratorFn = Callable[..., Iterable[tuple[Hashable, Any]]]
 ValueT = TypeVar('ValueT')
 FnT = TypeVar('FnT')
 StateT = TypeVar('StateT')
@@ -43,6 +45,10 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       (default), this outputs an empty tuple.
     fn: A callable instance that takes positional inputs and outputs positional
       value (tuple if there are multiple).
+    masks: A mask or a tuple of masks that will be applied to the inputs chosen
+      by `input_keys`. If one mask is provided, it will be applied to all
+      inputs. If a tuple of masks is provided, each mask will be applied to the
+      corresponding input in sequence of the keys in `input_keys`.
     lazy: If True, the underlying function is lazy, normally, this means it
       needs to be constructed at runtime.
     id: A string that serves as an identifier for the TreeFn instance.
@@ -51,6 +57,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
   input_keys: tree.TreeMapKey | tree.TreeMapKeys | None = ()
   output_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
   fn: FnT | lazy_fns.LazyFn[FnT] | None = None
+  masks: tuple[tree.MapLikeTree[bool], ...] = ()
   _default_constructor: bool = dataclasses.field(default=True, repr=False)
 
   def __post_init__(self):
@@ -66,8 +73,11 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       output_keys: tree.TreeMapKey | tree.TreeMapKeys = tree.Key.SELF,
       fn: FnT | lazy_fns.LazyFn[FnT] | None = None,
       input_keys: tree.TreeMapKey | tree.TreeMapKeys = tree.Key.SELF,
+      masks: tuple[tree.MapLikeTree[bool], ...] = (),
   ) -> TreeFn[FnT, ValueT]:
     """Normalizes the arguments before constructing a TreeFn."""
+    if not isinstance(masks, tuple):
+      masks = (masks,)
     if fn:
       # Fn requires a tuple for positional inputs. Normalize_keys converts
       # the keys into a tuple of keys to make sure the actual selected inputs
@@ -79,6 +89,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
         output_keys=output_keys,
         input_keys=input_keys,
         fn=fn,
+        masks=masks,
         _default_constructor=False,
     )
 
@@ -100,11 +111,15 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
     return self
 
   def get_inputs(self, inputs: tree.MapLikeTree[ValueT]) -> tuple[ValueT, ...]:
-    # The input_keys are always normalized to tuple, so the output will always
-    # be a tuple.
+    # The input_keys are always normalized to tuple.
     fn_inputs = typing.cast(
         tuple[Any, ...], tree.TreeMapView.as_view(inputs)[self.input_keys]
     )
+    # A tuple of masks will apply to each input per input_keys. Otherwise, the
+    # masks will be applied to all inputs.
+    # TODO: b/311207032 - Consider supporting replace masking behavior.
+    if self.masks:
+      fn_inputs = tree.apply_masks(fn_inputs, masks=self.masks)
     return fn_inputs
 
   def __call__(
@@ -189,9 +204,12 @@ class Slicer:
   Note that the slicer_fn takes one row as input instead of a batch.
   """
 
-  slice_fn: SliceIteratorFn
-  input_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
+  slice_mask_fn: SliceMaskIteratorFn | None = None
+  slice_input_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
   slice_name: str | tuple[str, ...] = ()
+  input_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
+  _mask_behavior: tree.MaskBehavior = tree.MaskBehavior.FILTER
+  _mask_replace_false_with: Any = None
   _default_constructor: bool = dataclasses.field(default=True, repr=False)
 
   def __post_init__(self):
@@ -206,46 +224,94 @@ class Slicer:
       input_keys: tree.TreeMapKey | tree.TreeMapKeys = tree.Key.SELF,
       *,
       slice_name: tree.TreeMapKey | tree.TreeMapKeys = tree.Key.SELF,
-      slice_fn: (
-          SliceIteratorFn | lazy_fns.LazyFn[SliceIteratorFn] | None
-      ) = None,
+      slice_fn: SliceIteratorFn | None = None,
+      slice_mask_fn: SliceMaskIteratorFn | None = None,
+      mask_behavior: tree.MaskBehavior = tree.MaskBehavior.FILTER,
+      mask_replace_false_with: Any = None,
   ) -> Self:
     """Normalizes the arguments before constructing a TreeFn."""
-    if slice_fn and not slice_name:
-      raise ValueError('Must provide output_key when slice_fn is provided.')
+    if slice_fn and slice_mask_fn:
+      raise ValueError(
+          'Cannot provide both slice_fn and slice_mask_fn, got'
+          f' {slice_fn=} and {slice_mask_fn=}.'
+      )
+
+    # Default slice_fns directly takes the slice_inputs.
     slice_fn = slice_fn or (lambda *args: (args,))
+
+    # Converts a pure slice_fn to a slice_mask_fn with dummy masks.
+    def _slice_mask_fn(*args):
+      for slice_value in slice_fn(*args):
+        yield slice_value, (True,)
+
+    slice_mask_fn = slice_mask_fn or _slice_mask_fn
+
+    if slice_mask_fn and not slice_name:
+      raise ValueError(
+          'Must provide slice_name when either slice_fn or slice_mask_fn is'
+          ' provided.'
+      )
     # Fn requires a tuple for positional inputs. Normalize_keys converts
     # the keys into a tuple of keys to make sure the actual selected inputs
     # are also wrapped in a tuple.
     input_keys = tree.normalize_keys(input_keys)
     slice_name = tree.normalize_keys(slice_name) or input_keys
     return cls(
-        slice_fn=slice_fn,
+        slice_mask_fn=slice_mask_fn,
         slice_name=slice_name,
         input_keys=input_keys,
+        _mask_behavior=mask_behavior,
+        _mask_replace_false_with=mask_replace_false_with,
         _default_constructor=False,
     )
 
   def iterate_and_slice(
       self, inputs: tree.MapLikeTree[Any]
-  ) -> Iterator[tuple[SliceKey, int]]:
+  ) -> Iterator[tuple[SliceKey, Any]]:
     """Iterates through each row of the batch and emits slice and row index."""
     # The input_keys are always normalized to tuple, so the output will always
     # be a tuple.
     inputs = typing.cast(
         tuple[Any, ...], tree.TreeMapView.as_view(inputs)[self.input_keys]
     )
-    for i, row in enumerate(zip(*inputs)):
-      for slice_value in self.slice_fn(*row):
+    distinct_values = collections.defaultdict(list)
+    batch_ix = 0
+    masks = ()
+    for row in zip(*inputs):
+      for slice_value, masks in self.slice_mask_fn(*row):
         # slice_name is always normalized to a tuple, so slice_values have to
         # be normalized here as well.
         if not isinstance(slice_value, tuple):
           slice_value = (slice_value,)
-        yield SliceKey(self.slice_name, slice_value), i
+        slice_key = SliceKey(self.slice_name, slice_value)
+        try:
+          distinct_values[slice_key].append((batch_ix, masks))
+        except TypeError as e:
+          raise TypeError(
+              f'{slice_key=} generated by {self.slice_name=} not hashable.'
+          ) from e
+      batch_ix += 1
+
+    # Re-batch the masks per batch.
+    mask_size = len(masks)
+    for slice_key, ix_masks_pair in distinct_values.items():
+      batch_mask = [(False,) * mask_size] * batch_ix
+      assigned_row = set()
+      for ix, masks in ix_masks_pair:
+        if ix in assigned_row:
+          raise ValueError(
+              f'Duplicate index {ix=} for {slice_key=} with mask'
+              f' {batch_mask[ix]}'
+          )
+        assigned_row.add(ix)
+        batch_mask[ix] = masks if isinstance(masks, tuple) else (masks,)
+      # transpose each mask per column.
+      batch_masks = tuple(zip(*batch_mask))
+      yield slice_key, batch_masks
 
   def maybe_make(self) -> Self:
     return dataclasses.replace(
-        self, slice_fn=lazy_fns.maybe_make(self.slice_fn)
+        self, slice_mask_fn=lazy_fns.maybe_make(self.slice_mask_fn)
     )
 
 
@@ -275,7 +341,7 @@ class TreeAggregateFn(
     except Exception as e:
       raise ValueError(
           f'Cannot call {self.input_keys=}, {self.output_keys=},'
-          f' {self.fn.__name__} with shape:\n{tree.tree_shape(inputs)}'
+          f' {type(self.fn)} with shape:\n{tree.tree_shape(inputs)}'
       ) from e
     return state
 
