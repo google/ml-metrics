@@ -15,10 +15,10 @@
 
 import types
 
+from absl.testing import absltest
+from absl.testing import parameterized
 from ml_metrics._src.chainables import tree
 import numpy as np
-
-from absl.testing import absltest
 
 Key = tree.Key
 TreeMapView = tree.TreeMapView
@@ -253,6 +253,60 @@ class TreeMapViewTest(absltest.TestCase):
         Key().d.at(Key.Index(0)): int,
         Key().d.at(Key.Index(1)): (),
     }
+    self.assertEqual(result, expected)
+
+
+class ApplyMaskTest(parameterized.TestCase):
+
+  def test_apply_mask(self):
+    inputs = [1, 2, np.array([5, 6]), 4, 5]
+    mask = [True, False, [True, False], False, True]
+    result = tree.apply_mask(inputs, masks=mask)
+    expected = [1, [5], 5]
+    self.assertEqual(result, expected)
+
+    result = tree.apply_mask(
+        inputs, masks=mask, mask_behavior=tree.MaskBehavior.REPLACE
+    )
+    expected = [1, None, [5, None], None, 5]
+    self.assertEqual(result, expected)
+
+    result = tree.apply_mask(
+        inputs,
+        masks=mask,
+        mask_behavior=tree.MaskBehavior.REPLACE,
+        replace_false_with=-1,
+    )
+    expected = [1, -1, [5, -1], -1, 5]
+    self.assertEqual(result, expected)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='default',
+          expected={'a': [1, [5], 5], 'b': [1, 3, 5]},
+      ),
+      dict(
+          testcase_name='replace_false',
+          mask_behavior=tree.MaskBehavior.REPLACE,
+          expected={
+              'a': [1, None, [5, None], None, 5],
+              'b': [1, None, 3, None, 5],
+          },
+      ),
+  ])
+  def test_apply_mask_with_dict(
+      self, expected, mask_behavior=tree.MaskBehavior.FILTER
+  ):
+    inputs = {'a': [1, 2, np.array([5, 6]), 4, 5], 'b': [1, 2, 3, 4, 5]}
+    mask = {
+        'a': [True, False, [True, False], False, True],
+        'b': [True, False, True, False, True],
+    }
+    result = tree.apply_mask(
+        inputs,
+        masks=mask,
+        mask_behavior=mask_behavior,
+    )
     self.assertEqual(result, expected)
 
 

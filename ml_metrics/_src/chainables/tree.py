@@ -21,6 +21,8 @@ import copy
 import dataclasses
 from typing import Any, Protocol, TypeVar, Union
 
+from ml_metrics._src import base_types
+
 
 def tree_shape(inputs: Any):
   result = {}
@@ -77,6 +79,97 @@ class MapLike(Protocol[KT, VT]):
 # Uses Union here since forward reference does not work with |.
 MapLikeTree = MapLike[BaseKey, Union['MapLikeTree', LeafValueT]]
 MapLikeTreeCallable = Callable[[MapLikeTree | None], MapLikeTree | None]
+
+
+class MaskBehavior(base_types.StrEnum):
+  """Enum for the behavior of applying masks."""
+
+  FILTER = 'filter'
+  REPLACE = 'replace'
+
+
+def apply_mask(
+    items: MapLikeTree[Any],
+    *,
+    masks: MapLikeTree[bool],
+    mask_behavior: MaskBehavior = MaskBehavior.FILTER,
+    replace_false_with: Any = None,
+):
+  """Applies masks to inputs.
+
+  The masks and the inputs have to have the tree structure and shape, i.e.,
+  there has to be a boolean per tree of elements or element in the inputs.
+
+  Args:
+    items: A tree of inputs.
+    masks: A tree of masks.
+    mask_behavior: The behavior of applying masks: if "filter", throw away the
+      elements that are False in the masks. If "replace", replace the elements
+      that are False in the masks with the replace_false_with.
+    replace_false_with: The value to replace False with when replace_false is
+      True.
+
+  Returns:
+    A tree of inputs with the masks applied.
+  """
+  if isinstance(masks, dict) and isinstance(items, dict):
+    result = {}
+    for key, mask in masks.items():
+      if isinstance(mask, bool):
+        if mask:
+          result[key] = items[key]
+        elif mask_behavior == MaskBehavior.REPLACE:
+          result[key] = replace_false_with
+      else:
+        result[key] = apply_mask(
+            items[key],
+            masks=mask,
+            mask_behavior=mask_behavior,
+            replace_false_with=replace_false_with,
+        )
+  elif isinstance(masks, dict) or isinstance(items, dict):
+    raise ValueError(
+        f'Masks and inputs have to be both dict: {type(masks)=}, {type(items)=}'
+    )
+  else:
+    result = []
+    for elem, mask in zip(items, masks, strict=True):
+      if isinstance(mask, bool):
+        if mask:
+          result.append(elem)
+        elif mask_behavior == MaskBehavior.REPLACE:
+          result.append(replace_false_with)
+      else:
+        result.append(
+            apply_mask(
+                elem,
+                masks=mask,
+                mask_behavior=mask_behavior,
+                replace_false_with=replace_false_with,
+            )
+        )
+  return result
+
+
+def apply_masks(
+    items: tuple[MapLikeTree[Any], ...],
+    *,
+    masks: tuple[MapLikeTree[bool], ...],
+    mask_behavior: MaskBehavior = MaskBehavior.FILTER,
+    replace_false_with: Any = None,
+):
+  """Applies multiple masks to multiple inputs."""
+  result = []
+  for item, mask in zip(items, masks, strict=True):
+    result.append(
+        apply_mask(
+            item,
+            masks=mask,
+            mask_behavior=mask_behavior,
+            replace_false_with=replace_false_with,
+        )
+    )
+  return tuple(result)
 
 
 def _is_key(key, other_key):
