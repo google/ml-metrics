@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import asyncio
+import queue
 import time
 
 from absl.testing import absltest
@@ -26,6 +28,10 @@ Task = courier_worker.Task
 # Required for BNS resolution.
 def setUpModule():
   testutil.SetupMockBNS()
+
+
+def mock_generator(n):
+  yield from range(n)
 
 
 class CourierWorkerTest(absltest.TestCase):
@@ -58,6 +64,44 @@ class CourierWorkerTest(absltest.TestCase):
     self.assertEqual(
         'echo', lazy_fns.maybe_make(result.parent_task.state.result())
     )
+
+  def test_worker_async_iterate(self):
+
+    task = Task.new('echo').add_generator_task(
+        lazy_fns.trace(mock_generator)(3)
+    )
+    agg_q = queue.SimpleQueue()
+    batch_outputs = []
+
+    async def run():
+      async for elem in self.worker.async_iterate(task, agg_result_queue=agg_q):
+        # During iteration, the worker is considered occupied.
+        self.assertFalse(self.worker.has_capacity)
+        batch_outputs.append(elem)
+      # After iteration, the worker is considered idle.
+      self.assertTrue(self.worker.has_capacity)
+
+    asyncio.run(run())
+    self.assertEqual(list(range(3)), batch_outputs)
+    self.assertTrue(agg_q.empty())
+
+  def test_worker_async_iterate_raise(self):
+
+    def bad_generator():
+      for elem in range(3):
+        if elem == 2:
+          raise ValueError('bad generator')
+        yield elem
+
+    task = courier_worker.GeneratorTask.new(lazy_fns.trace(bad_generator)())
+    agg_q = queue.SimpleQueue()
+
+    async def run():
+      async for _ in self.worker.async_iterate(task, agg_result_queue=agg_q):
+        pass
+
+    with self.assertRaises(ValueError):
+      asyncio.run(run())
 
   def test_worker_heartbeat(self):
     # Server is not started, thus it is never alive.
@@ -130,8 +174,6 @@ class CourierWorkerGroupTest(absltest.TestCase):
     self.assertEqual(['echo'], actual)
 
   def test_worker_group_run_and_iterate(self):
-    def mock_generator(n):
-      yield from range(n)
 
     tasks = [
         Task.new('echo').add_generator_task(lazy_fns.trace(mock_generator)(3))

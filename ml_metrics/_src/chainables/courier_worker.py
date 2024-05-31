@@ -14,9 +14,11 @@
 """Courier worker that can take and run a registered makeable instance."""
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+import asyncio
+from collections.abc import AsyncIterator, Iterable, Iterator
 from concurrent import futures
 import dataclasses
+import queue
 import time
 from typing import Any
 from typing import Self
@@ -24,6 +26,7 @@ from typing import Self
 from absl import logging
 import courier
 from ml_metrics._src.chainables import lazy_fns
+from ml_metrics._src.chainables import transform
 
 
 _LOGGING_INTERVAL_SEC = 30
@@ -353,6 +356,55 @@ class Worker:
 
   def next_from_generator(self) -> futures.Future[Any]:
     return self.call(courier_method='next_from_generator')
+
+  async def async_iterate(
+      self,
+      task: GeneratorTask,
+      *,
+      agg_result_queue: queue.SimpleQueue[transform.AggregateResult],
+  ) -> AsyncIterator[Any]:
+    """Iterates the generator task."""
+    # Make the actual generator.
+    if task.parent_task is not None:
+      self.run_task(task.parent_task)
+    # Artificially insert a pending state to block other tasks.
+    generator_state = futures.Future()
+    self._pendings.append(generator_state)
+    try:
+      init_state = self.call(
+          *task.args, courier_method='init_generator', **task.kwargs
+      )
+      assert await asyncio.wrap_future(init_state) is None
+      exhausted = False
+      while not exhausted:
+        output_state = self.next_batch_from_generator(self.iterate_batch_size)
+        output_batch = lazy_fns.maybe_make(
+            await asyncio.wrap_future(output_state)
+        )
+        if output_batch:
+          if isinstance(output_batch[-1], StopIteration):
+            logging.info(
+                'chainables: worker %s generator exhausted.',
+                self.server_name,
+            )
+            output_batch = output_batch[:-1]
+            exhausted = True
+          elif isinstance(output_batch[-1], Exception):
+            if output_batch[-1] != ValueError('generator already executing'):
+              raise output_batch[-1]
+        for elem in output_batch:
+          if isinstance(elem, transform.AggregateResult):
+            agg_result_queue.put(elem)
+          else:
+            yield elem
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      logging.exception(
+          'chainables: exception when iterating task: %s',
+          task.set(parent_task=None),
+      )
+      raise e
+    finally:
+      generator_state.cancel()
 
   def clear_cache(self):
     return self.call(courier_method='clear_cache')
