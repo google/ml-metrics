@@ -27,12 +27,11 @@ from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
 
 
-def iterate_from_generators(
+def workerpool_generator(
     worker_pool: courier_worker.WorkerPool,
     define_pipeline: Callable[..., transform.TreeTransform],
     /,
     *pipeline_args,
-    shards_multiplier: int = 1,
     with_result: bool = True,
     result_queue: queue.SimpleQueue[transform.AggregateResult] | None = None,
     **pipeline_kwargs,
@@ -43,9 +42,6 @@ def iterate_from_generators(
     worker_pool: The worker pool to run the pipeline.
     define_pipeline: The pipeline definition.
     *pipeline_args: The pipeline args.
-    shards_multiplier: The multiplier for the number of shards per worker. Set
-      to N means there will be N x num_workers number of subtasks to be
-      computed. This is set to slightly increase the parallelism.
     with_result: Whether to return the result.
     result_queue: The queue to output the result.
     **pipeline_kwargs: The pipeline kwargs.
@@ -54,7 +50,7 @@ def iterate_from_generators(
     The batch outputs of of the pipeline.
   """
   calculate_agg_result = result_queue is not None
-  num_shards = shards_multiplier * worker_pool.num_workers
+  num_shards = worker_pool.num_workers
   worker_pool.wait_until_alive(deadline_secs=600)
   sharded_tasks = [
       courier_worker.GeneratorTask.new(

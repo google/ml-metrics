@@ -73,7 +73,7 @@ class OrchestrateTest(absltest.TestCase):
       )
 
     results_queue = queue.SimpleQueue()
-    for elem in orchestrate.iterate_from_generators(
+    for elem in orchestrate.workerpool_generator(
         self.worker_pool,
         define_pipeline,
         total_numbers=1000,
