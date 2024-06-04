@@ -15,6 +15,6 @@
 
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
-from ml_metrics._src.aggregates import stats
+from ml_metrics._src.aggregates.stats import StatsState
 # pylint: enable=g-importing-member
 # pylint: enable=unused-import
