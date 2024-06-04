@@ -19,6 +19,7 @@ from collections.abc import AsyncIterator, Iterable, Iterator
 from concurrent import futures
 import dataclasses
 import queue
+import threading
 import time
 from typing import Any
 from typing import Self
@@ -544,6 +545,7 @@ class WorkerPool:
       running_tasks = still_running
       time.sleep(sleep_interval)
 
+  # TODO: b/311207032 - deprecate run_and_iterat in favor or iterate.
   def run_and_iterate(
       self,
       tasks: Iterable[GeneratorTask],
@@ -647,4 +649,124 @@ class WorkerPool:
         finished_tasks_cnt,
         total_tasks,
         time.time() - start_time,
+    )
+
+  def iterate(
+      self,
+      tasks: Iterable[GeneratorTask],
+      agg_result_queue: queue.SimpleQueue[transform.AggregateResult],
+      num_total_failures_threshold: int = _NUM_TOTAL_FAILURES_THRESHOLD,
+  ):
+    """Iterates through the result of a generator if the iterator task."""
+    tasks = list(reversed(list(tasks)))
+    total_tasks = len(tasks)
+    output_queue = queue.SimpleQueue()
+    start_time = prev_ticker = time.time()
+    event_loop = asyncio.new_event_loop()
+
+    async def iterate_until_complete(aiterator, output_queue):
+      async for elem in aiterator:
+        output_queue.put(elem)
+
+    loop_thread = threading.Thread(target=event_loop.run_forever)
+    loop_thread.start()
+    running_tasks: list[GeneratorTask] = []
+    iterating_servers = set()
+    finished_tasks_cnt, total_failures_cnt = 0, 0
+    batch_cnt, prev_batch_cnt = 0, 0
+    while tasks or running_tasks:
+      workers = [
+          worker
+          for worker in self.idle_workers()
+          if worker.server_name not in iterating_servers
+      ]
+      for worker in workers:
+        if tasks:
+          logging.info(
+              'chainables: submitting task to worker %s', worker.server_name
+          )
+          task = tasks.pop().set(server_name=worker.server_name)
+          aiter_until_complete = iterate_until_complete(
+              worker.async_iterate(task, agg_result_queue=agg_result_queue),
+              output_queue=output_queue,
+          )
+          task = task.set(
+              state=asyncio.run_coroutine_threadsafe(
+                  aiter_until_complete, event_loop
+              ),
+          )
+          running_tasks.append(task)
+
+      while not output_queue.empty():
+        result = output_queue.get()
+        batch_cnt += 1
+        yield result
+
+      # Acquiring unfinished and failed tasks
+      failed_tasks, disconnected_tasks, still_running_tasks = [], [], []
+      for task in running_tasks:
+        if task.done:
+          if task.exception:
+            failed_tasks.append(task)
+          else:
+            finished_tasks_cnt += 1
+        else:
+          if self.get_worker_by_name(task.server_name).is_alive:
+            still_running_tasks.append(task)
+          else:
+            disconnected_tasks.append(task)
+      running_tasks = still_running_tasks
+
+      # Preemptively cancel task from the disconnected workers.
+      for task in disconnected_tasks:
+        assert task.state is not None
+        task.state.cancel()
+      if failed_tasks or disconnected_tasks:
+        logging.info(
+            'chainables: %d tasks failed, %d tasks disconnected.',
+            len(failed_tasks),
+            len(disconnected_tasks),
+        )
+        tasks.extend(failed_tasks + disconnected_tasks)
+        total_failures_cnt += len(failed_tasks)
+        if total_failures_cnt > num_total_failures_threshold:
+          raise ValueError(
+              f'chainables: too many failures: {total_failures_cnt} >'
+              f' {num_total_failures_threshold}, stopping the iteration.'
+          )
+        logging.info(
+            'chainables: %d tasks failed, re-trying: %s.',
+            len(failed_tasks),
+            failed_tasks,
+        )
+      iterating_servers = {task.server_name for task in running_tasks}
+
+      if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SEC:
+        logging.info(
+            'chainalbes: async throughput: %.2f batches/s; progress:'
+            ' %d/%d/%d/%d (running/remaining/finished/total) with %d retries in'
+            ' %.2f secs.',
+            (batch_cnt - prev_batch_cnt) / (ticker - prev_ticker),
+            len(running_tasks),
+            len(tasks),
+            finished_tasks_cnt,
+            total_tasks,
+            total_failures_cnt,
+            ticker - prev_ticker,
+        )
+        prev_ticker, prev_batch_cnt = ticker, batch_cnt
+
+    assert not running_tasks
+    assert total_tasks == finished_tasks_cnt
+    event_loop.call_soon_threadsafe(event_loop.stop)
+    loop_thread.join()
+    while not output_queue.empty():
+      yield from output_queue.get()
+    logging.info(
+        'chainalbes: finished running with %d/%d (finished/total) in %.2f'
+        ' secs, average throughput: %.2f',
+        finished_tasks_cnt,
+        total_tasks,
+        time.time() - start_time,
+        batch_cnt / (time.time() - start_time),
     )
