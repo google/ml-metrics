@@ -17,6 +17,7 @@
 # pylint: disable=unused-import
 from ml_metrics import aggregates
 from ml_metrics import pipeline
+from ml_metrics._src.orchestration import lp_utils
 from ml_metrics.metrics import classification
 from ml_metrics.metrics import retrieval
 # pylint: enable=g-importing-member
