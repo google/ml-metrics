@@ -743,7 +743,7 @@ class WorkerPool:
 
       if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SEC:
         logging.info(
-            'chainalbes: async throughput: %.2f batches/s; progress:'
+            'chainables: async throughput: %.2f batches/s; progress:'
             ' %d/%d/%d/%d (running/remaining/finished/total) with %d retries in'
             ' %.2f secs.',
             (batch_cnt - prev_batch_cnt) / (ticker - prev_ticker),

@@ -113,7 +113,7 @@ class CourierServerWrapper:
     while not self._shutdown_requested[_DEFAULT]:
       if self._generator:
         self._generator.prefetch()
-      time.sleep(0.00)
+      time.sleep(0)
     logging.info('Chainables: Shutdown requested, shutting down server.')
     self._server.Stop()
 
