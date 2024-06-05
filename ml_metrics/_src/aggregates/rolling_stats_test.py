@@ -11,14 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for stats.py."""
+"""Tests for rolling_stats.py."""
 
 import dataclasses
 import math
 from typing import Any
 
 from absl.testing import parameterized
-from ml_metrics._src.aggregates import stats
+from ml_metrics._src.aggregates import rolling_stats
 import numpy as np
 
 from absl.testing import absltest
@@ -29,12 +29,8 @@ def get_expected_stats_state(batches, batch_score_fn=None):
     batches = [batch_score_fn(batch) for batch in batches]
   batches = np.asarray(batches)
   batch = np.asarray(batches).reshape(-1, *batches.shape[2:])
-  return stats.StatsState(
+  return rolling_stats.MeanAndVariance(
       batch_score_fn=batch_score_fn,
-      # Since the truth value of an array with more than one element is
-      # ambiguous, we need to use .size to check if the array is empty or not.
-      _min=np.nanmin(batch, axis=0) if batch.size else np.nan,
-      _max=np.nanmax(batch, axis=0) if batch.size else np.nan,
       _mean=np.nanmean(batch, axis=0),
       _var=np.nanvar(batch, axis=0),
       _count=np.nansum(~np.isnan(batch), axis=0),
@@ -107,12 +103,12 @@ class StatsStateTest(parameterized.TestCase):
     batches = np.array(
         [np.random.randn(num_elements_per_batch) for _ in range(num_batch)]
     ) + 1e7
-    state = stats.StatsState()
+    state = rolling_stats.MeanAndVariance()
 
     last_batch_result = None
     for batch in batches:
       last_batch_result = state.add(batch)
-    self.assertIsInstance(last_batch_result, stats.StatsState)
+    self.assertIsInstance(last_batch_result, rolling_stats.MeanAndVariance)
 
     expected_last_batch_result = get_expected_stats_state(batches[-1])
     self.assertDataclassAlmostEqual(
@@ -134,21 +130,15 @@ class StatsStateTest(parameterized.TestCase):
   ])
   def test_stats_state_batch_with_nan(self, partial_nan):
     batch = [np.nan] * 3 + [1, 2, 3] * int(partial_nan)
-    state = stats.StatsState()
+    state = rolling_stats.MeanAndVariance()
     state.add(batch)
 
     expected_state = get_expected_stats_state(batch)
     self.assertDataclassAlmostEqual(expected_state, state)
 
-  def test_stats_state_add_with_empty_batch(self):
-    # Numpy will raise exception if the batch is empty.
-    state = stats.StatsState()
-    with self.assertRaises(Exception):
-      state.add([])
-
   def test_stats_state_invalid_batch_score_fn(self):
     batch = [1, 2, 3]
-    state = stats.StatsState(batch_score_fn=lambda x: [0])
+    state = rolling_stats.MeanAndVariance(batch_score_fn=lambda x: [0])
     with self.assertRaisesRegex(
         ValueError,
         'The `batch_score_fn` must return a series of the same length as the'
@@ -160,7 +150,7 @@ class StatsStateTest(parameterized.TestCase):
     batches = np.array([np.random.randn(30) for _ in range(30)])
     batch_score_fn = lambda x: x + 1
 
-    state = stats.StatsState(batch_score_fn=batch_score_fn)
+    state = rolling_stats.MeanAndVariance(batch_score_fn=batch_score_fn)
     last_batch_result = None
     for batch in batches:
       last_batch_result = state.add(batch)
@@ -200,8 +190,8 @@ class StatsStateTest(parameterized.TestCase):
   def test_stats_state_merge(self, is_self_empty, is_other_empty):
     self_batch = np.random.randn(30 * int(not is_self_empty))
     other_batch = np.random.randn(30 * int(not is_other_empty))
-    self_state = stats.StatsState()
-    other_state = stats.StatsState()
+    self_state = rolling_stats.MeanAndVariance()
+    other_state = rolling_stats.MeanAndVariance()
 
     if not is_self_empty:
       self_state.add(self_batch)
@@ -226,13 +216,11 @@ class StatsStateTest(parameterized.TestCase):
   ])
   def test_stats_state_properties(self, add_batch):
     batch = [1, 2, 3, np.nan] * int(add_batch)
-    state = stats.StatsState()
+    state = rolling_stats.MeanAndVariance()
     if add_batch:
       state.add(batch)
 
     expected_properties_dict = {
-        'min': np.nanmin(batch, axis=0) if batch else np.nan,
-        'max': np.nanmax(batch, axis=0) if batch else np.nan,
         'mean': np.nanmean(batch, axis=0),
         'var': np.nanvar(batch, axis=0),
         'stddev': np.nanstd(batch, axis=0),
@@ -254,12 +242,12 @@ class CoeffStateTest(parameterized.TestCase):
     x_2 = (5, 6, 7)
     y_2 = (4, 3, 2)
 
-    new_state = stats._CoeffState()
+    new_state = rolling_stats._CoeffState()
     state_1 = new_state.from_inputs(x_1, y_1)
     state_2 = new_state.from_inputs(x_2, y_2)
     result = state_1.merge(state_2)
 
-    expected_result = stats._CoeffState(
+    expected_result = rolling_stats._CoeffState(
         num_samples=7,
         sum_x=28,
         sum_y=36.5,
@@ -277,14 +265,14 @@ class CoeffStateTest(parameterized.TestCase):
     x_2 = (5, 6, 7)
     y_2 = (4, 3, 2)
 
-    new_state = stats._CoeffState()
+    new_state = rolling_stats._CoeffState()
     state_1 = new_state.from_inputs(x_1, y_1)
     state_2 = new_state.from_inputs(x_2, y_2)
 
-    new_agg_fn = stats.PearsonCorrelationCoefficientAggFn()
+    new_agg_fn = rolling_stats.PearsonCorrelationCoefficientAggFn()
     result = new_agg_fn.merge_states((state_1, state_2))
 
-    expected_result = stats._CoeffState(
+    expected_result = rolling_stats._CoeffState(
         num_samples=7,
         sum_x=28,
         sum_y=36.5,
@@ -299,9 +287,9 @@ class CoeffStateTest(parameterized.TestCase):
     x = (1, 2, 3, 4, 5, 6, 7)
     y = (10, 9, 2.5, 6, 4, 3, 2)
 
-    actual_result = stats.PearsonCorrelationCoefficientAggFn()(x, y)
+    actual_result = rolling_stats.PearsonCorrelationCoefficientAggFn()(x, y)
 
-    # From scipy.stats.pearsonr(x=x, y=y).statistic
+    # From scipy.rolling_stats.pearsonr(x=x, y=y).statistic
     expected_result = -0.8285038835884279
 
     self.assertAlmostEqual(actual_result, expected_result)
@@ -311,9 +299,9 @@ class CoeffStateTest(parameterized.TestCase):
     x = np.random.rand(1000000)
     y = np.random.rand(1000000)
 
-    actual_result = stats.PearsonCorrelationCoefficientAggFn()(x, y)
+    actual_result = rolling_stats.PearsonCorrelationCoefficientAggFn()(x, y)
 
-    # From scipy.stats.pearsonr(x=x, y=y).statistic
+    # From scipy.rolling_stats.pearsonr(x=x, y=y).statistic
     expected_result = -0.00029321876957677745
 
     self.assertAlmostEqual(actual_result, expected_result)
@@ -329,13 +317,17 @@ class CoeffStateTest(parameterized.TestCase):
         np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
     ])
 
-    state = stats.PearsonCorrelationCoefficientAggFn().create_state()
+    state = rolling_stats.PearsonCorrelationCoefficientAggFn().create_state()
     for x_i, y_i in zip(x, y):
-      stats.PearsonCorrelationCoefficientAggFn().update_state(state, x_i, y_i)
+      rolling_stats.PearsonCorrelationCoefficientAggFn().update_state(
+          state, x_i, y_i
+      )
 
-    actual_result = stats.PearsonCorrelationCoefficientAggFn().get_result(state)
+    actual_result = (
+        rolling_stats.PearsonCorrelationCoefficientAggFn().get_result(state)
+    )
 
-    # From scipy.stats.pearsonr(x=x, y=y).statistic
+    # From scipy.rolling_stats.pearsonr(x=x, y=y).statistic
     expected_result = 4.231252166809374e-05
 
     self.assertAlmostEqual(actual_result, expected_result, places=15)
@@ -349,13 +341,17 @@ class CoeffStateTest(parameterized.TestCase):
         np.random.uniform(low=-1e5, high=1e5, size=10000) for _ in range(10000)
     ])  # This is a noisy version of x.
 
-    state = stats.PearsonCorrelationCoefficientAggFn().create_state()
+    state = rolling_stats.PearsonCorrelationCoefficientAggFn().create_state()
     for x_i, y_i in zip(x, y):
-      stats.PearsonCorrelationCoefficientAggFn().update_state(state, x_i, y_i)
+      rolling_stats.PearsonCorrelationCoefficientAggFn().update_state(
+          state, x_i, y_i
+      )
 
-    actual_result = stats.PearsonCorrelationCoefficientAggFn().get_result(state)
+    actual_result = (
+        rolling_stats.PearsonCorrelationCoefficientAggFn().get_result(state)
+    )
 
-    # From scipy.stats.pearsonr(x=x, y=y).statistic
+    # From scipy.rolling_stats.pearsonr(x=x, y=y).statistic
     expected_result = 0.9950377257308471
 
     self.assertAlmostEqual(actual_result, expected_result, places=10)
@@ -367,11 +363,15 @@ class CoeffStateTest(parameterized.TestCase):
         np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
     ])
 
-    state = stats.PearsonCorrelationCoefficientAggFn().create_state()
+    state = rolling_stats.PearsonCorrelationCoefficientAggFn().create_state()
     for x_i in x:
-      stats.PearsonCorrelationCoefficientAggFn().update_state(state, x_i, x_i)
+      rolling_stats.PearsonCorrelationCoefficientAggFn().update_state(
+          state, x_i, x_i
+      )
 
-    actual_result = stats.PearsonCorrelationCoefficientAggFn().get_result(state)
+    actual_result = (
+        rolling_stats.PearsonCorrelationCoefficientAggFn().get_result(state)
+    )
 
     expected_result = 1
 
@@ -384,11 +384,15 @@ class CoeffStateTest(parameterized.TestCase):
         np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
     ])
 
-    state = stats.PearsonCorrelationCoefficientAggFn().create_state()
+    state = rolling_stats.PearsonCorrelationCoefficientAggFn().create_state()
     for x_i in x:
-      stats.PearsonCorrelationCoefficientAggFn().update_state(state, x_i, -x_i)
+      rolling_stats.PearsonCorrelationCoefficientAggFn().update_state(
+          state, x_i, -x_i
+      )
 
-    actual_result = stats.PearsonCorrelationCoefficientAggFn().get_result(state)
+    actual_result = (
+        rolling_stats.PearsonCorrelationCoefficientAggFn().get_result(state)
+    )
 
     expected_result = -1
 
@@ -400,16 +404,16 @@ class CoeffStateTest(parameterized.TestCase):
   )
   def test_pearson_correlation_coefficient_returns_nan(self, x, y):
     self.assertTrue(
-        math.isnan(stats.PearsonCorrelationCoefficientAggFn()(x, y))
+        math.isnan(rolling_stats.PearsonCorrelationCoefficientAggFn()(x, y))
     )
 
   def test_coefficient_of_determination_simple(self):
     x = (1, 2, 3, 4, 5, 6, 7)
     y = (10, 9, 2.5, 6, 4, 3, 2)
 
-    actual_result = stats.CoefficientOfDeterminationAggFn()(x, y)
+    actual_result = rolling_stats.CoefficientOfDeterminationAggFn()(x, y)
 
-    # From scipy.stats.pearsonr(x=x, y=y).statistic ** 2
+    # From scipy.rolling_stats.pearsonr(x=x, y=y).statistic ** 2
     expected_result = 0.6864186851211073
 
     self.assertAlmostEqual(actual_result, expected_result)
@@ -419,9 +423,9 @@ class CoeffStateTest(parameterized.TestCase):
     x = np.random.uniform(low=-1e6, high=1e6, size=1000000)
     y = np.random.uniform(low=-1e6, high=1e6, size=1000000)
 
-    actual_result = stats.CoefficientOfDeterminationAggFn()(x, y)
+    actual_result = rolling_stats.CoefficientOfDeterminationAggFn()(x, y)
 
-    # From scipy.stats.pearsonr(x=x, y=y).statistic ** 2
+    # From scipy.rolling_stats.pearsonr(x=x, y=y).statistic ** 2
     expected_result = 8.597724683211943e-08
 
     self.assertAlmostEqual(actual_result, expected_result)
@@ -437,13 +441,17 @@ class CoeffStateTest(parameterized.TestCase):
         np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
     ])
 
-    state = stats.CoefficientOfDeterminationAggFn().create_state()
+    state = rolling_stats.CoefficientOfDeterminationAggFn().create_state()
     for x_i, y_i in zip(x, y):
-      stats.CoefficientOfDeterminationAggFn().update_state(state, x_i, y_i)
+      rolling_stats.CoefficientOfDeterminationAggFn().update_state(
+          state, x_i, y_i
+      )
 
-    actual_result = stats.CoefficientOfDeterminationAggFn().get_result(state)
+    actual_result = rolling_stats.CoefficientOfDeterminationAggFn().get_result(
+        state
+    )
 
-    # From scipy.stats.pearsonr(x=x, y=y).statistic ** 2
+    # From scipy.rolling_stats.pearsonr(x=x, y=y).statistic ** 2
     expected_result = 1.7903494899129026e-09
 
     self.assertAlmostEqual(actual_result, expected_result, places=15)
@@ -457,13 +465,17 @@ class CoeffStateTest(parameterized.TestCase):
         np.random.uniform(low=-1e5, high=1e5, size=10000) for _ in range(10000)
     ])  # This is a noisy version of x.
 
-    state = stats.CoefficientOfDeterminationAggFn().create_state()
+    state = rolling_stats.CoefficientOfDeterminationAggFn().create_state()
     for x_i, y_i in zip(x, y):
-      stats.CoefficientOfDeterminationAggFn().update_state(state, x_i, y_i)
+      rolling_stats.CoefficientOfDeterminationAggFn().update_state(
+          state, x_i, y_i
+      )
 
-    actual_result = stats.CoefficientOfDeterminationAggFn().get_result(state)
+    actual_result = rolling_stats.CoefficientOfDeterminationAggFn().get_result(
+        state
+    )
 
-    # From scipy.stats.pearsonr(x=x, y=y).statistic ** 2
+    # From scipy.rolling_stats.pearsonr(x=x, y=y).statistic ** 2
     expected_result = 0.9901000756276166
 
     self.assertAlmostEqual(actual_result, expected_result, places=10)
@@ -475,11 +487,15 @@ class CoeffStateTest(parameterized.TestCase):
         np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
     ])
 
-    state = stats.CoefficientOfDeterminationAggFn().create_state()
+    state = rolling_stats.CoefficientOfDeterminationAggFn().create_state()
     for x_i in x:
-      stats.CoefficientOfDeterminationAggFn().update_state(state, x_i, x_i)
+      rolling_stats.CoefficientOfDeterminationAggFn().update_state(
+          state, x_i, x_i
+      )
 
-    actual_result = stats.CoefficientOfDeterminationAggFn().get_result(state)
+    actual_result = rolling_stats.CoefficientOfDeterminationAggFn().get_result(
+        state
+    )
 
     expected_result = 1
 
@@ -492,11 +508,15 @@ class CoeffStateTest(parameterized.TestCase):
         np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
     ])
 
-    state = stats.CoefficientOfDeterminationAggFn().create_state()
+    state = rolling_stats.CoefficientOfDeterminationAggFn().create_state()
     for x_i in x:
-      stats.CoefficientOfDeterminationAggFn().update_state(state, x_i, -x_i)
+      rolling_stats.CoefficientOfDeterminationAggFn().update_state(
+          state, x_i, -x_i
+      )
 
-    actual_result = stats.CoefficientOfDeterminationAggFn().get_result(state)
+    actual_result = rolling_stats.CoefficientOfDeterminationAggFn().get_result(
+        state
+    )
 
     expected_result = 1
 
@@ -507,7 +527,9 @@ class CoeffStateTest(parameterized.TestCase):
       dict(testcase_name='0_input', x=(0, 0), y=(0, 0)),
   )
   def test_coefficient_of_determination_returns_nan(self, x, y):
-    self.assertTrue(math.isnan(stats.CoefficientOfDeterminationAggFn()(x, y)))
+    self.assertTrue(
+        math.isnan(rolling_stats.CoefficientOfDeterminationAggFn()(x, y))
+    )
 
 
 if __name__ == '__main__':

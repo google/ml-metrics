@@ -17,7 +17,7 @@ from collections.abc import Sequence
 
 from ml_metrics import aggregates
 from ml_metrics import pipeline
-from ml_metrics._src.aggregates import stats
+from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.aggregates import text
 from ml_metrics._src.scores import text as text_scores
 
@@ -111,7 +111,9 @@ def pattern_frequency(
   )(texts)
 
 
-def avg_alphabetical_char_count(texts: Sequence[str]) -> stats.StatsState:
+def avg_alphabetical_char_count(
+    texts: Sequence[str],
+) -> rolling_stats.MeanAndVariance:
   """Average alphabetical character count metric."""
 
   if not list(texts):
@@ -119,5 +121,5 @@ def avg_alphabetical_char_count(texts: Sequence[str]) -> stats.StatsState:
 
   batch_scorer_fn = pipeline.iterate_fn(text_scores.alphabetical_char_count)
   return aggregates.MergeableMetricAggFn(
-      metric=stats.StatsState(batch_score_fn=batch_scorer_fn)
+      metric=rolling_stats.MeanAndVariance(batch_score_fn=batch_scorer_fn)
   )(texts)

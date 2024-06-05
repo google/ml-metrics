@@ -24,17 +24,18 @@ import numpy as np
 
 
 @dataclasses.dataclass(kw_only=True)
-class StatsState(base.MergeableMetric):
-  """State of a statistics aggregation."""
+class MeanAndVariance(base.MergeableMetric):
+  """Computes the mean and variance of a batch of values."""
+
+  # TODO(b/345249574): (1) Introduce StatsEnum to indicate the metrics to be
+  # computed. (2) Remove score_batch_fn.
 
   batch_score_fn: Callable[..., types.NumbersT] | None = None
-  _min: types.NumbersT = np.nan
-  _max: types.NumbersT = np.nan
   _count: int = 0
   _mean: types.NumbersT = np.nan
   _var: types.NumbersT = np.nan
 
-  def add(self, batch: types.NumbersT) -> 'StatsState':
+  def add(self, batch: types.NumbersT) -> 'MeanAndVariance':
     """Update the statistics with the given batch.
 
     If `batch_score_fn` is provided, it will evaluate the batch and assign a
@@ -64,27 +65,16 @@ class StatsState(base.MergeableMetric):
               ' the `batch`.'
           )
 
-      # Mininums and maximums.
-      self._min = np.nanmin(batch, axis=0)
-      self._max = np.nanmax(batch, axis=0)
       # Sufficient statistics for Mean, variance and standard deviation.
       self._count = np.nansum(~np.isnan(batch), axis=0)
       self._mean = np.nanmean(batch, axis=0)
       self._var = np.nanvar(batch, axis=0)
       return self.result()
 
-    batch_state = StatsState(batch_score_fn=self.batch_score_fn)
+    batch_state = MeanAndVariance(batch_score_fn=self.batch_score_fn)
     batch_state.add(batch)
     self.merge(batch_state)
     return batch_state.result()
-
-  @property
-  def min(self) -> types.NumbersT:
-    return self._min
-
-  @property
-  def max(self) -> types.NumbersT:
-    return self._max
 
   @property
   def var(self) -> types.NumbersT:
@@ -106,21 +96,16 @@ class StatsState(base.MergeableMetric):
   def total(self) -> types.NumbersT:
     return self._mean * self._count if self._count > 0 else 0.0
 
-  def merge(self, other: 'StatsState'):
+  def merge(self, other: 'MeanAndVariance'):
     # TODO: b/311207032 - Support multi dimensional merge.
     if other.count == 0:
       return
 
     if self.count == 0:
-      self._min = other.min
-      self._max = other.max
       self._count = other.count
       self._mean = other.mean
       self._var = other.var
       return
-
-    self._min = np.minimum(self._min, other.min)
-    self._max = np.maximum(self._max, other.max)
 
     prev_mean, prev_count = self._mean, self._count
     self._count += other.count
@@ -136,8 +121,11 @@ class StatsState(base.MergeableMetric):
         + other_count_ratio * (other.mean - self._mean) ** 2
     )
 
-  def result(self) -> 'StatsState':
+  def result(self) -> 'MeanAndVariance':
     return self
+
+
+# TODO(b/345249574): Implement MinMax class.
 
 
 @dataclasses.dataclass(slots=True)

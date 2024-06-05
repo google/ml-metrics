@@ -14,7 +14,7 @@
 """Tests for text."""
 
 from absl.testing import parameterized
-from ml_metrics._src.aggregates import stats
+from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.metrics import text
 import numpy as np
 
@@ -195,11 +195,9 @@ class PatternFrequencyTest(parameterized.TestCase):
       text.pattern_frequency(texts=['a'], patterns=patterns)
 
 
-def get_expected_stats_state_result(batch):
-  # result_dict key must match StatsState properties name.
+def get_expected_mean_and_variance_state_result(batch):
+  # result_dict key must match MeanAndVariance properties name.
   result_dict = {
-      'min': np.min(batch),
-      'max': np.max(batch),
       'mean': np.mean(batch),
       'var': np.var(batch),
       'stddev': np.std(batch),
@@ -212,16 +210,18 @@ def get_expected_stats_state_result(batch):
 class AvgAlphabeticalCharCountTest(absltest.TestCase):
 
   def test_avg_alphabetical_char_count(self):
-    stats_state = text.avg_alphabetical_char_count(
+    got_state = text.avg_alphabetical_char_count(
         texts=['ab', 'a b', '', 'ok?']
     )
-    self.assertIsInstance(stats_state, stats.StatsState)
+    self.assertIsInstance(got_state, rolling_stats.MeanAndVariance)
 
-    expected_stats_state = get_expected_stats_state_result([2, 2, 0, 2])
-    for metric_name in expected_stats_state:
+    expected_state = get_expected_mean_and_variance_state_result(
+        [2, 2, 0, 2]
+    )
+    for metric_name in expected_state:
       np.testing.assert_allclose(
-          expected_stats_state[metric_name],
-          getattr(stats_state, metric_name),
+          expected_state[metric_name],
+          getattr(got_state, metric_name),
       )
 
   def test_avg_alphabetical_char_count_empty(self):

@@ -18,7 +18,7 @@ import queue
 from absl.testing import absltest
 from ml_metrics import aggregates
 from ml_metrics import pipeline
-from ml_metrics._src.aggregates import stats
+from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.orchestration import orchestrate
@@ -68,7 +68,9 @@ class OrchestrateTest(absltest.TestCase):
           )
           .aggregate(
               output_keys='stats',
-              fn=aggregates.MergeableMetricAggFn(stats.StatsState()),
+              fn=aggregates.MergeableMetricAggFn(
+                  rolling_stats.MeanAndVariance()
+              ),
           )
       )
 
@@ -86,7 +88,7 @@ class OrchestrateTest(absltest.TestCase):
     self.worker_pool.shutdown()
     self.assertIsNotNone(results)
     self.assertIn('stats', results)
-    self.assertIsInstance(results['stats'], stats.StatsState)
+    self.assertIsInstance(results['stats'], rolling_stats.MeanAndVariance)
     self.assertEqual(results['stats'].count, 1000)
 
 
