@@ -29,8 +29,8 @@ from ml_metrics._src.chainables import transform
 
 def workerpool_generator(
     worker_pool: courier_worker.WorkerPool,
-    define_pipeline: Callable[..., transform.TreeTransform],
     /,
+    define_pipeline: Callable[..., transform.TreeTransform],
     *pipeline_args,
     with_result: bool = True,
     result_queue: queue.SimpleQueue[transform.AggregateResult] | None = None,
