@@ -567,10 +567,7 @@ class TransformTest(parameterized.TestCase):
             slice_name='classes',
         )
     )
-    agg_result = None
-    for batch_outputs in agg.make().iterate(with_agg_result=True):
-      if isinstance(batch_outputs, transform.AggregateResult):
-        agg_result = batch_outputs.agg_result
+    agg_result = agg.make()()
 
     expected = {
         'precision': 0.75,
@@ -616,16 +613,15 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual([13.5], actual_fn())
     self.assertEqual([13.5], actual_fn(input_iterator=input_iterator))
 
-    state = actual_fn.merge_states(
-        actual_fn.iterate(with_agg_state=True), mixed_input_types=True
-    )
-    self.assertEqual([13.5], actual_fn.get_result(state))
+    result = transform.get_generator_returned(
+        actual_fn.iterate(with_agg_result=True)
+    ).agg_result
+    self.assertEqual([13.5], result)
 
-    state = actual_fn.merge_states(
-        actual_fn.iterate(input_iterator=input_iterator, with_agg_state=True),
-        mixed_input_types=True,
-    )
-    self.assertEqual([13.5], actual_fn.get_result(state))
+    result = transform.get_generator_returned(
+        actual_fn.iterate(input_iterator=input_iterator, with_agg_result=True)
+    ).agg_result
+    self.assertEqual([13.5], result)
 
   def test_input_iterator_aggregate_incorrect_states_count_raises_error(self):
     input_iterator = [[1, 2, 3], [2, 3, 4]]
@@ -663,15 +659,20 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual([13.5], actual_fn(input_iterator=input_iterator))
 
   def test_prefetched_iterator(self):
-    input_iterator = range(10)
-    p = transform.TreeTransform.new().data_source(iterator=input_iterator)
+    inputs = [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
+    p = (
+        transform.TreeTransform.new()
+        .data_source(iterator=inputs)
+        .aggregate(fn=TestAverageFn())
+    )
     iterator = transform.PrefetchableIterator(
-        p.make().iterate(), prefetch_size=3
+        p.make().iterate(with_agg_result=True), prefetch_size=2
     )
     iterator.prefetch()
-    self.assertEqual(3, iterator.cnt)
-    self.assertEqual([0, 1, 2], iterator.flush_prefetched())
-    self.assertEqual(list(range(3, 10)), list(iterator))
+    self.assertEqual(2, iterator.cnt)
+    self.assertEqual(inputs[:2], iterator.flush_prefetched())
+    self.assertEqual([inputs[-1]], list(iterator))
+    self.assertEqual([3.0], iterator.returned.agg_result)
 
 
 if __name__ == '__main__':

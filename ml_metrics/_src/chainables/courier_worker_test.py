@@ -20,7 +20,6 @@ from courier.python import testutil
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
-from ml_metrics._src.chainables import transform
 import portpicker
 
 Task = courier_worker.Task
@@ -33,6 +32,7 @@ def setUpModule():
 
 def mock_generator(n):
   yield from range(n)
+  return n
 
 
 class CourierWorkerTest(absltest.TestCase):
@@ -75,7 +75,9 @@ class CourierWorkerTest(absltest.TestCase):
     batch_outputs = []
 
     async def run():
-      async for elem in self.worker.async_iterate(task, agg_result_queue=agg_q):
+      async for elem in self.worker.async_iterate(
+          task, generator_result_queue=agg_q
+      ):
         # During iteration, the worker is considered occupied.
         self.assertFalse(self.worker.has_capacity)
         batch_outputs.append(elem)
@@ -84,7 +86,7 @@ class CourierWorkerTest(absltest.TestCase):
 
     asyncio.run(run())
     self.assertEqual(list(range(3)), batch_outputs)
-    self.assertTrue(agg_q.empty())
+    self.assertEqual(3, agg_q.get())
 
   def test_worker_async_iterate_raise(self):
 
@@ -98,7 +100,9 @@ class CourierWorkerTest(absltest.TestCase):
     agg_q = queue.SimpleQueue()
 
     async def run():
-      async for _ in self.worker.async_iterate(task, agg_result_queue=agg_q):
+      async for _ in self.worker.async_iterate(
+          task, generator_result_queue=agg_q
+      ):
         pass
 
     with self.assertRaises(ValueError):
@@ -187,39 +191,32 @@ class CourierWorkerGroupTest(absltest.TestCase):
               tasks, num_total_failures_threshold=0
           )
       ]
-    self.assertLen(results, 9)
-    self.assertCountEqual(list(range(3)) * 3, results)
+    self.assertLen(results, 12)
+    self.assertCountEqual([0, 1, 2, 3] * 3, results)
     self.assertNotEmpty([l for l in cm.output if 'progress' in l])
 
   def test_worker_group_iterate(self):
-
-    def agg_result_generator():
-      yield transform.AggregateResult(agg_result='agg_result')
-
     tasks = [
         Task.new('echo').add_generator_task(lazy_fns.trace(mock_generator)(3))
-    ] * 3
-    tasks.append(
-        courier_worker.GeneratorTask.new(lazy_fns.trace(agg_result_generator)())
-    )
+    ] * 5
     courier_worker._LOGGING_INTERVAL_SEC = 0.01
-    agg_result_queue = queue.SimpleQueue()
+    generator_result_queue = queue.SimpleQueue()
     with self.assertLogs(level='INFO') as cm:
       results = [
           result
           for result in self.worker_pool.iterate(
               tasks,
-              agg_result_queue=agg_result_queue,
+              generator_result_queue=generator_result_queue,
               num_total_failures_threshold=0,
           )
       ]
-    self.assertLen(results, 9)
-    self.assertCountEqual(list(range(3)) * 3, results)
-    self.assertEqual(1, agg_result_queue.qsize())
-    self.assertEqual(
-        transform.AggregateResult(agg_result='agg_result'),
-        agg_result_queue.get(),
-    )
+    self.assertLen(results, 3 * 5)
+    self.assertCountEqual(list(range(3)) * 5, results)
+    self.assertEqual(5, generator_result_queue.qsize())
+    actual_agg = []
+    while not generator_result_queue.empty():
+      actual_agg.append(generator_result_queue.get())
+    self.assertEqual([3] * 5, actual_agg)
     self.assertNotEmpty([l for l in cm.output if 'progress' in l])
 
   def test_worker_group_run_and_iterate_invalid_iterator(self):

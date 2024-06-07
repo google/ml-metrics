@@ -13,7 +13,7 @@
 # limitations under the License.
 """Pipeline interfaces."""
 
-# # pylint: disable=g-importing-member
+# pylint: disable=g-importing-member
 # pylint: disable=unused-import
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
@@ -27,6 +27,8 @@ from ml_metrics._src.chainables.lazy_fns import picklers
 from ml_metrics._src.chainables.lazy_fns import trace
 from ml_metrics._src.chainables.transform import AggregateResult
 from ml_metrics._src.chainables.transform import AggregateTransform
+from ml_metrics._src.chainables.transform import get_generator_returned
+from ml_metrics._src.chainables.transform import iterate_with_returned
 from ml_metrics._src.chainables.transform import PrefetchableIterator
 from ml_metrics._src.chainables.transform import RunnerMode
 from ml_metrics._src.chainables.transform import TreeTransform as Pipeline

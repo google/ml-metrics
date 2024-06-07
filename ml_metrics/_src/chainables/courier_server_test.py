@@ -21,6 +21,7 @@ from courier.python import testutil
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
+from ml_metrics._src.chainables import transform
 
 
 pickler = lazy_fns.picklers.default
@@ -60,7 +61,7 @@ class CourierServerTest(absltest.TestCase):
 
     client.init_generator(pickler.dumps(lazy_fns.trace(test_generator)(10)))
     actual = []
-    while not lazy_fns.is_stop_iteration(
+    while not transform.is_stop_iteration(
         t := pickler.loads(client.next_from_generator())
     ):
       actual.append(t)
@@ -71,17 +72,20 @@ class CourierServerTest(absltest.TestCase):
 
     def test_generator(n):
       yield from range(n)
+      return n
 
     client.init_generator(pickler.dumps(lazy_fns.trace(test_generator)(10)))
     actual = []
     while True:
       states = pickler.loads(client.next_batch_from_generator())
-      if states and lazy_fns.is_stop_iteration(states[-1]):
+      if states and transform.is_stop_iteration(states[-1]):
         actual.extend(states[:-1])
+        returned = states[-1].value
         break
       else:
         actual.extend(states)
     self.assertEqual(list(range(10)), actual)
+    self.assertEqual(10, returned)
 
   def test_courier_server_shutdown(self):
     server = courier_server.CourierServerWrapper()

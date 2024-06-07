@@ -81,7 +81,7 @@ class CourierServerWrapper:
         if self._generator.exceptions:
           result.append(self._generator.exceptions[-1])
         elif self._generator.exhausted:
-          result.append(StopIteration())
+          result.append(StopIteration(self._generator.returned))
       return result
 
     def next_batch_from_generator(batch_size: int | bytes = 0):

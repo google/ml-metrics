@@ -362,7 +362,7 @@ class Worker:
       self,
       task: GeneratorTask,
       *,
-      agg_result_queue: queue.SimpleQueue[transform.AggregateResult],
+      generator_result_queue: queue.SimpleQueue[transform.AggregateResult],
   ) -> AsyncIterator[Any]:
     """Iterates the generator task."""
     # Make the actual generator.
@@ -383,21 +383,19 @@ class Worker:
             await asyncio.wrap_future(output_state)
         )
         if output_batch:
-          if isinstance(output_batch[-1], StopIteration):
+          if transform.is_stop_iteration(stop_iteration := output_batch[-1]):
             logging.info(
                 'chainables: worker %s generator exhausted.',
                 self.server_name,
             )
-            output_batch = output_batch[:-1]
             exhausted = True
-          elif isinstance(output_batch[-1], Exception):
-            if output_batch[-1] != ValueError('generator already executing'):
+            generator_result_queue.put(stop_iteration.value)
+            output_batch = output_batch[:-1]
+          elif isinstance(exc := output_batch[-1], Exception):
+            if exc != ValueError('generator already executing'):
               raise output_batch[-1]
         for elem in output_batch:
-          if isinstance(elem, transform.AggregateResult):
-            agg_result_queue.put(elem)
-          else:
-            yield elem
+          yield elem
     except Exception as e:  # pylint: disable=broad-exception-caught
       logging.exception(
           'chainables: exception when iterating task: %s',
@@ -588,11 +586,13 @@ class WorkerPool:
             batch_cnt += len(states[:-1])
             yield from states[:-1]
             try:
-              if lazy_fns.is_stop_iteration(states[-1]):
+              if isinstance((stop_iteration := states[-1]), StopIteration):
                 logging.info(
                     'chainables: worker %s generator exhausted.',
                     task.server_name,
                 )
+                if stop_iteration.value is not None:
+                  yield stop_iteration.value
                 finished_tasks_cnt += 1
               else:
                 raise states[-1]
@@ -654,9 +654,10 @@ class WorkerPool:
   def iterate(
       self,
       tasks: Iterable[GeneratorTask],
-      agg_result_queue: queue.SimpleQueue[transform.AggregateResult],
+      *,
+      generator_result_queue: queue.SimpleQueue[Any],
       num_total_failures_threshold: int = _NUM_TOTAL_FAILURES_THRESHOLD,
-  ):
+  ) -> Iterator[Any]:
     """Iterates through the result of a generator if the iterator task."""
     tasks = list(reversed(list(tasks)))
     total_tasks = len(tasks)
@@ -687,7 +688,9 @@ class WorkerPool:
           )
           task = tasks.pop().set(server_name=worker.server_name)
           aiter_until_complete = iterate_until_complete(
-              worker.async_iterate(task, agg_result_queue=agg_result_queue),
+              worker.async_iterate(
+                  task, generator_result_queue=generator_result_queue
+              ),
               output_queue=output_queue,
           )
           task = task.set(
@@ -698,9 +701,8 @@ class WorkerPool:
           running_tasks.append(task)
 
       while not output_queue.empty():
-        result = output_queue.get()
         batch_cnt += 1
-        yield result
+        yield output_queue.get()
 
       # Acquiring unfinished and failed tasks
       failed_tasks, disconnected_tasks, still_running_tasks = [], [], []
@@ -761,7 +763,8 @@ class WorkerPool:
     event_loop.call_soon_threadsafe(event_loop.stop)
     loop_thread.join()
     while not output_queue.empty():
-      yield from output_queue.get()
+      batch_cnt += 1
+      yield output_queue.get()
     logging.info(
         'chainalbes: finished running with %d/%d (finished/total) in %.2f'
         ' secs, average throughput: %.2f',

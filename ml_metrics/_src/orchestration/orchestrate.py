@@ -117,7 +117,7 @@ def workerpool_generator(
   # Does not allow 50% of total number of tasks failed.
   iterator = worker_pool.iterate(
       sharded_tasks,
-      agg_result_queue=states_queue,
+      generator_result_queue=states_queue,
       num_total_failures_threshold=int(len(sharded_tasks) * 0.5) + 1,
   )
   logging.info('chainables: iterator: %s', iterator)

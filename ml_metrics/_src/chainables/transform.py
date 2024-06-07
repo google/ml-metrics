@@ -44,7 +44,7 @@ Following is an example of an evaluation pipeline where:
 """
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
 import dataclasses
 import inspect
 import itertools
@@ -73,11 +73,17 @@ TreeFn = tree_fns.TreeFn
 _LOGGING_INTERVAL_SECS = 60
 
 
+def is_stop_iteration(inputs) -> bool:
+  """Returns whether the inputs is a StopIteration."""
+  return isinstance(inputs, StopIteration)
+
+
 class PrefetchableIterator:
   """An iterator that can also prefetch before iterated."""
 
   def __init__(self, generator, prefetch_size: int = 2):
     self._data = queue.SimpleQueue()
+    self._returned = None
     if not inspect.isgenerator(generator):
       generator = iter(generator)
     self._generator = generator
@@ -91,6 +97,13 @@ class PrefetchableIterator:
   @property
   def cnt(self) -> int:
     return self._cnt
+
+  @property
+  def returned(self) -> Any:
+    assert (
+        self._exhausted
+    ), 'Generator is not exhausted, returned is not available.'
+    return self._returned
 
   @property
   def data_size(self) -> int:
@@ -134,7 +147,7 @@ class PrefetchableIterator:
       return self._data.get()
     else:
       logging.info('chainables: Generator exhausted from %s.', self._generator)
-      raise StopIteration
+      raise StopIteration(self._returned)
 
   def __iter__(self):
     return self
@@ -148,8 +161,9 @@ class PrefetchableIterator:
         self._data.put(next(self._generator))
         self._cnt += 1
         self._data_size += 1
-      except StopIteration:
+      except StopIteration as e:
         self._exhausted = True
+        self._returned = e.value
         logging.info(
             'chainables: prefetch exhausted after %d items.', self._cnt
         )
@@ -242,6 +256,24 @@ def _extract_states(states: Iterable[Any | AggregateResult]) -> Iterator[Any]:
       batch_cnt / (time.time() - start_ticker),
       agg_cnt / (time.time() - start_ticker),
   )
+
+
+def iterate_with_returned(
+    generator: Generator[Any, None, AggregateResult],
+) -> Iterator[AggregateResult]:
+  """Converts a generator to an iterator with returned value as the last."""
+  returned = yield from generator
+  yield returned
+
+
+def get_generator_returned(
+    generator: Generator[Any, None, AggregateResult],
+) -> AggregateResult | None:
+  """Returns the aggregate result by from a TreeTransform based generator."""
+  result = AggregateResult()
+  for result in iterate_with_returned(generator):
+    pass
+  return result
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -455,7 +487,7 @@ class CombinedTreeFn:
       with_agg_state: bool = False,
       with_agg_result: bool = False,
       state: Any = None,
-  ) -> Iterator[Any]:
+  ) -> Generator[Any, None, AggregateResult | None]:
     """An iterator runner that takes an input_iterator runs the transform.
 
     The iterator by default yields the output of all the input_functions before
@@ -489,15 +521,15 @@ class CombinedTreeFn:
       yield batch_output if with_result else None
       if with_agg_state:
         state = self._update_state(state, batch_output)
-    # Special logic to also get the agg_state and the agg_result at the end of
-    # the iteration. It is up to the callsite to distinguish the types when
-    # aggregation is enabled.
+    # This can collect the agg_state and the agg_result at the end of
+    # the iteration and return them as the generator return value.
     agg_result = self.get_result(state) if with_agg_result else None
     if with_agg_state:
       logging.info(
-          'chainables: yields aggregation after %d batches.', batch_index + 1
+          'chainables: returns aggregation after %d batches.',
+          batch_index + 1,
       )
-      yield AggregateResult(agg_state=state, agg_result=agg_result)
+      return AggregateResult(agg_state=state, agg_result=agg_result)
 
   def update_state(
       self,
@@ -508,11 +540,11 @@ class CombinedTreeFn:
   ):
     """Updates the state by either the inputs or an iterator of the inputs."""
     input_iterator = self._actual_inputs(inputs, input_iterator)
-    for batch_output in self.iterate(
-        input_iterator, with_agg_state=True, state=state
-    ):
-      if isinstance(batch_output, AggregateResult):
-        return batch_output.agg_state
+    agg_result = get_generator_returned(
+        self.iterate(input_iterator, with_agg_state=True, state=state)
+    )
+    assert agg_result is not None
+    return agg_result.agg_state
 
   def __call__(self, inputs=None, *, input_iterator=None):
     iter_input = self._actual_inputs(inputs, input_iterator)
