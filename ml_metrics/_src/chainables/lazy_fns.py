@@ -26,9 +26,10 @@ import json
 from typing import Any, Generic, TypeVar
 
 import cloudpickle as pickle
+from ml_metrics._src import base_types
 
-ValueT = TypeVar('ValueT')
-Fn = Callable[..., ValueT]
+_ValueT = TypeVar('_ValueT')
+Fn = Callable[..., _ValueT]
 
 
 def is_stop_iteration(inputs) -> bool:
@@ -129,7 +130,7 @@ def iterate_fn(fn):
   """
 
   @functools.wraps(fn)
-  def wrapped_fun(*inputs, **kwargs) -> tuple[ValueT, ...] | ValueT:
+  def wrapped_fun(*inputs, **kwargs) -> tuple[_ValueT, ...] | _ValueT:
     outputs = [fn(*row_inputs, **kwargs) for row_inputs in zip(*inputs)]
     # Only transpose when multiple items returned.
     if outputs and isinstance(outputs[0], tuple):
@@ -142,24 +143,6 @@ def iterate_fn(fn):
 
 def normalize_kwargs(kwargs: Mapping[str, Hashable]):
   return tuple(kwargs.items())
-
-
-@dataclasses.dataclass(kw_only=True, frozen=True)
-class Args:
-  """Positional and keyword arguments.
-
-  Attributes:
-    args: The positional arguments later used to pass in the fn.
-    kwargs: The named arguments later used to pass in the fn.
-  """
-
-  args: tuple[Hashable | LazyFn, ...] = ()
-  kwargs: tuple[tuple[str, Hashable | LazyFn], ...] = ()
-
-
-def trace_args(*args, **kwargs) -> Args:
-  """Traces positional and keyword arguments."""
-  return Args(args=args, kwargs=normalize_kwargs(kwargs))
 
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
@@ -197,7 +180,7 @@ class FnConfig:
 
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
-class LazyFn(Generic[ValueT], Callable[..., 'LazyFn']):
+class LazyFn(Generic[_ValueT], Callable[..., 'LazyFn']):
   """A lazy function that has all the information to be called later.
 
   Attributes:
@@ -207,7 +190,7 @@ class LazyFn(Generic[ValueT], Callable[..., 'LazyFn']):
     cache_result: If True, cache the result of the make LazyFn.
   """
 
-  fn: Callable[..., ValueT] | LazyFn | None = None
+  fn: Callable[..., _ValueT] | LazyFn | None = None
   args: tuple[Hashable | LazyFn, ...] = ()
   kwargs: tuple[tuple[str, Hashable | LazyFn], ...] = ()
   cache_result: bool = False
@@ -215,12 +198,12 @@ class LazyFn(Generic[ValueT], Callable[..., 'LazyFn']):
   @classmethod
   def new(
       cls,
-      fn: Callable[..., ValueT] | None = None,
+      fn: Callable[..., _ValueT] | None = None,
       *,
       args: Sequence[Hashable] = (),
       kwargs: Mapping[str, Hashable] | None = None,
       cache_result: bool = False,
-  ) -> LazyFn[ValueT]:
+  ) -> LazyFn[_ValueT]:
     """Normalizes the arguments before constructing a LazyFn."""
     kwargs = (kwargs or {}).items()
     return cls(
@@ -329,8 +312,8 @@ def cache_info():
 
 
 def trace(
-    fn: Callable[..., ValueT], use_cache: bool = False
-) -> Callable[..., LazyFn[ValueT]]:
+    fn: Callable[..., _ValueT], use_cache: bool = False
+) -> Callable[..., LazyFn[_ValueT]]:
   """Traces a callable to record the function and its arguments.
 
   A lazy function is the lazy counterpart of the actual function. We can convert
@@ -378,3 +361,13 @@ def trace(
     return LazyFn.new(fn=fn, args=args, kwargs=kwargs, cache_result=use_cache)
 
   return wrapped
+
+
+@dataclasses.dataclass(frozen=True)
+class MakeableLazyFn(base_types.Makeable[_ValueT]):
+  """Wraps a LazyFn to be used as a Makeable."""
+
+  lazy_fn: LazyFn[_ValueT]
+
+  def make(self) -> _ValueT:
+    return maybe_make(self.lazy_fn)

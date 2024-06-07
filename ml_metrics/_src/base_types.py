@@ -13,7 +13,20 @@
 # limitations under the License.
 """Base types used throughout the library."""
 
+import abc
 import enum
+from typing import Protocol, TypeVar, runtime_checkable
+
+MakeT = TypeVar('MakeT')
+
+
+@runtime_checkable
+class Makeable(Protocol[MakeT]):
+  """A config class that can make a Metric class."""
+
+  @abc.abstractmethod
+  def make(self) -> MakeT:
+    """Makes a new Metric."""
 
 
 # TODO: b/312290886 - move this to Python StrEnum when moved to Python 3.11.

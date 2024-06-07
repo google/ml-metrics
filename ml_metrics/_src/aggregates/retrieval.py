@@ -171,7 +171,7 @@ def _ndcg_score(tp, k_range, k_list, y_true_count):
 
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
-class TopKRetrievalConfig(base.MetricMaker):
+class TopKRetrievalConfig(base_types.Makeable):
   """TopKRetrievals.
 
   Attributes:

@@ -19,6 +19,7 @@ from ml_metrics import aggregates
 from ml_metrics import pipeline
 from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.aggregates import text
+from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.scores import text as text_scores
 
 
@@ -66,11 +67,13 @@ def topk_word_ngrams(
     )
 
   return aggregates.MergeableMetricAggFn(
-      metric=text.TopKWordNGrams(
-          k=k,
-          n=n,
-          use_first_ngram_only=use_first_ngram_only,
-          count_duplicate=count_duplicate,
+      lazy_fns.MakeableLazyFn(
+          lazy_fns.trace(text.TopKWordNGrams)(
+              k=k,
+              n=n,
+              use_first_ngram_only=use_first_ngram_only,
+              count_duplicate=count_duplicate,
+          )
       )
   )(texts)
 
@@ -105,8 +108,10 @@ def pattern_frequency(
     raise ValueError(f'Patterns must be unique: {patterns}')
 
   return aggregates.MergeableMetricAggFn(
-      metric=text.PatternFrequency(
-          patterns=patterns, count_duplicate=count_duplicate
+      lazy_fns.MakeableLazyFn(
+          lazy_fns.trace(text.PatternFrequency)(
+              patterns=patterns, count_duplicate=count_duplicate
+          )
       )
   )(texts)
 
@@ -121,5 +126,9 @@ def avg_alphabetical_char_count(
 
   batch_scorer_fn = pipeline.iterate_fn(text_scores.alphabetical_char_count)
   return aggregates.MergeableMetricAggFn(
-      metric=rolling_stats.MeanAndVariance(batch_score_fn=batch_scorer_fn)
+      lazy_fns.MakeableLazyFn(
+          lazy_fns.trace(rolling_stats.MeanAndVariance)(
+              batch_score_fn=batch_scorer_fn
+          )
+      )
   )(texts)

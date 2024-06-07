@@ -160,6 +160,10 @@ class LazyFnsTest(absltest.TestCase):
         lazy_fns.maybe_make(lazy_fns.FnConfig(fn='len', args=[[1, 2]]).make()),
     )
 
+  def test_makeable_lazy_fn(self):
+    makeable_foo = lazy_fns.MakeableLazyFn(trace(Foo)(a=1))
+    self.assertEqual(3, makeable_foo.make()(x=2))
+
 
 if __name__ == '__main__':
   absltest.main()

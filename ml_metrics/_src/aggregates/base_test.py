@@ -16,6 +16,7 @@
 from absl.testing import absltest
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import test_utils
+from ml_metrics._src.chainables import lazy_fns
 
 
 class AggregatesTest(absltest.TestCase):
@@ -25,7 +26,10 @@ class AggregatesTest(absltest.TestCase):
     self.assertEqual(sum_fn(list(range(4))), 6)
 
   def test_mergeable_aggregate_fn_in_process(self):
-    sum_fn = base.MergeableMetricAggFn(test_utils._SumMetric())
+    makeable_deferred_sum = lazy_fns.MakeableLazyFn(
+        lazy_fns.trace(test_utils._SumMetric)()
+    )
+    sum_fn = base.MergeableMetricAggFn(makeable_deferred_sum)
     self.assertEqual(6, sum_fn([1, 2, 3]))
 
 

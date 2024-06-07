@@ -737,7 +737,7 @@ SamplewiseConfusionMatrixAggState = dict[str, utils.MeanState]
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class SamplewiseClassificationConfig(base.MetricMaker):
+class SamplewiseClassificationConfig(base_types.Makeable):
   """Samplewise Classification Config.
 
   Attributes:

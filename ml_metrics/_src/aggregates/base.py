@@ -17,6 +17,7 @@ import abc
 from collections.abc import Iterable
 import dataclasses
 from typing import Any, Protocol, runtime_checkable
+from ml_metrics._src import base_types
 
 
 @runtime_checkable
@@ -39,15 +40,6 @@ class MergeableMetric(Metric, Protocol):
   @abc.abstractmethod
   def merge(self, other: 'Metric') -> 'Metric':
     """Merges the metric with another metric of the same type."""
-
-
-@runtime_checkable
-class MetricMaker(Protocol):
-  """A config class that can make a Metric class."""
-
-  @abc.abstractmethod
-  def make(self) -> Metric:
-    """Makes a new Metric."""
 
 
 @runtime_checkable
@@ -105,13 +97,10 @@ class AggregateFn(Aggregatable):
 class MergeableMetricAggFn(AggregateFn):
   """MergeableMetricAggFn."""
 
-  metric: MetricMaker | Metric
+  metric_maker: base_types.Makeable[Metric]
 
   def create_state(self) -> Metric:
-    metric = self.metric
-    if isinstance(self.metric, MetricMaker):
-      metric = self.metric.make()
-    return metric
+    return self.metric_maker.make()
 
   def update_state(self, state: Metric, *args, **kwargs) -> Metric:
     state.add(*args, **kwargs)

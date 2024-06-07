@@ -17,14 +17,16 @@ import abc
 from collections.abc import Callable, Iterable, Sequence
 import dataclasses
 import math
+from typing import Self
 
+from ml_metrics._src import base_types
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 import numpy as np
 
 
 @dataclasses.dataclass(kw_only=True)
-class MeanAndVariance(base.MergeableMetric):
+class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
   """Computes the mean and variance of a batch of values."""
 
   # TODO(b/345249574): (1) Introduce StatsEnum to indicate the metrics to be
@@ -35,7 +37,10 @@ class MeanAndVariance(base.MergeableMetric):
   _mean: types.NumbersT = np.nan
   _var: types.NumbersT = np.nan
 
-  def add(self, batch: types.NumbersT) -> 'MeanAndVariance':
+  def make(self) -> Self:
+    return MeanAndVariance()
+
+  def add(self, batch: types.NumbersT) -> Self:
     """Update the statistics with the given batch.
 
     If `batch_score_fn` is provided, it will evaluate the batch and assign a
