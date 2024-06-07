@@ -16,12 +16,13 @@
 from __future__ import annotations
 
 import abc
-from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping, Sequence
 import copy
 import dataclasses
 from typing import Any, Protocol, TypeVar, Union
 
 from ml_metrics._src import base_types
+import numpy as np
 
 
 def tree_shape(inputs: Any):
@@ -113,16 +114,17 @@ def apply_mask(
     A tree of inputs with the masks applied.
   """
   if isinstance(masks, dict) and isinstance(items, dict):
-    result = {}
-    for key, mask in masks.items():
+    result = copy.copy(items)
+    for key, value in items.items():
+      mask = masks.get(key, True)
       if isinstance(mask, bool):
         if mask:
-          result[key] = items[key]
+          result[key] = value
         elif mask_behavior == MaskBehavior.REPLACE:
           result[key] = replace_false_with
       else:
         result[key] = apply_mask(
-            items[key],
+            value,
             masks=mask,
             mask_behavior=mask_behavior,
             replace_false_with=replace_false_with,
@@ -131,7 +133,7 @@ def apply_mask(
     raise ValueError(
         f'Masks and inputs have to be both dict: {type(masks)=}, {type(items)=}'
     )
-  else:
+  elif isinstance(items, Iterable) and isinstance(masks, Iterable):
     result = []
     for elem, mask in zip(items, masks, strict=True):
       if isinstance(mask, bool):
@@ -148,6 +150,19 @@ def apply_mask(
                 replace_false_with=replace_false_with,
             )
         )
+    if isinstance(items, tuple):
+      result = tuple(result)
+    # For data that is array-like, will be converted into a np array.
+    elif hasattr(items, '__array__'):
+      if hasattr(result, 'dtype'):
+        result = np.asarray(result, dtype=hasattr(items, 'dtype'))
+      else:
+        result = np.asarray(result)
+  else:
+    raise ValueError(
+        'Masks and inputs have to be both of the same Iterable type:'
+        f' {type(masks)=}, {type(items)=}'
+    )
   return result
 
 

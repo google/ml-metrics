@@ -13,8 +13,8 @@
 # limitations under the License.
 """Test for tree library."""
 
+from collections.abc import Iterable
 import types
-
 from absl.testing import absltest
 from absl.testing import parameterized
 from ml_metrics._src.chainables import tree
@@ -258,32 +258,54 @@ class TreeMapViewTest(absltest.TestCase):
 
 class ApplyMaskTest(parameterized.TestCase):
 
-  def test_apply_mask(self):
-    inputs = [1, 2, np.array([5, 6]), 4, 5]
-    mask = [True, False, [True, False], False, True]
-    result = tree.apply_mask(inputs, masks=mask)
-    expected = [1, [5], 5]
-    self.assertEqual(result, expected)
-
-    result = tree.apply_mask(
-        inputs, masks=mask, mask_behavior=tree.MaskBehavior.REPLACE
-    )
-    expected = [1, None, [5, None], None, 5]
-    self.assertEqual(result, expected)
-
-    result = tree.apply_mask(
-        inputs,
-        masks=mask,
-        mask_behavior=tree.MaskBehavior.REPLACE,
-        replace_false_with=-1,
-    )
-    expected = [1, -1, [5, -1], -1, 5]
-    self.assertEqual(result, expected)
+  def assert_nested_sequence_equal(self, a, b):
+    if isinstance(a, dict) and isinstance(b, dict):
+      for (k_a, v_a), (k_b, v_b) in zip(
+          sorted(a.items()), sorted(b.items()), strict=True
+      ):
+        self.assertEqual(k_a, k_b)
+        self.assert_nested_sequence_equal(v_a, v_b)
+    elif isinstance(a, str) and isinstance(b, str):
+      self.assertEqual(a, b)
+    elif isinstance(a, Iterable) and isinstance(b, Iterable):
+      for a_elem, b_elem in zip(a, b, strict=True):
+        self.assert_nested_sequence_equal(a_elem, b_elem)
+    else:
+      self.assertEqual(a, b)
 
   @parameterized.named_parameters([
       dict(
           testcase_name='default',
-          expected={'a': [1, [5], 5], 'b': [1, 3, 5]},
+          expected=[1, [5], 5],
+      ),
+      dict(
+          testcase_name='replace_false',
+          mask_behavior=tree.MaskBehavior.REPLACE,
+          replace_false_with=-1,
+          expected=[1, -1, [5, -1], -1, 5],
+      ),
+  ])
+  def test_apply_mask(
+      self,
+      expected,
+      mask_behavior=tree.MaskBehavior.FILTER,
+      replace_false_with=None,
+  ):
+    inputs = [1, 2, np.array([5, 6]), 4, 5]
+    mask = [True, False, [True, False], False, True]
+
+    result = tree.apply_mask(
+        inputs,
+        masks=mask,
+        mask_behavior=mask_behavior,
+        replace_false_with=replace_false_with,
+    )
+    self.assert_nested_sequence_equal(result, expected)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='default',
+          expected={'a': [1, [5], 5], 'b': [1, 3, 5], 'c': 'irrelevant'},
       ),
       dict(
           testcase_name='replace_false',
@@ -291,13 +313,18 @@ class ApplyMaskTest(parameterized.TestCase):
           expected={
               'a': [1, None, [5, None], None, 5],
               'b': [1, None, 3, None, 5],
+              'c': 'irrelevant',
           },
       ),
   ])
   def test_apply_mask_with_dict(
       self, expected, mask_behavior=tree.MaskBehavior.FILTER
   ):
-    inputs = {'a': [1, 2, np.array([5, 6]), 4, 5], 'b': [1, 2, 3, 4, 5]}
+    inputs = {
+        'a': [1, 2, np.array([5, 6]), 4, 5],
+        'b': [1, 2, 3, 4, 5],
+        'c': 'irrelevant',
+    }
     mask = {
         'a': [True, False, [True, False], False, True],
         'b': [True, False, True, False, True],
@@ -307,7 +334,7 @@ class ApplyMaskTest(parameterized.TestCase):
         masks=mask,
         mask_behavior=mask_behavior,
     )
-    self.assertEqual(result, expected)
+    self.assert_nested_sequence_equal(result, expected)
 
 
 if __name__ == '__main__':
