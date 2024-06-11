@@ -13,7 +13,7 @@
 # limitations under the License.
 """Tests for Flip Masks."""
 
-from ml_metrics._src.scores import flip_masks
+from ml_metrics._src.signals import flip_masks
 import numpy as np
 from numpy import testing
 

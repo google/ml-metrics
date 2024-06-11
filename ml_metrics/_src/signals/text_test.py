@@ -14,7 +14,7 @@
 """Tests for text."""
 
 from absl.testing import parameterized
-from ml_metrics._src.scores import text
+from ml_metrics._src.signals import text
 from absl.testing import absltest
 
 
@@ -68,6 +68,47 @@ class TextTest(parameterized.TestCase):
 
     count = text.token_count(text='abcd', tokenizer=tokenizer)
     self.assertEqual(4, count)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='exact_match',
+          sample='abc def',
+          reference='abc def',
+          matcher=text.exact_match,
+          expected_result=True,
+      ),
+      dict(
+          testcase_name='sample_startswith_reference_match',
+          sample='abc',
+          reference='ab',
+          matcher=text.sample_startswith_reference_match,
+          expected_result=True,
+      ),
+      dict(
+          testcase_name='reference_startswith_sample_match',
+          sample='abc',
+          reference='abcd',
+          matcher=text.reference_startswith_sample_match,
+          expected_result=True,
+      ),
+      dict(
+          testcase_name='sample_in_reference_match',
+          sample='bc',
+          reference='abcd',
+          matcher=text.sample_in_reference_match,
+          expected_result=True,
+      ),
+      dict(
+          testcase_name='reference_in_sample_match',
+          sample='abc',
+          reference='bc',
+          matcher=text.reference_in_sample_match,
+          expected_result=True,
+      ),
+  ])
+  def test_matchers(self, sample, reference, matcher, expected_result):
+    self.assertEqual(expected_result, matcher(sample, reference))
+
 
 if __name__ == '__main__':
   absltest.main()

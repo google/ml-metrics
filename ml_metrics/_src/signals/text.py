@@ -46,3 +46,28 @@ def token_count(text: str, tokenizer: Callable[[str], Sequence[Any]]):
   """Computes the number of tokens."""
 
   return len(tokenizer(text))
+
+
+def exact_match(sample: str, reference: str) -> bool:
+  """Computes the exact match between sample and reference."""
+  return sample == reference
+
+
+def sample_startswith_reference_match(sample: str, reference: str) -> bool:
+  """True when the sample starts with reference."""
+  return sample.startswith(reference)
+
+
+def reference_startswith_sample_match(sample: str, reference: str) -> bool:
+  """True when the reference starts with sample."""
+  return reference.startswith(sample)
+
+
+def reference_in_sample_match(sample: str, reference: str) -> bool:
+  """True when the reference in sample match."""
+  return reference in sample
+
+
+def sample_in_reference_match(sample: str, reference: str) -> bool:
+  """True when the sample in reference match."""
+  return sample in reference

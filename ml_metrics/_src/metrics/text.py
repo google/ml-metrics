@@ -20,7 +20,7 @@ from ml_metrics import pipeline
 from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.aggregates import text
 from ml_metrics._src.chainables import lazy_fns
-from ml_metrics._src.scores import text as text_scores
+from ml_metrics._src.signals import text as text_scores
 
 
 def topk_word_ngrams(

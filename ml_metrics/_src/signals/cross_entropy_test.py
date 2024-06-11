@@ -15,7 +15,7 @@
 
 import math
 
-from ml_metrics._src.scores import cross_entropy
+from ml_metrics._src.signals import cross_entropy
 import numpy as np
 
 from absl.testing import absltest
