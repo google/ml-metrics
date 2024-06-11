@@ -107,8 +107,8 @@ def apply_mask(
     mask_behavior: The behavior of applying masks: if "filter", throw away the
       elements that are False in the masks. If "replace", replace the elements
       that are False in the masks with the replace_false_with.
-    replace_false_with: The value to replace False with when replace_false is
-      True.
+    replace_false_with: The value to replace False with when mask_behavior is
+      "replace".
 
   Returns:
     A tree of inputs with the masks applied.
@@ -160,8 +160,8 @@ def apply_mask(
         result = np.asarray(result)
   else:
     raise ValueError(
-        'Masks and inputs have to be both of the same Iterable type:'
-        f' {type(masks)=}, {type(items)=}'
+        'Masks and inputs have to be both of the same Iterable type (including'
+        f' dict): {type(masks)=}, {type(items)=}'
     )
   return result
 
@@ -426,6 +426,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
             pass
         case (Index(key), *rest_keys) if isinstance(result, Sequence):
           if key == len(result):
+            assert isinstance(result, list)
             result.append(None)
           result[key] = self._set_by_path(result[key], Key(rest_keys), value)
         case (key, *rest_keys) if isinstance(result, Mapping):
