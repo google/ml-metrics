@@ -25,6 +25,7 @@ import inspect
 import json
 from typing import Any, Generic, TypeVar
 
+from absl import logging
 import cloudpickle as pickle
 from ml_metrics._src import base_types
 
@@ -279,9 +280,13 @@ def _make(fn: LazyFn) -> Any:
     # In case the fn is not hash-able, we use the default pickler to pickle it
     # to bytes first then cache it.
     try:
+      logging.info('chainables: attemp to cache %s', fn)
       return _cached_make(fn)
     except TypeError:
       try:
+        logging.info(
+            'chainables: %s caching failed, use pickled as signature.', fn
+        )
         return _cached_make(picklers.default.dumps(fn))
       except TypeError as e:
         raise TypeError(f'fn is not picklable: {fn}.') from e
