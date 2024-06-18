@@ -256,6 +256,7 @@ class LazyFn(Generic[_ValueT], Callable[..., 'LazyFn']):
 @functools.lru_cache(maxsize=256)
 def _cached_make(fn: LazyFn | bytes) -> Any:
   """Instantiate a lazy fn to a actual fn when applicable."""
+  logging.info('chainables: cache miss, making %s', fn)
   if isinstance(fn, bytes):
     fn = picklers.default.loads(fn)
   if not fn.fn:
@@ -280,7 +281,7 @@ def _make(fn: LazyFn) -> Any:
     # In case the fn is not hash-able, we use the default pickler to pickle it
     # to bytes first then cache it.
     try:
-      logging.info('chainables: attemp to cache %s', fn)
+      logging.info('chainables: attempt to fetch from cache %s', fn)
       return _cached_make(fn)
     except TypeError:
       try:
