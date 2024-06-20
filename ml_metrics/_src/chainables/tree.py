@@ -241,6 +241,8 @@ TreeMapKeys = tuple[TreeMapKey, ...]
 def normalize_keys(keys: TreeMapKey | TreeMapKeys) -> TreeMapKeys:
   if isinstance(keys, Key) or not isinstance(keys, (tuple, list)):
     keys = (keys,)
+  elif isinstance(keys, tuple):
+    return keys
   return tuple(keys)
 
 
@@ -280,34 +282,34 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
 
   Attributes:
     data: Nested MapLike (Tree) structure.
+    key_paths: A sequence of key paths to be used when iterating the tree.
     map_fn: A function that will be applied to the leaf value when accessing the
       tree.
     strict: If True, non-existing key will cause a KeyError.
-    consistent_type: If True, tries to maintain a consistent container type when
-      the input container is immutable. e.g., tuple will be reconstructed as
-      tuple instead of list. Otherwise, the default container type (list for
-      immutable Sequence)
   """
 
-  data: MapLikeTree = ()
+  data: MapLikeTree | None = None
+  key_paths: tuple[TreeMapKey, ...] | None = None
   map_fn: Callable[..., Any] | None = dataclasses.field(
       kw_only=True,
       default=None,
   )
   strict: bool = dataclasses.field(kw_only=True, default=False)
-  consistent_type: bool = dataclasses.field(kw_only=True, default=False)
 
   @classmethod
   def as_view(
       cls,
       tree_or_view: MapLikeTree[LeafValueT] | TreeMapView[LeafValueT],
+      key_paths: tuple[TreeMapKey, ...] | None = None,
       map_fn: Callable[..., Any] | None = None,
   ) -> TreeMapView:
     """Util to use a MapLikeTree as a Map."""
     if not isinstance(tree_or_view, TreeMapView):
       tree_or_view = TreeMapView(tree_or_view)
-    if map_fn:
-      return dataclasses.replace(tree_or_view, map_fn=map_fn)
+    if map_fn is not None or key_paths is not None:
+      tree_or_view = dataclasses.replace(
+          tree_or_view, map_fn=map_fn, key_paths=key_paths
+      )
     return tree_or_view
 
   def _maybe_map(self, data):
@@ -332,7 +334,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
 
   def __getitem__(
       self, keys: TreeMapKey | TreeMapKeys
-  ) -> MapLikeTree[LeafValueT] | None:
+  ) -> MapLikeTree[LeafValueT] | LeafValueT | None:
     """Returns value for a single key, returns a tuple for multi-key."""
     match keys:
       # Check key Path first to distinguish it from multi-key case below.
@@ -366,11 +368,16 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
         yield parent_key_path
 
   def __iter__(self) -> Iterator[TreeMapKey]:
-    keys = set()
-    for key in self._tree_iter(self.data, ()):
-      if key not in keys:
-        keys.add(key)
-        yield Key(key)
+    # Uses user specified key_paths if available. Otherwise, DFS and yield all
+    # key paths.
+    if self.key_paths is not None:
+      yield from self.key_paths
+    else:
+      keys = set()
+      for key in self._tree_iter(self.data, ()):
+        if key not in keys:
+          keys.add(key)
+          yield Key(key)
 
   def __len__(self) -> int:
     return len(list(iter(self)))
@@ -387,34 +394,28 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
       self,
       tree: MapLikeTree | None,
       key_path: Key,
-      value: Any,
+      value: LeafValueT,
   ) -> MapLikeTree[LeafValueT]:
     """Shallow copies the root and set tree[k] as "value" when applicable."""
     if not isinstance(key_path, Key):
       key_path = Key.new(key_path)
-    # Empty Path means replacing the root directly with value.
+    # Empty Path means replacing the root directly with value at the callsite.
     if key_path == Key() or _is_key(key_path[0], _SELF):
       return value
-    if not tree:
-      # The parent passes down None when the key was not found. Constructs the
-      # tree according to the key_path when not strict.
+
+    # Not a mutable container, constructs the mutable counterpart first.
+    container_maker = None
+    if tree is None:
       if self.strict:
         raise ValueError('Input tree cannot be empty when "strict" is True.')
       return _default_tree(key_path, value)
-
-    # Not a mutable container, constructs the mutable counterpart first.
-    container_type = None
-    if not hasattr(tree, '__setitem__'):
-      # Record its original type for later recovery of the same type.
-      container_type = type(tree)
-      match tree:
-        case Sequence():
-          result = list(tree)
-        case Mapping():
-          result = dict(tree)
-        case _:
-          # Remaining key cannot be resolved, treats this as not-found error.
-          raise KeyError(f'{key_path} in {tree}')
+    elif not hasattr(tree, '__setitem__'):
+      # Returns a copy of a tuple from internals.
+      if isinstance(tree, tuple):
+        container_maker = tuple
+        result = list(tree)
+      else:
+        raise TypeError(f'Insert to immutable {type(tree)} with {key_path}.')
     else:
       result = copy.copy(tree)
 
@@ -441,11 +442,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
       ) from e
 
     # Recovers the container type when applicable.
-    if container_type is not None and self.consistent_type:
-      try:
-        result = container_type(result)  # pylint: disable=too-many-function-args
-      except TypeError as e:
-        raise ValueError(f'Cannot enforce {container_type} on {result}') from e
+    result = result if container_maker is None else container_maker(result)
     return result
 
   # TODO: b/318463291 - adds in-place option for efficiency.

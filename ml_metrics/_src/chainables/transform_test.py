@@ -207,7 +207,7 @@ class TransformTest(parameterized.TestCase):
       )
 
   @parameterized.named_parameters([
-      dict(testcase_name='select_self', inputs=0, expected=0),
+      dict(testcase_name='select_self', inputs=[0], expected=[0]),
       dict(
           testcase_name='select_index',
           inputs=[0, 1],
@@ -215,17 +215,29 @@ class TransformTest(parameterized.TestCase):
           expected=1,
       ),
       dict(
+          testcase_name='select_with_a_key',
+          inputs={'a': [0, 1], 'b': 1},
+          input_keys='a',
+          expected=[0, 1],
+      ),
+      dict(
           testcase_name='select_with_keys',
           inputs={'a': [0, 1], 'b': 1},
-          expected=[0, 1],
-          input_keys='a',
+          input_keys=('a', 'b'),
+          expected=([0, 1], 1),
       ),
       dict(
           testcase_name='select_with_output_keys',
           inputs={'a': 0, 'b': 1},
-          expected={'c': 1},
-          input_keys='b',
-          output_keys='c',
+          input_keys=('b', 'a'),
+          output_keys=('c', 'd'),
+          expected={'c': 1, 'd': 0},
+      ),
+      dict(
+          testcase_name='select_SELF_with_output_keys',
+          inputs=(0, 1),
+          output_keys='inputs',
+          expected={'inputs': (0, 1)},
       ),
   ])
   def test_select_transform(

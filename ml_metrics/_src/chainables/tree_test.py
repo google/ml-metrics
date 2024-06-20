@@ -157,25 +157,50 @@ class TreeMapViewTest(absltest.TestCase):
 
   def test_copy_and_set(self):
     data = tree._default_tree(key_path=Key().model1.pred, value=(1, 2, 3))
-    # Uses MappingProxyType as an immutable dict for testing.
-    data = types.MappingProxyType(data)
     result = (
-        TreeMapView(data=data, consistent_type=True)
+        TreeMapView(data=data)
         .copy_and_set(('a', Key.SKIP), values=(7, 8))
         .copy_and_set(Key(('c', 'b')), values=(7, 8))
         .copy_and_set(Key().model1.pred.at(Key.Index(1)), values=7)
         .copy_and_set(Key().model2.pred3.at(Key.Index(0)), values=[2, 3, 8])
         .copy_and_set('single_key', values=[2, 3, 8])
     ).data
-    expected = types.MappingProxyType({
+    expected = {
         'model1': {'pred': (1, 7, 3)},
         'a': 7,
         'c': {'b': (7, 8)},
         'model2': {'pred3': [[2, 3, 8]]},
         'single_key': [2, 3, 8],
-    })
+    }
     self.assertEqual(expected, result)
-    self.assertIsInstance(result, types.MappingProxyType)
+
+  def test_iterate_with_user_keys(self):
+    data = tree._default_tree(key_path=Key().model1.pred, value=(1, 2, 3))
+    result = (
+        TreeMapView(data=data)
+        .copy_and_set(('a', Key.SKIP), values=(7, 8))
+        .copy_and_set(Key(('c', 'b')), values=(7, 8))
+        .copy_and_set(Key().model1.pred.at(Key.Index(1)), values=7)
+        .copy_and_set(Key().model2.pred3.at(Key.Index(0)), values=[2, 3, 8])
+        .copy_and_set('single_key', values=[2, 3, 8])
+    ).data
+    result = TreeMapView.as_view(
+        result, key_paths=('a', 'c', 'model1', 'model2', 'single_key')
+    )
+    expected = (
+        7,
+        {'b': (7, 8)},
+        {'pred': (1, 7, 3)},
+        {'pred3': [[2, 3, 8]]},
+        [2, 3, 8],
+    )
+    self.assertEqual(expected, tuple(result.values()))
+
+  def test_copy_and_set_immutable_dict(self):
+    # Uses MappingProxyType as an immutable dict for testing.
+    data = types.MappingProxyType({'a': 1, 'b': {'c': 2}})
+    with self.assertRaisesRegex(TypeError, 'Insert to immutable'):
+      TreeMapView(data).copy_and_set(Key.new('b', 'c'), values=0)
 
   def test_map_fn(self):
     data = dict(a=dict(b=1, c=2), e=3)
@@ -217,7 +242,7 @@ class TreeMapViewTest(absltest.TestCase):
         .copy_and_set('single_key', values=[2, 3, 8])
     )
     expected = {
-        'model1': {'pred': [7, 2, 3]},
+        'model1': {'pred': (7, 2, 3)},
         'a': 7,
         'b': 8,
         'c': {'b': [7, 8]},
