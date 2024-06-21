@@ -164,6 +164,13 @@ class LazyFnsTest(absltest.TestCase):
     makeable_foo = lazy_fns.MakeableLazyFn(trace(Foo)(a=1))
     self.assertEqual(3, makeable_foo.make()(x=2))
 
+  def test_lazy_getitem_direct(self):
+    self.assertEqual(3, maybe_make(trace(lambda: [1, 2, 3])()[2]))
+
+  def test_lazy_getitem_mixed(self):
+    lazy_foo = trace(Foo)(a='a')('b')[1]
+    self.assertEqual('b', maybe_make(lazy_foo))
+
 
 if __name__ == '__main__':
   absltest.main()

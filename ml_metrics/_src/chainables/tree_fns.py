@@ -205,7 +205,9 @@ class Slicer:
   Note that the slicer_fn takes one row as input instead of a batch.
   """
 
-  slice_mask_fn: SliceMaskIteratorFn | None = None
+  slice_mask_fn: (
+      SliceMaskIteratorFn | lazy_fns.LazyFn[SliceMaskIteratorFn] | None
+  ) = None
   slice_input_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
   slice_name: str | tuple[str, ...] = ()
   input_keys: tree.TreeMapKey | tree.TreeMapKeys = ()

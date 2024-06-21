@@ -23,6 +23,7 @@ import functools
 import importlib
 import inspect
 import json
+import operator
 from typing import Any, Generic, TypeVar
 
 from absl import logging
@@ -70,7 +71,7 @@ class _Makers(collections.UserDict):
 makeables = _Makers()
 
 
-def maybe_make(maybe_lazy: Any) -> Any:
+def maybe_make(maybe_lazy: LazyFn[_ValueT] | bytes) -> _ValueT:
   if isinstance(maybe_lazy, bytes):
     maybe_lazy = picklers.default.loads(maybe_lazy)
   # User defined maker as an escape path for custom lazy instances.
@@ -117,7 +118,7 @@ def async_iterate_fn(fn):
   return wrapped_fun
 
 
-def iterate_fn(fn):
+def iterate_fn(fn) -> Callable[..., tuple[_ValueT, ...] | _ValueT]:
   """Wraps a callable to apply it on each item in an iterable.
 
   Note that, we assume only the positional arguments are consuming the
@@ -242,6 +243,12 @@ class LazyFn(Generic[_ValueT], Callable[..., 'LazyFn']):
     return self.__class__(
         fn=getattr,
         args=(self, name),
+    )
+
+  def __getitem__(self, key):
+    return self.__class__(
+        fn=operator.getitem,
+        args=(self, key),
     )
 
   # Overrides to support pickling when getattr is overridden.
