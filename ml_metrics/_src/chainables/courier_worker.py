@@ -390,7 +390,6 @@ class Worker:
                 stop_iteration.value is not None,
             )
             exhausted = True
-            print('<<< stop iteration: sending:', stop_iteration.value)
             generator_result_queue.put(stop_iteration.value)
             output_batch = output_batch[:-1]
           elif isinstance(exc := output_batch[-1], Exception):
