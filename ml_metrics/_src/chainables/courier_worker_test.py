@@ -212,11 +212,11 @@ class CourierWorkerGroupTest(absltest.TestCase):
       ]
     self.assertLen(results, 3 * 5)
     self.assertCountEqual(list(range(3)) * 5, results)
-    self.assertEqual(5, generator_result_queue.qsize())
+    self.assertEqual(6, generator_result_queue.qsize())
     actual_agg = []
     while not generator_result_queue.empty():
       actual_agg.append(generator_result_queue.get())
-    self.assertEqual([3] * 5, actual_agg)
+    self.assertEqual([3] * 5, actual_agg[:-1])
     self.assertNotEmpty([l for l in cm.output if 'progress' in l])
 
   def test_worker_group_run_and_iterate_invalid_iterator(self):

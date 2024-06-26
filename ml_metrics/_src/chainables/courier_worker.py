@@ -385,10 +385,12 @@ class Worker:
         if output_batch:
           if transform.is_stop_iteration(stop_iteration := output_batch[-1]):
             logging.info(
-                'chainables: worker %s generator exhausted.',
+                'chainables: worker %s generator exhausted with retruned: %s',
                 self.server_name,
+                stop_iteration.value is not None,
             )
             exhausted = True
+            print('<<< stop iteration: sending:', stop_iteration.value)
             generator_result_queue.put(stop_iteration.value)
             output_batch = output_batch[:-1]
           elif isinstance(exc := output_batch[-1], Exception):
@@ -767,9 +769,11 @@ class WorkerPool:
       yield output_queue.get()
     logging.info(
         'chainalbes: finished running with %d/%d (finished/total) in %.2f'
-        ' secs, average throughput: %.2f',
+        ' secs, average throughput: %.2f/sec.',
         finished_tasks_cnt,
         total_tasks,
         time.time() - start_time,
         batch_cnt / (time.time() - start_time),
     )
+    if generator_result_queue:
+      generator_result_queue.put(StopIteration())

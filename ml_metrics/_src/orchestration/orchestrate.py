@@ -122,6 +122,3 @@ def workerpool_generator(
   )
   logging.info('chainables: iterator: %s', iterator)
   yield from iterator
-
-  if states_queue:
-    states_queue.put(StopIteration())
