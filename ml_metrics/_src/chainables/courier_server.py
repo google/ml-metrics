@@ -117,8 +117,10 @@ class CourierServerWrapper:
     logging.info('Chainables: Shutdown requested, shutting down server.')
     self._server.Stop()
 
-  def start(self):
+  def start(self, daemon: bool = None):
     """Start the server from a different thread."""
-    server_thread = threading.Thread(target=self.run_until_shutdown)
+    server_thread = threading.Thread(
+        target=self.run_until_shutdown, daemon=daemon
+    )
     server_thread.start()
     return server_thread

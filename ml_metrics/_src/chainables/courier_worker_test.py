@@ -41,9 +41,9 @@ class CourierWorkerTest(absltest.TestCase):
     super().setUp()
     self.server = courier_server.CourierServerWrapper()
     self.server.build_server()
-    self.server_thread = self.server.start()
+    self.server_thread = self.server.start(daemon=True)
     self.worker = courier_worker.Worker(self.server.address)
-    self.worker.wait_until_alive(deadline_secs=12)
+    self.worker.wait_until_alive(deadline_secs=6, sleep_interval_secs=0.1)
 
   def tearDown(self):
     self.worker.shutdown()
@@ -93,7 +93,7 @@ class CourierWorkerTest(absltest.TestCase):
     def bad_generator():
       for elem in range(3):
         if elem == 2:
-          raise ValueError('bad generator')
+          raise TypeError('bad generator')
         yield elem
 
     task = courier_worker.GeneratorTask.new(lazy_fns.trace(bad_generator)())
@@ -105,7 +105,7 @@ class CourierWorkerTest(absltest.TestCase):
       ):
         pass
 
-    with self.assertRaises(ValueError):
+    with self.assertRaises(TypeError):
       asyncio.run(run())
 
   def test_worker_heartbeat(self):
@@ -155,8 +155,11 @@ class CourierWorkerTest(absltest.TestCase):
     self.assertTrue(worker.call(True))
     self.assertTrue(t.is_alive())
     worker.shutdown()
-    time.sleep(3)
-    self.assertFalse(t.is_alive())
+    ticker = time.time()
+    while t.is_alive():
+      time.sleep(0)
+      if time.time() - ticker > 10:
+        self.fail('Server is not shutdown after 10 seconds.')
 
 
 class CourierWorkerGroupTest(absltest.TestCase):
@@ -165,7 +168,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
     super().setUp()
     self.server = courier_server.CourierServerWrapper()
     self.server.build_server()
-    self.server_thread = self.server.start()
+    self.server_thread = self.server.start(daemon=True)
     self.worker_pool = courier_worker.WorkerPool([self.server.address])
     self.worker_pool.wait_until_alive(deadline_secs=12)
 
@@ -177,6 +180,29 @@ class CourierWorkerGroupTest(absltest.TestCase):
   def test_worker_group_call(self):
     actual = self.worker_pool.call_and_wait('echo')
     self.assertEqual(['echo'], actual)
+
+  def test_worker_group_iterate(self):
+    lazy_generators = [lazy_fns.trace(mock_generator)(3)] * 5
+    courier_worker._LOGGING_INTERVAL_SEC = 0.01
+    generator_result_queue = queue.SimpleQueue()
+    with self.assertLogs(level='INFO') as cm:
+      results = [
+          result
+          for result in self.worker_pool.iterate(
+              lazy_generators,
+              generator_result_queue=generator_result_queue,
+              num_total_failures_threshold=0,
+          )
+      ]
+    self.assertNotEmpty([l for l in cm.output if 'progress' in l])
+    self.assertLen(results, 3 * 5)
+    self.assertCountEqual(list(range(3)) * 5, results)
+    self.assertEqual(6, generator_result_queue.qsize())
+    actual_agg = []
+    while not generator_result_queue.empty():
+      actual_agg.append(generator_result_queue.get())
+    self.assertEqual([3] * 5, actual_agg[:-1])
+    self.assertNotEmpty([l for l in cm.output if 'progress' in l])
 
   def test_worker_group_iterate_by_task(self):
     tasks = [
@@ -216,6 +242,12 @@ class CourierWorkerGroupTest(absltest.TestCase):
   #   with self.assertRaises(TypeError):
   #     next(iterator)
 
+  def test_worker_group_run(self):
+    tasks = [lazy_fns.trace(len)([1, 2])] * 3
+    actual = self.worker_pool.run(tasks)
+    self.assertLen(actual, 3)
+    self.assertEqual([2] * 3, actual)
+
   def test_worker_group_run_tasks(self):
     tasks = [
         Task.new('echo', blocking=False).add_task(lazy_fns.trace(len)([1, 2]))
@@ -227,10 +259,10 @@ class CourierWorkerGroupTest(absltest.TestCase):
 
   def test_worker_group_idle_workers(self):
     worker_pool = courier_worker.WorkerPool([self.server.address])
-    worker_pool.wait_until_alive(deadline_secs=12)
+    worker_pool.wait_until_alive(deadline_secs=12, sleep_interval_secs=0)
     idle_workers = worker_pool.idle_workers()
     self.assertLen(idle_workers, 1)
-    idle_workers[0].call(lazy_fns.trace(time.sleep)(3))
+    idle_workers[0].call(lazy_fns.trace(time.sleep)(1))
     self.assertEmpty(worker_pool.idle_workers())
 
   def test_worker_group_shutdown(self):
@@ -238,11 +270,14 @@ class CourierWorkerGroupTest(absltest.TestCase):
     server.build_server()
     t = server.start()
     worker_group = courier_worker.WorkerPool([server.address])
-    worker_group.wait_until_alive(deadline_secs=12)
+    worker_group.wait_until_alive(deadline_secs=6, sleep_interval_secs=0.1)
     self.assertTrue(worker_group.call_and_wait(True))
     worker_group.shutdown()
-    time.sleep(3)
-    self.assertFalse(t.is_alive())
+    ticker = time.time()
+    while t.is_alive():
+      time.sleep(0)
+      if time.time() - ticker > 10:
+        self.fail('Server is not shutdown after 10 seconds.')
 
   def test_worker_group_failed_to_start(self):
     worker_group = courier_worker.WorkerPool(
@@ -252,13 +287,13 @@ class CourierWorkerGroupTest(absltest.TestCase):
     )
     try:
       with self.assertLogs(level='WARNING') as cm:
-        worker_group.wait_until_alive(deadline_secs=6)
+        worker_group.wait_until_alive(deadline_secs=1, sleep_interval_secs=0.1)
       self.assertRegex(cm.output[0], '.*missed a heartbeat.*')
       self.assertRegex(cm.output[1], 'Failed to connect to workers.*')
     except ValueError:
       pass  # The exception is tested below.
     with self.assertRaises(ValueError):
-      worker_group.wait_until_alive(deadline_secs=6)
+      worker_group.wait_until_alive(deadline_secs=1)
 
   def test_worker_group_num_workers(self):
     worker_group = courier_worker.WorkerPool(['a', 'b'])

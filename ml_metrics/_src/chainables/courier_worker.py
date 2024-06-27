@@ -23,6 +23,7 @@ import threading
 import time
 from typing import Any
 from typing import Self
+from typing import TypeVar
 
 from absl import logging
 import courier
@@ -160,6 +161,20 @@ class GeneratorTask(Task):
         ).next_batch_from_generator()
     )
 
+_TaskT = TypeVar('_TaskT', bound=Task)
+
+
+def _normalize_tasks(
+    tasks: Iterable[_TaskT | lazy_fns.LazyFn] | lazy_fns.LazyFn,
+) -> list[_TaskT]:
+  if isinstance(tasks, lazy_fns.LazyFn):
+    tasks = [tasks]
+  tasks = [
+      Task.new(task) if isinstance(task, lazy_fns.LazyFn) else task
+      for task in tasks
+  ]
+  return list(reversed(tasks))
+
 
 def get_results(
     states: list[futures.Future[Any]],
@@ -276,10 +291,11 @@ class Worker:
       self,
       deadline_secs: int = 180,
       *,
-      sleep_interval_secs: int = 6,
+      sleep_interval_secs: int = 1,
   ):
     """Waits for the worker to be alive with retries."""
-    num_attempts = max(deadline_secs // sleep_interval_secs, 1)
+    sleep_interval_secs = max(sleep_interval_secs, 0.1)
+    num_attempts = int(max(deadline_secs // sleep_interval_secs, 1))
     for _ in range(num_attempts):
       try:
         if self.is_alive:
@@ -443,10 +459,11 @@ class WorkerPool:
       deadline_secs: int = 180,
       *,
       minimum_num_workers: int = 1,
+      sleep_interval_secs: int = 1,
   ):
     """Waits for the workers to be alive with retries."""
-    sleep_interval_secs: int = 6
-    num_attempts = max(deadline_secs // sleep_interval_secs, 1)
+    sleep_interval_secs = max(sleep_interval_secs, 0.1)
+    num_attempts = int(max(deadline_secs // sleep_interval_secs, 1))
     for _ in range(num_attempts):
       try:
         workers = self.idle_workers()
@@ -502,8 +519,10 @@ class WorkerPool:
     time.sleep(0.1)
     return states
 
-  def run_tasks(
-      self, tasks: list[Task], sleep_interval: float = 0.01
+  def _run_tasks(
+      self,
+      tasks: list[Task],
+      sleep_interval: float = 0.01,
   ) -> Iterator[Task]:
     """Run tasks within the worker pool."""
     running_tasks = []
@@ -532,15 +551,28 @@ class WorkerPool:
       running_tasks = still_running
       time.sleep(sleep_interval)
 
+  def run_tasks(self, tasks: Iterable[Task]) -> Iterator[Task]:
+    """Run tasks within the worker pool."""
+    return self._run_tasks(_normalize_tasks(tasks))
+
+  def run(
+      self,
+      tasks: Iterable[lazy_fns.LazyFn] | lazy_fns.LazyFn,
+  ) -> Any:
+    """Run lazy functions or task within the worker pool."""
+    tasks_w_result = self._run_tasks(_normalize_tasks(tasks))
+    results = get_results([task.state for task in tasks_w_result])
+    return results[0] if isinstance(tasks, lazy_fns.LazyFn) else results
+
   def iterate(
       self,
-      tasks: Iterable[GeneratorTask],
+      tasks: Iterable[GeneratorTask | lazy_fns.LazyFn] | lazy_fns.LazyFn,
       *,
       generator_result_queue: queue.SimpleQueue[Any],
       num_total_failures_threshold: int = _NUM_TOTAL_FAILURES_THRESHOLD,
   ) -> Iterator[Any]:
     """Iterates through the result of a generator if the iterator task."""
-    tasks = list(reversed(list(tasks)))
+    tasks = _normalize_tasks(tasks)
     total_tasks = len(tasks)
     output_queue = queue.SimpleQueue()
     start_time = prev_ticker = time.time()
@@ -618,10 +650,13 @@ class WorkerPool:
         tasks.extend(failed_tasks + disconnected_tasks)
         total_failures_cnt += len(failed_tasks)
         if total_failures_cnt > num_total_failures_threshold:
-          raise ValueError(
-              f'chainables: too many failures: {total_failures_cnt} >'
-              f' {num_total_failures_threshold}, stopping the iteration.'
+          logging.exception(
+              'chainables: too many failures: %d > %d, stopping the iteration.',
+              total_failures_cnt,
+              num_total_failures_threshold,
           )
+          raise failed_tasks[-1].exception
+
         logging.info(
             'chainables: %d tasks failed, re-trying: %s.',
             len(failed_tasks),
