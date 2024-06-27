@@ -647,11 +647,11 @@ class TransformTest(parameterized.TestCase):
     )
     actual_fn: transform.CombinedTreeFn = t.make()
     with self.assertRaises(ValueError):
-      actual_fn.merge_states(
-          actual_fn.iterate(with_agg_state=True),
-          mixed_input_types=True,
-          strict_states_cnt=2,
+      state = transform.get_generator_returned(
+          actual_fn.iterate(with_agg_state=True)
       )
+      assert state is not None
+      actual_fn.merge_states([state.agg_state], strict_states_cnt=2)
 
   def test_chain(self):
     input_iterator = [[1, 2, 3], [2, 3, 4]]

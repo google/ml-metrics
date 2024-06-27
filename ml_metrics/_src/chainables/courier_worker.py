@@ -335,18 +335,6 @@ class Worker:
       result.append(task.set(state=state, server_name=self.server_name))
     return Task.from_list_of_tasks(result)
 
-  def init_generator(self, task: GeneratorTask) -> GeneratorTask:
-    parent_task = None
-    if task.parent_task is not None:
-      parent_task = self.run_task(task.parent_task)
-    return task.set(
-        server_name=self.server_name,
-        state=self.call(
-            *task.args, courier_method='init_generator', **task.kwargs
-        ),
-        parent_task=parent_task,
-    )
-
   def next_batch_from_generator(
       self, batch_size: int = 0
   ) -> futures.Future[Any]:
@@ -544,114 +532,6 @@ class WorkerPool:
       running_tasks = still_running
       time.sleep(sleep_interval)
 
-  # TODO: b/311207032 - deprecate run_and_iterat in favor or iterate.
-  def run_and_iterate(
-      self,
-      tasks: Iterable[GeneratorTask],
-      num_total_failures_threshold: int = _NUM_TOTAL_FAILURES_THRESHOLD,
-  ) -> Iterator[Any]:
-    """Iterates through the result of a generator if the iterator task."""
-    tasks = list(tasks)
-    pending_tasks, running_tasks = [], []
-    total_tasks = len(tasks)
-    total_failures_cnt, finished_tasks_cnt = 0, 0
-    batch_cnt, prev_batch_cnt = 0, 0
-    self.wait_until_alive()
-    start_time = prev_ticker = time.time()
-    while tasks or pending_tasks or running_tasks:
-      # Assign to the iterator tasks
-      iterating_servers = {
-          task.server_name for task in running_tasks + pending_tasks
-      }
-      for worker in self.idle_workers():
-        # Only assign non-running tasks to the non-iterating workers.
-        if worker.server_name not in iterating_servers:
-          if tasks:
-            task = worker.init_generator(tasks.pop())
-            pending_tasks.append(task)
-      # Check the instantiated iterator, then assign iteratate if successful.
-      new_pending_tasks: list[GeneratorTask] = []
-      for task in pending_tasks:
-        if task.done:
-          _raise_if_return_error(task)
-          running_tasks.append(task.next_batch(self))
-        else:
-          new_pending_tasks.append(task)
-      pending_tasks = new_pending_tasks
-      # Fetching finsihed outputs. Re-collect task if failed during iteration.
-      still_running: list[GeneratorTask] = []
-      for task in running_tasks:
-        if task.done:
-          states = task.result
-          if states and isinstance(states[-1], Exception):
-            batch_cnt += len(states[:-1])
-            yield from states[:-1]
-            try:
-              if isinstance((stop_iteration := states[-1]), StopIteration):
-                logging.info(
-                    'chainables: worker %s generator exhausted.',
-                    task.server_name,
-                )
-                if stop_iteration.value is not None:
-                  yield stop_iteration.value
-                finished_tasks_cnt += 1
-              else:
-                raise states[-1]
-            except Exception:  # pylint: disable=broad-exception-caught
-              logging.exception(
-                  'chainables: exception when iterating, re-appending task %s,'
-                  ' \n worker: %s.',
-                  dataclasses.replace(task, parent_task=None),
-                  task.server_name,
-              )
-              total_failures_cnt += 1
-              if total_failures_cnt > num_total_failures_threshold:
-                raise ValueError(
-                    f'chainables: too many failures: {total_failures_cnt} >'
-                    f' {num_total_failures_threshold}, stopping the iteration.'
-                ) from states[-1]
-              tasks.append(task)
-          else:
-            batch_cnt += len(states)
-            yield from states
-            still_running.append(task.next_batch(self))
-        elif not self.get_worker_by_name(task.server_name).is_alive:
-          logging.warning(
-              'chainables: Worker %s is not alive, re-appending task %s',
-              task.server_name,
-              dataclasses.replace(task, parent_task=None),
-          )
-          tasks.append(task)
-        else:
-          still_running.append(task)
-      running_tasks = still_running
-      assert (
-          finished_tasks_cnt
-          + len(running_tasks)
-          + len(pending_tasks)
-          + len(tasks)
-      ) == total_tasks, 'Total tasks mismatch.'
-      if time.time() - prev_ticker > _LOGGING_INTERVAL_SEC:
-        logging.info(
-            'chainables: iterate throughput: %.2f; progress: %d/%d/%d/%d in'
-            ' %.2f secs. (running/remaining/finished/total).',
-            (batch_cnt - prev_batch_cnt) / (time.time() - prev_ticker),
-            len(running_tasks) + len(pending_tasks),
-            len(tasks),
-            finished_tasks_cnt,
-            total_tasks,
-            time.time() - prev_ticker,
-        )
-        prev_ticker = time.time()
-        prev_batch_cnt = batch_cnt
-      time.sleep(0)
-    logging.info(
-        'chainables: finished iterating %d/%d in %.2f secs.',
-        finished_tasks_cnt,
-        total_tasks,
-        time.time() - start_time,
-    )
-
   def iterate(
       self,
       tasks: Iterable[GeneratorTask],
@@ -710,6 +590,11 @@ class WorkerPool:
       for task in running_tasks:
         if task.done:
           if task.exception:
+            logging.exception(
+                'chainables: task failed with exception: %s, task: %s',
+                task.exception,
+                task.set(parent_task=None),
+            )
             failed_tasks.append(task)
           else:
             finished_tasks_cnt += 1

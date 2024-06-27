@@ -222,42 +222,6 @@ class MetricKey:
   slice: tree_fns.SliceKey = tree_fns.SliceKey()
 
 
-def _extract_states(states: Iterable[Any | AggregateResult]) -> Iterator[Any]:
-  """Extracts the states from the mixed outputs from `iterate` method."""
-  batch_cnt, prev_batch_cnt, agg_cnt, prev_agg_cnt = 0, 0, 0, 0
-  start_ticker = ticker = time.time()
-  for state in states:
-    if isinstance(state, AggregateResult):
-      agg_cnt += 1
-      yield state.agg_state
-    else:
-      batch_cnt += 1
-    # logging for throughput.
-    if (delta_time := time.time() - ticker) > _LOGGING_INTERVAL_SECS:
-      logging.info(
-          'chainables: processed %d batches, throughput: %.2f batches/sec.',
-          batch_cnt,
-          (batch_cnt - prev_batch_cnt) / delta_time,
-      )
-      logging.info(
-          'chainables: merged %d states, throughput: %.2f states/sec.',
-          agg_cnt,
-          (agg_cnt - prev_agg_cnt) / delta_time,
-      )
-      ticker = time.time()
-      prev_batch_cnt = batch_cnt
-      prev_agg_cnt = agg_cnt
-  logging.info(
-      'chainables: finished iterating, total: %d batches, %d agg_states,'
-      ' took %.2f secs (%.2f batches/sec, %.2f agg_states/sec).',
-      batch_cnt,
-      agg_cnt,
-      time.time() - start_ticker,
-      batch_cnt / (time.time() - start_ticker),
-      agg_cnt / (time.time() - start_ticker),
-  )
-
-
 def iterate_with_returned(
     generator: Generator[Any, None, AggregateResult],
 ) -> Iterator[AggregateResult]:
@@ -418,22 +382,18 @@ class CombinedTreeFn:
       self,
       states: Iterable[dict[MetricKey, Any]],
       strict_states_cnt: int = 0,
-      mixed_input_types: bool = False,
   ) -> dict[MetricKey, Any]:
     """Merges multiple states into one.
 
     Args:
       states: the states to be merged.
       strict_states_cnt: the expected number of states to be merged.
-      mixed_input_types: whether the inputs are AggregationResult mixed with
-        other inputs.
 
     Returns:
       The merged state.
     """
     states_by_fn = {}
     states_cnt = 0
-    states = _extract_states(states) if mixed_input_types else states
     for state in states:
       for key, fn_state in state.items():
         if key in states_by_fn:
@@ -441,9 +401,10 @@ class CombinedTreeFn:
           fn_state = agg_fn.merge_states([states_by_fn[key], fn_state])
         states_by_fn[key] = fn_state
       states_cnt += 1
+      logging.info('chainables: merged %d states.', states_cnt)
     if strict_states_cnt and states_cnt != strict_states_cnt:
       raise ValueError(
-          'chainables: unexpected number of aggregation states, workers'
+          'chainables: unexpected number of aggregation states. Workers'
           f' might have partially crashed: got {states_cnt} states, '
           f'needs {strict_states_cnt}.'
       )

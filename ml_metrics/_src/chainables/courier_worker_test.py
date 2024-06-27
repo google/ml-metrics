@@ -178,24 +178,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
     actual = self.worker_pool.call_and_wait('echo')
     self.assertEqual(['echo'], actual)
 
-  def test_worker_group_run_and_iterate(self):
-
-    tasks = [
-        Task.new('echo').add_generator_task(lazy_fns.trace(mock_generator)(3))
-    ] * 3
-    courier_worker._LOGGING_INTERVAL_SEC = 0.01
-    with self.assertLogs(level='INFO') as cm:
-      results = [
-          result
-          for result in self.worker_pool.run_and_iterate(
-              tasks, num_total_failures_threshold=0
-          )
-      ]
-    self.assertLen(results, 12)
-    self.assertCountEqual([0, 1, 2, 3] * 3, results)
-    self.assertNotEmpty([l for l in cm.output if 'progress' in l])
-
-  def test_worker_group_iterate(self):
+  def test_worker_group_iterate_by_task(self):
     tasks = [
         Task.new('echo').add_generator_task(lazy_fns.trace(mock_generator)(3))
     ] * 5
@@ -210,6 +193,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
               num_total_failures_threshold=0,
           )
       ]
+    self.assertNotEmpty([l for l in cm.output if 'progress' in l])
     self.assertLen(results, 3 * 5)
     self.assertCountEqual(list(range(3)) * 5, results)
     self.assertEqual(6, generator_result_queue.qsize())
@@ -219,14 +203,18 @@ class CourierWorkerGroupTest(absltest.TestCase):
     self.assertEqual([3] * 5, actual_agg[:-1])
     self.assertNotEmpty([l for l in cm.output if 'progress' in l])
 
-  def test_worker_group_run_and_iterate_invalid_iterator(self):
-    tasks = [Task.new('echo').add_generator_task(lazy_fns.trace(len)([3]))] * 3
-    with self.assertRaises(TypeError):
-      list(
-          self.worker_pool.run_and_iterate(
-              tasks, num_total_failures_threshold=0
-          )
-      )
+  # TODO: b/349174267 - re-neable the test when this test does not hang when
+  # exiting.
+  # def test_worker_group_iterate_invalid_iterator(self):
+  #   invalid_iterators = [lazy_fns.trace(len)([3])] * 3
+  #   generator_result_queue = queue.SimpleQueue()
+  #   iterator = self.worker_pool.iterate(
+  #       invalid_iterators,
+  #       num_total_failures_threshold=0,
+  #       generator_result_queue=generator_result_queue,
+  #   )
+  #   with self.assertRaises(TypeError):
+  #     next(iterator)
 
   def test_worker_group_run_tasks(self):
     tasks = [
