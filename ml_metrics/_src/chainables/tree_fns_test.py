@@ -22,7 +22,6 @@ from ml_metrics._src.chainables import tree_fns
 from absl.testing import absltest
 
 Key = tree.Key
-Index = tree.Index
 
 
 class TestAverageFn:
@@ -34,8 +33,8 @@ class TestAverageFn:
   def create_state(self):
     return [0, 0]
 
-  def update_state(self, state, inputs):
-    return state[0] + sum(inputs), state[1] + len(inputs)
+  def update_state(self, state, inputs, default_value=0):
+    return state[0] + sum(inputs) + default_value, state[1] + len(inputs)
 
   def get_result(self, state):
     result = state[0] / state[1]
@@ -56,10 +55,37 @@ class TreeFnTest(absltest.TestCase):
     }
     tree_fn = tree_fns.TreeFn.new(
         fn=lambda x, y: (x + 1, y + 1),
-        input_keys=[Key().a, Key().c.b.at(Index(0))],
+        input_keys=[Key().a, Key().c.b.at(Key.Index(0))],
         output_keys=[Key().a, Key().b],
     )
     self.assertEqual({'a': 8, 'b': 8}, tree_fn(data))
+
+  def test_tree_fn_pass_by_kwargs(self):
+    data = {
+        'a': 7,
+        'c': {'b': (7, 8)},
+        'model2': {'pred3': [([2, 3, 8],)]},
+    }
+    tree_fn = tree_fns.TreeFn.new(
+        fn=lambda x, y, b: (x + b, y + b),
+        input_keys=dict(x='a', y=Key().c.b.at(Key.Index(0)), b=Key.Literal(1)),
+        output_keys=['a', 'b'],
+    )
+    self.assertEqual({'a': 8, 'b': 8}, tree_fn(data))
+
+  def test_tree_fn_pass_by_kwargs_wrong_kwarg(self):
+    data = {
+        'a': 7,
+        'c': {'b': (7, 8)},
+        'model2': {'pred3': [([2, 3, 8],)]},
+    }
+    tree_fn = tree_fns.TreeFn.new(
+        fn=lambda x, y: (x + 1, y + 1),
+        input_keys=dict(x='a', b=Key().c.b.at(Key.Index(0))),
+        output_keys=['a', 'b'],
+    )
+    with self.assertRaises(ValueError):
+      tree_fn(data)
 
   @mock.patch.object(tree_fns.TreeFn, 'actual_fn', autospec=True)
   def test_tree_fn_pickle(self, mock_actual_fn):
@@ -122,7 +148,7 @@ class TreeFnTest(absltest.TestCase):
     }
     tree_fn = tree_fns.TreeFn.new(
         fn=lambda x, y: (x + 1, y + 1),
-        input_keys=[Key().a, Key().c.b.at(Index(0))],
+        input_keys=[Key().a, Key().c.b.at(Key.Index(0))],
     )
     self.assertEqual((8, 8), tree_fn(data))
 
@@ -134,7 +160,7 @@ class TreeFnTest(absltest.TestCase):
     }
     tree_fn = tree_fns.Assign.new(
         fn=lambda x, y: (x + 1, y + 1),
-        input_keys=[Key().a, Key().c.b.at(Index(0))],
+        input_keys=[Key().a, Key().c.b.at(Key.Index(0))],
         output_keys=['e', 'f'],
     )
     expected = {
@@ -153,7 +179,7 @@ class TreeFnTest(absltest.TestCase):
         'c': {'b': (7, 8)},
     }
     tree_fn = tree_fns.Select.new(
-        input_keys=[Key().a, Key().c.b.at(Index(0))],
+        input_keys=[Key().a, Key().c.b.at(Key.Index(0))],
         output_keys=['e', 'f'],
     )
     expected = {
@@ -186,6 +212,27 @@ class TreeFnTest(absltest.TestCase):
         input_keys='a', fn=lazy_fns.trace(TestAverageFn)(), output_keys='mean'
     )
     self.assertEqual({'mean': [2.0]}, agg_fn(data))
+
+  def test_tree_aggregate_with_keyword_arg(self):
+    data = {'a': [1, 2, 3], 'b': [4, 5, 6]}
+    bias = 1
+    agg_fn = tree_fns.TreeAggregateFn.new(
+        input_keys=dict(inputs='a', default_value=Key.Literal(bias)),
+        fn=lazy_fns.trace(TestAverageFn)(),
+        output_keys='mean',
+    )
+    expected_mean = [(sum(data['a']) + bias) / len(data['a'])]
+    self.assertEqual({'mean': expected_mean}, agg_fn(data))
+
+  def test_tree_aggregate_with_incorrect_keyword_arg(self):
+    data = {'a': [1, 2, 3], 'b': [4, 5, 6]}
+    agg_fn = tree_fns.TreeAggregateFn.new(
+        input_keys=dict(incorrect_arg='a'),
+        fn=lazy_fns.trace(TestAverageFn)(),
+        output_keys='mean',
+    )
+    with self.assertRaises(ValueError):
+      agg_fn(data)
 
 
 if __name__ == '__main__':

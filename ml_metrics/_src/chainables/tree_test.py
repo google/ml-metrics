@@ -68,7 +68,7 @@ class TreeMapViewTest(absltest.TestCase):
   def test_as_view(self):
     data = {'a': [1, 2], 'b': [3, 4]}
     view = TreeMapView.as_view(data)
-    self.assertEqual([1, 2], view['a'])
+    self.assertEqual(([1, 2], 3), view['a', Key.Literal(3)])
     self.assertEqual(([1, 2], [3, 4]), view['a', 'b'])
     self.assertIsNot(data, view)
     self.assertEqual(view, TreeMapView.as_view(view))

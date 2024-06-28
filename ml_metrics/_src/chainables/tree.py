@@ -19,8 +19,9 @@ import abc
 from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping, Sequence
 import copy
 import dataclasses
-from typing import Any, Protocol, TypeVar, Union
+from typing import Any, Protocol, Self, TypeVar, Union
 
+import immutabledict
 from ml_metrics._src import base_types
 import numpy as np
 
@@ -43,6 +44,20 @@ class Index(int):
 
   def __repr__(self):
     return f'Index({super().__repr__()})'
+
+
+class Literal:
+  """Convenient class to identify literal values."""
+
+  def __init__(self, value: Any):
+    self._value = value
+
+  @property
+  def value(self):
+    return self._value
+
+  def __repr__(self):
+    return f'Literal({repr(self._value)})'
 
 
 class Reserved(str):
@@ -220,7 +235,11 @@ class Key(tuple[BaseKey, ...]):
     return Index(i)
 
   @classmethod
-  def new(cls, *args: tuple[BaseKey, ...]) -> 'Key':
+  def Literal(cls, value: Any):  # pylint: disable=invalid-name
+    return Literal(value)
+
+  @classmethod
+  def new(cls, *args: tuple[BaseKey, ...]) -> Self:
     return cls(tuple(args))
 
   def __getattr__(self, name: str):
@@ -233,17 +252,21 @@ class Key(tuple[BaseKey, ...]):
     return f'Path({super().__repr__()})'
 
 
-TreeMapKey = BaseKey | Key | Reserved
+TreeMapKey = BaseKey | Key | Reserved | Literal
 # For keys, if there is tuple, the first dimension is always keys dimension.
-TreeMapKeys = tuple[TreeMapKey, ...]
+TreeMapKeys = tuple[TreeMapKey, ...] | Mapping[str, TreeMapKey]
 
 
 def normalize_keys(keys: TreeMapKey | TreeMapKeys) -> TreeMapKeys:
-  if isinstance(keys, Key) or not isinstance(keys, (tuple, list)):
-    keys = (keys,)
-  elif isinstance(keys, tuple):
-    return keys
-  return tuple(keys)
+  if isinstance(keys, Mapping):
+    return immutabledict.immutabledict(keys)
+  elif isinstance(keys, Key) or not isinstance(keys, (tuple, list)):
+    # Note: this has to be before tuple since Key is a subclass of tuple.
+    return (keys,)
+  elif isinstance(keys, (list, tuple)):
+    return tuple(keys)
+  else:
+    raise TypeError(f'Unsupported keys {keys}')
 
 
 def _default_tree(key_path: Key, value: Any):
@@ -322,6 +345,8 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
     for k in key:
       if _is_key(k, Key.SELF):
         return self._maybe_map(data)
+      if isinstance(k, Literal):
+        return k.value
       if isinstance(k, Index) and isinstance(data, Sequence):
         data = data[k]
       elif not isinstance(k, Index) and isinstance(data, Mapping):

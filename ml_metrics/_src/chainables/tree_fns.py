@@ -19,7 +19,7 @@ import collections
 import dataclasses
 import functools
 import typing
-from typing import Any, Callable, Generic, Hashable, Iterable, Iterator, Self, TypeVar
+from typing import Any, Callable, Generic, Hashable, Iterable, Iterator, Mapping, Self, TypeVar
 
 from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import lazy_fns
@@ -113,23 +113,31 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
 
   def get_inputs(
       self, inputs: tree.MapLikeTree[ValueT] | None
-  ) -> tuple[ValueT, ...] | ValueT | None:
-    fn_inputs = tree.TreeMapView.as_view(inputs)[self.input_keys]
+  ) -> tuple[ValueT, ...] | ValueT | dict[str, ValueT] | None:
+    argkeys = None
+    if isinstance(self.input_keys, Mapping):
+      argkeys, input_keys = tuple(zip(*self.input_keys.items()))
+    else:
+      input_keys = self.input_keys
+    fn_inputs = tree.TreeMapView.as_view(inputs)[input_keys]
     # A tuple of masks will apply to each input per input_keys. Otherwise, the
     # masks will be applied to all inputs.
     # TODO: b/311207032 - Consider supporting replace masking behavior.
     if self.masks:
       assert isinstance(fn_inputs, tuple)
       fn_inputs = tree.apply_masks(fn_inputs, masks=self.masks)
-    return fn_inputs
+    if argkeys:
+      return (), dict(zip(argkeys, fn_inputs))
+    else:
+      return fn_inputs, {}
 
   def __call__(
       self, inputs: tree.MapLikeTree[ValueT] | None = None
   ) -> tree.MapLikeTree[ValueT] | None:
-    fn_inputs = self.get_inputs(inputs)
+    fn_inputs, fn_kw_inputs = self.get_inputs(inputs)
     if (fn := self.actual_fn) is not None:
       try:
-        outputs = fn(*fn_inputs)
+        outputs = fn(*fn_inputs, **fn_kw_inputs)
       except Exception as e:
         raise ValueError(
             f'Failed to call {self.fn} with inputs:'
@@ -163,10 +171,10 @@ class Assign(TreeFn):
   def __call__(
       self, inputs: tree.MapLikeTree | None = None
   ) -> tree.MapLikeTree | None:
-    fn_inputs = self.get_inputs(inputs)
+    fn_inputs, kwargs_fn_inputs = self.get_inputs(inputs)
     if (fn := self.actual_fn) is not None:
       try:
-        outputs = fn(*fn_inputs)
+        outputs = fn(*fn_inputs, **kwargs_fn_inputs)
       except Exception as e:
         raise ValueError(f'Failed to call {self.fn} with {fn_inputs=}') from e
     else:
@@ -339,8 +347,8 @@ class TreeAggregateFn(
       self, state: StateT, inputs: tree.MapLikeTree[ValueT]
   ) -> StateT:
     try:
-      inputs = self.get_inputs(inputs)
-      state = self.actual_fn.update_state(state, *inputs)
+      inputs, kwargs_inputs = self.get_inputs(inputs)
+      state = self.actual_fn.update_state(state, *inputs, **kwargs_inputs)
     except Exception as e:
       raise ValueError(
           f'Cannot call {self.input_keys=}, {self.output_keys=},'
