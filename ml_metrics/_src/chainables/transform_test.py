@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Tests for transform."""
+from collections.abc import Callable
 import dataclasses
 import functools
 import itertools
+from typing import Any
 from absl.testing import absltest
 from absl.testing import parameterized
 from ml_metrics._src.aggregates import base as aggretates
@@ -73,16 +75,21 @@ class TestAverageFn:
 
 @dataclasses.dataclass
 class TestPrecisionRecall:
+  matcher: Callable[[Any, Any], Any] | None = None
   pred_tp: int = 0
   gp_tp: int = 0
   pred_p: int = 0
   gt_p: int = 0
 
-  @classmethod
-  def make(cls):
-    return cls()
+  def make(self):
+    return TestPrecisionRecall(self.matcher)
 
-  def add(self, matched_pred, matched_label):
+  def add(self, pred=None, label=None, matched_pred=None, matched_label=None):
+    # The matcher can be bypassed if the matched results are provided. This
+    # is to test for explicit matcher and implicit matcher logic when
+    # interacting with intra-example slicing.
+    if matched_pred is None or matched_label is None:
+      matched_pred, matched_label = self.matcher(pred, label)
     self.pred_tp += _reduce_sum(matched_pred)
     self.gp_tp += _reduce_sum(matched_label)
     self.pred_p += _reduce_size(matched_pred)
@@ -496,7 +503,7 @@ class TransformTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       agg.make()(inputs)
 
-  def test_transform_with_slice_mask_fn(self):
+  def test_transform_with_intra_example_slicing(self):
     inputs = [{
         'pred': [[0, 0], [0, 1]],
         'label': [[0, 1, 2], [1, 1]],
@@ -568,6 +575,29 @@ class TransformTest(parameterized.TestCase):
           masks = (pred_mask, label_mask)
           yield key, masks
 
+    # Without slicing, the aggregate function can use the matcher directly.
+    agg_overall = (
+        transform.TreeTransform.new()
+        .data_source(inputs)
+        .aggregate(
+            output_keys=('precision', 'recall'),
+            fn=aggretates.MergeableMetricAggFn(
+                TestPrecisionRecall(lazy_fns.iterate_fn(matcher))
+            ),
+            # Provide matched result directly to bypass internal matcher.
+            input_keys=('pred', 'label'),
+        )
+    ).make()()
+    self.assertEqual(
+        {
+            'precision': 0.75,
+            'recall': 0.6,
+        },
+        agg_overall,
+    )
+
+    # With slicing, the matcher logic needs to be separated from the aggregate
+    # function, so that slicing can be applied to the matched result.
     agg = (
         transform.TreeTransform.new()
         .data_source(inputs)
@@ -579,7 +609,10 @@ class TransformTest(parameterized.TestCase):
         .aggregate(
             output_keys=('precision', 'recall'),
             fn=aggretates.MergeableMetricAggFn(TestPrecisionRecall()),
-            input_keys=('pred_matched', 'label_matched'),
+            # Provide matched result directly to bypass internal matcher.
+            input_keys=dict(
+                matched_pred='pred_matched', matched_label='label_matched'
+            ),
         )
         .add_slice(
             'attr_pred',

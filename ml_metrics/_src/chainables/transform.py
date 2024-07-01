@@ -796,8 +796,22 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
     This can be used in the following ways:
       * Slice on a single feature: `add_slice('feature')`.
       * Slice crosses with multiple features: `add_slice(('a', 'b')).
-      * Slice with arbitrary slicing function: `add_slice('a', slice_fn, 'b')`.
-      * Multiple slices: `add_slice('a').add_slice('b')`.
+      * Slice with arbitrary slicing function that returns an iterable of
+        slices:
+        `add_slice(('a', 'b'), 'slice_name', slice_fn)`.
+      * Multiple slices: `add_slice('a').add_slice('b')`, note that this is not
+        the same as `add_slice(('a', 'b'))` that is slice crosses of feature
+        'a' and 'b'.
+      * Intra-example slicing: `add_slice('a', 'slice_name', slice_mask_fn)`,
+        the slice_mask_fn will yield a tuple of slice value and the
+        corresponding masks for the aggregation function inputs. The mask is an
+        array-like object with the same shape of the to be masked inputs. If
+        only one mask is provided, it will be applied to all the inputs. If
+        multiple masks are provided, the order of the masks have to match the
+        order of the inputs of the aggregations that is configured with this
+        slicing. The masking behavior is controlled by `mask_behavior` and
+        `mask_replace_false_with`. By default, it only filter out the entries
+        with False values in the mask.
 
     Args:
       keys: input keys for the slicer.
