@@ -14,6 +14,7 @@ dependencies = [
     'absl-py',
     'cloudpickle',
     'dm-launchpad',
+    'immutabledict',
     'numpy',
 ]
 readme = "README.md"
