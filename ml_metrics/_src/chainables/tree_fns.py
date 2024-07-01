@@ -373,8 +373,8 @@ class TreeAggregateFn(
       self, state: StateT, inputs: tree.MapLikeTree[ValueT]
   ) -> StateT:
     try:
-      inputs, kwargs_inputs = self.get_inputs(inputs)
-      state = self.actual_fn.update_state(state, *inputs, **kwargs_inputs)
+      arg_inputs, kwargs_inputs = self.get_inputs(inputs)
+      state = self.actual_fn.update_state(state, *arg_inputs, **kwargs_inputs)
     except Exception as e:
       raise ValueError(
           f'Cannot call {self.input_keys=}, {self.output_keys=},'
