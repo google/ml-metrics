@@ -22,6 +22,7 @@ from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
 from ml_metrics._src.chainables import tree
 from ml_metrics._src.chainables import tree_fns
+import numpy as np
 
 Key = tree.Key
 MetricKey = transform.MetricKey
@@ -45,14 +46,16 @@ def _reduce_size(inputs):
 # TODO: b/318463291 - Improves test coverage.
 class TestAverageFn:
 
-  def __init__(self, batch_output=True, return_tuple=False):
+  def __init__(self, batch_output=True, return_tuple=False, input_key=None):
     self.batch_output = batch_output
     self.return_tuple = return_tuple
+    self.input_key = input_key
 
   def create_state(self):
     return [0, 0]
 
   def update_state(self, state, inputs):
+    inputs = inputs[self.input_key] if self.input_key else inputs
     return state[0] + sum(inputs), state[1] + len(inputs)
 
   def merge_states(self, states):
@@ -389,6 +392,23 @@ class TransformTest(parameterized.TestCase):
         MetricKey('avg_b', SliceKey(('b',), (1,))): [1.0],
         MetricKey('avg_b', SliceKey(('b',), (9,))): [9.0],
         MetricKey('avg_b', SliceKey(('b',), (5,))): [5.0],
+    }
+    self.assertEqual(expected, agg.make()(inputs))
+
+  def test_aggregate_with_slicing_on_dict(self):
+    inputs = {'a': np.array([1, 2, 1]), 'b': np.array([1, 9, 5])}
+    agg = (
+        transform.TreeTransform.new()
+        .aggregate(
+            fn=TestAverageFn(input_key='b'),
+            output_keys='avg_b',
+        )
+        .add_slice('a', slice_fn=lambda x: (x.item(),))
+    )
+    expected = {
+        'avg_b': [5.0],
+        MetricKey('avg_b', SliceKey(('a',), (1,))): [3.0],
+        MetricKey('avg_b', SliceKey(('a',), (2,))): [9.0],
     }
     self.assertEqual(expected, agg.make()(inputs))
 

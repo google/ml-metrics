@@ -16,9 +16,10 @@
 from __future__ import annotations
 
 import abc
-from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
 import copy
 import dataclasses
+import functools
 from typing import Any, Protocol, Self, TypeVar, Union
 
 import immutabledict
@@ -128,6 +129,8 @@ def apply_mask(
   Returns:
     A tree of inputs with the masks applied.
   """
+  # The order of the following if-else statements is important because dicts
+  # are also instances of Iterable.
   if isinstance(masks, dict) and isinstance(items, dict):
     result = copy.copy(items)
     for key, value in items.items():
@@ -144,11 +147,25 @@ def apply_mask(
             mask_behavior=mask_behavior,
             replace_false_with=replace_false_with,
         )
-  elif isinstance(masks, dict) or isinstance(items, dict):
-    raise ValueError(
-        f'Masks and inputs have to be both dict: {type(masks)=}, {type(items)=}'
+  # When masks is not a dict, try to apply the mask to the leaf elements of the
+  # dict. Note that TreeMapView will only apply the mask lazily when specific
+  # leaf elements are accessed.
+  elif not isinstance(masks, dict) and isinstance(items, dict):
+    return TreeMapView.as_view(
+        items,
+        map_fn=functools.partial(
+            apply_mask,
+            masks=masks,
+            mask_behavior=mask_behavior,
+            replace_false_with=replace_false_with,
+        ),
     )
-  elif isinstance(items, Iterable) and isinstance(masks, Iterable):
+  elif isinstance(masks, dict) and not isinstance(items, dict):
+    raise ValueError(
+        f'Items have to be dict when masks are dict, got {type(items)=}'
+    )
+  # Non-dict masks and items.
+  elif base_types.is_array_like(items) and base_types.is_array_like(masks):
     result = []
     for elem, mask in zip(items, masks, strict=True):
       if isinstance(mask, bool):

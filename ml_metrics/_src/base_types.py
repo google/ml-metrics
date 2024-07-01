@@ -15,7 +15,8 @@
 
 import abc
 import enum
-from typing import Protocol, TypeVar, runtime_checkable
+from typing import Any, Protocol, TypeVar, runtime_checkable
+from numpy import typing as npt
 
 MakeT = TypeVar('MakeT')
 
@@ -40,3 +41,10 @@ class StrEnum(str, enum.Enum):
   __format__ = str.__format__
 
   __iter__ = enum.Enum.__iter__
+
+
+def is_array_like(obj: list[Any] | tuple[Any, ...] | npt.ArrayLike) -> bool:
+  """Checks if the object is an array-like object."""
+  return isinstance(obj, (list, tuple)) or (
+      hasattr(obj, '__array__') and obj.ndim > 0
+  )

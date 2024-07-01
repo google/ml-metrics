@@ -342,7 +342,7 @@ class ApplyMaskTest(parameterized.TestCase):
           },
       ),
   ])
-  def test_apply_mask_with_dict(
+  def test_apply_dict_mask_to_dict(
       self, expected, mask_behavior=tree.MaskBehavior.FILTER
   ):
     inputs = {
@@ -360,6 +360,34 @@ class ApplyMaskTest(parameterized.TestCase):
         mask_behavior=mask_behavior,
     )
     self.assert_nested_sequence_equal(result, expected)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='default',
+          expected=([2, 4, 6], [1, 3, 5]),
+      ),
+      dict(
+          testcase_name='replace_false',
+          mask_behavior=tree.MaskBehavior.REPLACE,
+          expected=([2, -1, 4, -1, 6], [1, -1, 3, -1, 5]),
+      ),
+  ])
+  def test_apply_tuple_mask_to_dict(
+      self, expected, mask_behavior=tree.MaskBehavior.FILTER
+  ):
+    inputs = {
+        'a': [2, 3, 4, 5, 6],
+        'b': np.array([1, 2, 3, 4, 5]),
+        'c': 'irrelevant',
+    }
+    mask = [True, False, True, False, True]
+    result = tree.apply_mask(
+        inputs,
+        masks=mask,
+        mask_behavior=mask_behavior,
+        replace_false_with=-1,
+    )
+    self.assert_nested_sequence_equal(result['a', 'b'], expected)
 
 
 if __name__ == '__main__':
