@@ -198,27 +198,6 @@ def apply_mask(
   return result
 
 
-def apply_masks(
-    items: tuple[MapLikeTree[Any], ...],
-    *,
-    masks: tuple[MapLikeTree[bool], ...],
-    mask_behavior: MaskBehavior = MaskBehavior.FILTER,
-    replace_false_with: Any = None,
-):
-  """Applies multiple masks to multiple inputs."""
-  result = []
-  for item, mask in zip(items, masks, strict=True):
-    result.append(
-        apply_mask(
-            item,
-            masks=mask,
-            mask_behavior=mask_behavior,
-            replace_false_with=replace_false_with,
-        )
-    )
-  return tuple(result)
-
-
 def _is_key(key, other_key):
   return isinstance(key, type(other_key)) and key == other_key
 

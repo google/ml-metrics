@@ -12,14 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Test for tree library."""
+from collections.abc import Iterable
 from unittest import mock
-
-import dill as pickle
+from absl.testing import absltest
+from absl.testing import parameterized
+import cloudpickle as pickle
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
 from ml_metrics._src.chainables import tree_fns
-
-from absl.testing import absltest
+import numpy as np
 
 Key = tree.Key
 
@@ -42,7 +43,22 @@ class TestAverageFn:
     return (result, 0) if self.return_tuple else result
 
 
-class TreeFnTest(absltest.TestCase):
+class TreeFnTest(parameterized.TestCase):
+
+  def assert_nested_sequence_equal(self, a, b):
+    if isinstance(a, dict) and isinstance(b, dict):
+      for (k_a, v_a), (k_b, v_b) in zip(
+          sorted(a.items()), sorted(b.items()), strict=True
+      ):
+        self.assertEqual(k_a, k_b)
+        self.assert_nested_sequence_equal(v_a, v_b)
+    elif isinstance(a, str) and isinstance(b, str):
+      self.assertEqual(a, b)
+    elif isinstance(a, Iterable) and isinstance(b, Iterable):
+      for a_elem, b_elem in zip(a, b, strict=True):
+        self.assert_nested_sequence_equal(a_elem, b_elem)
+    else:
+      self.assertEqual(a, b)
 
   def test_tree_fn(self):
     data = {
@@ -233,6 +249,94 @@ class TreeFnTest(absltest.TestCase):
     )
     with self.assertRaises(ValueError):
       agg_fn(data)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='default',
+          inputs=[1, 2, np.array([5, 6]), 4, 5],
+          expected=([1, [5], 5],),
+      ),
+      dict(
+          testcase_name='keyed_input',
+          input_keys='a',
+          inputs={'a': [1, 2, np.array([5, 6]), 4, 5]},
+          expected=([1, [5], 5],),
+      ),
+      dict(
+          testcase_name='indexed_inputs',
+          input_keys=(Key.Index(0), Key.Index(1)),
+          inputs=([1, 2, np.array([5, 6]), 4, 5], [5, 6, [7, 0], 8, 9]),
+          expected=([1, [5], 5], [5, [7], 9]),
+      ),
+      dict(
+          testcase_name='replace_false',
+          mask_replace_false_with=-1,
+          inputs=[1, 2, np.array([5, 6]), 4, 5],
+          expected=([1, -1, [5, -1], -1, 5],),
+      ),
+      dict(
+          testcase_name='replace_false_multi_inputs',
+          mask_replace_false_with=-1,
+          input_keys=(Key.Index(0), Key.Index(1)),
+          inputs=([1, 2, np.array([5, 6]), 4, 5], [5, 6, [7, 0], 8, 9]),
+          expected=([1, -1, [5, -1], -1, 5], [5, -1, [7, -1], -1, 9]),
+      ),
+  ])
+  def test_apply_single_mask(
+      self,
+      inputs,
+      expected,
+      input_keys=Key.SELF,
+      mask_replace_false_with=tree_fns.DEFAULT_FILTER,
+  ):
+    masks = [True, False, [True, False], False, True]
+    tree_fn = tree_fns.TreeFn.new(
+        input_keys=input_keys,
+        masks=masks,
+        mask_replace_false_with=mask_replace_false_with,
+    )
+    result = tree_fn(inputs)
+    self.assert_nested_sequence_equal(result, expected)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='dict_input',
+          input_keys=('a', 'b'),
+          inputs={
+              'a': [1, 2, np.array([5, 6]), 4, 5],
+              'b': [1, 2, np.array([7, 6]), 4, 9],
+          },
+          expected=([1, [5], 5], [1, [7], 9]),
+      ),
+      dict(
+          testcase_name='index_inputs',
+          input_keys=(Key.Index(0), Key.Index(1)),
+          inputs=([1, 2, np.array([5, 6]), 4, 5], [5, 6, [7, 0], 8, 9]),
+          expected=([1, [5], 5], [5, [7], 9]),
+      ),
+      dict(
+          testcase_name='replace_false_multi_inputs',
+          mask_replace_false_with=-1,
+          input_keys=(Key.Index(0), Key.Index(1)),
+          inputs=([1, 2, np.array([5, 6]), 4, 5], [5, 6, [7, 0], 8, 9]),
+          expected=([1, -1, [5, -1], -1, 5], [5, -1, [7, -1], -1, 9]),
+      ),
+  ])
+  def test_apply_multi_masks(
+      self,
+      inputs,
+      expected,
+      input_keys=Key.SELF,
+      mask_replace_false_with=tree_fns.DEFAULT_FILTER,
+  ):
+    masks = tuple([[True, False, [True, False], False, True]] * 2)
+    tree_fn = tree_fns.TreeFn.new(
+        input_keys=input_keys,
+        masks=masks,
+        mask_replace_false_with=mask_replace_false_with,
+    )
+    result = tree_fn(inputs)
+    self.assert_nested_sequence_equal(result, expected)
 
 
 if __name__ == '__main__':

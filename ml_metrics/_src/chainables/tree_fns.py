@@ -33,6 +33,8 @@ FnT = TypeVar('FnT')
 StateT = TypeVar('StateT')
 ValueT = TypeVar('ValueT')
 
+DEFAULT_FILTER = '_DEFAULT_FILTER'
+
 
 # TODO: b/318463291 - Consider adding `inputs` fields to handle hybrid args.
 @dataclasses.dataclass(kw_only=True, frozen=True)
@@ -50,6 +52,8 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       by `input_keys`. If one mask is provided, it will be applied to all
       inputs. If a tuple of masks is provided, each mask will be applied to the
       corresponding input in sequence of the keys in `input_keys`.
+    mask_replace_false_with: If provided, replace False in the mask with this
+      value.
     lazy: If True, the underlying function is lazy, normally, this means it
       needs to be constructed at runtime.
     id: A string that serves as an identifier for the TreeFn instance.
@@ -59,6 +63,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
   output_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
   fn: FnT | lazy_fns.LazyFn[FnT] | None = None
   masks: tuple[MaskTree, ...] = ()
+  mask_replace_false_with: Any = DEFAULT_FILTER
   _default_constructor: bool = dataclasses.field(default=True, repr=False)
 
   def __post_init__(self):
@@ -75,6 +80,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       fn: FnT | lazy_fns.LazyFn[FnT] | None = None,
       input_keys: tree.TreeMapKey | tree.TreeMapKeys = tree.Key.SELF,
       masks: tuple[MaskTree, ...] | MaskTree = (),
+      mask_replace_false_with: Any = DEFAULT_FILTER,
   ) -> TreeFn[FnT, ValueT]:
     """Normalizes the arguments before constructing a TreeFn."""
     if masks or fn or output_keys is not tree.Key.SELF:
@@ -91,6 +97,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
         input_keys=input_keys,
         fn=fn,
         masks=masks,
+        mask_replace_false_with=mask_replace_false_with,
         _default_constructor=False,
     )
 
@@ -111,6 +118,25 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       return dataclasses.replace(self, fn=self.actual_fn)
     return self
 
+  def _apply_masks(self, items: tuple[tree.MapLikeTree[Any], ...]):
+    """Applies multiple masks to multiple inputs."""
+    result = []
+    apply_mask_fn = tree.apply_mask
+    if self.mask_replace_false_with != DEFAULT_FILTER:
+      apply_mask_fn = functools.partial(
+          tree.apply_mask,
+          mask_behavior=tree.MaskBehavior.REPLACE,
+          replace_false_with=self.mask_replace_false_with,
+      )
+    match self.masks:
+      case (mask,):
+        for item in items:
+          result.append(apply_mask_fn(item, masks=mask))
+      case (_, *_):
+        for item, mask in zip(items, self.masks, strict=True):
+          result.append(apply_mask_fn(item, masks=mask))
+    return tuple(result)
+
   def get_inputs(
       self, inputs: tree.MapLikeTree[ValueT] | None
   ) -> tuple[ValueT, ...] | ValueT | dict[str, ValueT] | None:
@@ -125,7 +151,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
     # TODO: b/311207032 - Consider supporting replace masking behavior.
     if self.masks:
       assert isinstance(fn_inputs, tuple)
-      fn_inputs = tree.apply_masks(fn_inputs, masks=self.masks)
+      fn_inputs = self._apply_masks(fn_inputs)
     if argkeys:
       return (), dict(zip(argkeys, fn_inputs))
     else:
