@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Iterable
 from absl.testing import absltest
 from absl.testing import parameterized
 from ml_metrics._src.aggregates import retrieval
@@ -25,7 +26,101 @@ InputType = types.InputType
 RetrievalMetric = retrieval.RetrievalMetric
 
 
-class ClassificationTest(parameterized.TestCase):
+class ThresholdedRetrievalTest(parameterized.TestCase):
+
+  def assert_nested_sequence_equal(self, a, b):
+    if isinstance(a, dict) and isinstance(b, dict):
+      for (k_a, v_a), (k_b, v_b) in zip(
+          sorted(a.items()), sorted(b.items()), strict=True
+      ):
+        self.assertEqual(k_a, k_b)
+        self.assert_nested_sequence_equal(v_a, v_b)
+    elif isinstance(a, str) and isinstance(b, str):
+      self.assertEqual(a, b)
+    elif isinstance(a, Iterable) and isinstance(b, Iterable):
+      for a_elem, b_elem in zip(a, b, strict=True):
+        self.assert_nested_sequence_equal(a_elem, b_elem)
+    else:
+      self.assertAlmostEqual(a, b)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name="with_prob",
+          y_prob=True,
+          thresholds=(0.2, 0.3, 0.5),
+          metric_list=(
+              "recall",
+              "precision",
+              "f1_score",
+              "recall@0.3",
+              "precision@0.3",
+              "f1_score@0.3",
+          ),
+          expected={
+              "thresholds": [0.2, 0.3, 0.5],
+              "recall": [1 / 2, 1 / 4, 0.0],
+              "precision": [2 / 5, 1 / 5, 0.0],
+              "f1_score": [
+                  retrieval._f1_score(2 / 5, 1 / 2),
+                  retrieval._f1_score(1 / 5, 1 / 4),
+                  0.0,
+              ],
+              "recall@0.3": 1 / 4,
+              "precision@0.3": 1 / 5,
+              "f1_score@0.3": retrieval._f1_score(1 / 5, 1 / 4),
+          },
+      ),
+      dict(
+          testcase_name="without_prob",
+          y_prob=False,
+          metric_list=(
+              "recall",
+              "precision",
+              "f1_score",
+              "recall@0.0",
+              "precision@0.0",
+              "f1_score@0.0",
+          ),
+          expected={
+              "thresholds": [0.0],
+              "recall": [3 / 4],
+              "precision": [3 / 5],
+              "f1_score": [
+                  retrieval._f1_score(3 / 4, 3 / 5),
+              ],
+              "recall@0.0": 3 / 4,
+              "precision@0.0": 3 / 5,
+              "f1_score@0.0": retrieval._f1_score(3 / 4, 3 / 5),
+          },
+      ),
+  ])
+  def test_thresholded_retrieval(
+      self, y_prob, metric_list, expected, thresholds=None
+  ):
+    y_true = [["a", "c", "e", "h"]] * 2
+    y_pred = [["a", "b", "c", "d", "e"]] * 2
+    y_prob = [[0.1, 0.2, 0.3, 0.4, 0.5]] * 2 if y_prob else None
+    # Matched result:
+    # y_true_prob = [[0.1, 0.3, 0.5, 0.0], [0.1, 0.3, 0.5, 0.0]]
+    # y_pred_prob = [[0.1, 0.0, 0.3, 0.0, 0.5], [0.1, 0.0, 0.3, 0.0, 0.5]]
+
+    if thresholds is None:
+      retrieval_metric = retrieval.ThresholdedRetrieval(metrics=metric_list)
+    else:
+      retrieval_metric = retrieval.ThresholdedRetrieval(
+          thresholds=thresholds,
+          metrics=metric_list,
+      )
+    matched_true_prob, matched_pred_prob = retrieval_metric.matcher(
+        y_true, y_pred, y_prob
+    )
+    retrieval_metric.add(
+        matched_true_prob=matched_true_prob, matched_pred_prob=matched_pred_prob
+    )
+    self.assert_nested_sequence_equal(expected, retrieval_metric.result())
+
+
+class TopKRetrievalTest(parameterized.TestCase):
 
   @parameterized.named_parameters([
       dict(

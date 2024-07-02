@@ -13,10 +13,14 @@
 # limitations under the License.
 
 """Aggregates modules for all retrieval metrics."""
+from __future__ import annotations
 
 import collections
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 import dataclasses
+import functools
+import itertools
+from typing import Any
 
 from ml_metrics._src import base_types
 from ml_metrics._src.aggregates import base
@@ -170,6 +174,230 @@ def _ndcg_score(tp, k_range, k_list, y_true_count):
   return result
 
 
+class RetrievalMetricAtThreshold(str):
+  """Retrieval metric at threshold in a format of metric@threshold.
+
+  This will parse a metric from a string to two parts of metric and threshold.
+  The metric is one of the supported retrieval metrics. The threshold is a float
+  number. If the threshold is not provided, it will be set to None.
+  """
+
+  metric: RetrievalMetric | None
+  threshold: float | None
+
+  def __init__(self, metric_name: str):
+    splitted = metric_name.lower().strip().split('@')
+    if len(splitted) == 2:
+      self.metric = RetrievalMetric(splitted[0])
+      self.threshold = float(splitted[1])
+    elif len(splitted) == 1:
+      self.metric = RetrievalMetric(splitted[0])
+      self.threshold = None
+    else:
+      raise ValueError(f'Invalid metric: {metric_name}')
+
+
+def retrieval_matcher(
+    y_true: types.NumbersT,
+    y_pred: types.NumbersT,
+    y_prob: types.NumbersT | None = None,
+) -> tuple[types.NumbersT, types.NumbersT]:
+  """Matches a batched y_true and y_pred optionally with y_prob.
+
+  This outputs the matched in the shape of y_true and y_pred with the matching
+  entry set to the corresponding probability from y_prob if provided or 1 when
+  y_prob is not provided.
+
+  Args:
+    y_true: The ground truth.
+    y_pred: The prediction.
+    y_prob: The probability of the prediction.
+
+  Returns:
+    matched_true_prob: The matched probability of the ground truth.
+    matched_pred_prob: The matched probability of the prediction.
+  """
+  matched_true_prob, matched_pred_prob = [], []
+  y_prob = y_prob or [None] * len(y_true)
+  for row_true, row_pred, row_prob in zip(y_true, y_pred, y_prob, strict=True):
+    row_prob = (
+        np.asarray(row_prob) if row_prob is not None else np.ones_like(row_pred)
+    )
+    row_true, row_pred = np.asarray(row_true), np.asarray(row_pred)
+    row_true_prob = np.zeros_like(row_true, dtype=np.float32)
+    row_pred_prob = np.zeros_like(row_pred, dtype=np.float32)
+    for i, (prob, pred) in enumerate(zip(row_prob, row_pred)):
+      ixs = np.where(row_true == pred)[0]
+      assert len(ixs) < 2
+      if ixs.size > 0:
+        row_pred_prob[i] = prob
+        row_true_prob[ixs[0]] = prob
+    matched_true_prob.append(row_true_prob)
+    matched_pred_prob.append(row_pred_prob)
+  return matched_true_prob, matched_pred_prob
+
+
+@dataclasses.dataclass(kw_only=True, frozen=True)
+class ThresholdedConfusionMatrix:
+  """RetrievalMetricConfig."""
+
+  thresholds: types.NumbersT = 0
+  tp_trues: types.NumbersT = 0
+  tp_preds: types.NumbersT = 0
+  p_trues: types.NumbersT = 0
+  p_preds: types.NumbersT = 0
+
+  def __add__(self, other):
+    return ThresholdedConfusionMatrix(
+        thresholds=self.thresholds,
+        tp_trues=self.tp_trues + other.tp_trues,
+        tp_preds=self.tp_preds + other.tp_preds,
+        p_trues=self.p_trues + other.p_trues,
+        p_preds=self.p_preds + other.p_preds,
+    )
+
+  @functools.cached_property
+  def precision(self):
+    return self.tp_preds / self.p_preds
+
+  @functools.cached_property
+  def recall(self):
+    return self.tp_trues / self.p_trues
+
+  @functools.cached_property
+  def f1_score(self):
+    return _f1_score(self.precision, self.recall)
+
+  def get_metric(self, metric: RetrievalMetricAtThreshold):
+    if metric.threshold is None:
+      return getattr(self, metric.metric)
+    else:
+      return np.interp(
+          metric.threshold, self.thresholds, getattr(self, metric.metric)
+      )
+
+
+@dataclasses.dataclass(kw_only=True)
+class ThresholdedRetrieval(base.MergeableMetric):
+  """TopKRetrievals with continuous input.
+
+  A typical use case is to calculate the retrieval metrics but with thresholds.
+  y_true = [[id1, id2, id4], ...]
+  y_pred = [[id1, id3, id2, id4], ...]
+  y_prob = [[0.9, 0.8, 0.7, 0.2], ...]
+  The matcher should give me a filtered y_prob to both sides:
+  y_true_prob = [[0.9, 0.7, 0.2], ...].
+  y_pred_prob = [[0.9, 0.0, 0.7, 9.2], ...], note that mismatched id is set to
+  0.
+  If we only are interested in id1:
+  y_true_prob = [[0.9, 0.0, 0.0]].
+  y_pred_prob = [[0.9, 0.0, 0.0, 0.0]],
+  Given a threshold = 0.75:
+  y_true_mask = [[True]]], sum(y_true_mask) is true_p_count
+  y_pred_mask = [[True]], sum(y_pred_mask) is pred_p_count
+
+  This is a binary multi-output retrieval problem.
+  The input is tp_pred, tp_true, and y_prob and thresholds.
+  When the slicing is different, e.g., the distances are different, we need to
+  tp_pred, but how about tp_true, yes, it will also be masked.  Then what does
+  each threshold mean for tp_true? When tp_pred is masked to False, the
+  corresponding one in y_true should also be masked to False.
+
+  Attributes:
+    thresholds: The thresholds to be used for the retrieval metrics.
+    metrics: The metrics to be computed.
+    state: The mergeable metric state.
+  """
+
+  thresholds: types.NumbersT | Sequence[float] = (0.0,)
+  metrics: Sequence[RetrievalMetric | RetrievalMetricAtThreshold] = (
+      RetrievalMetric.PRECISION,
+      RetrievalMetric.RECALL,
+      RetrievalMetric.F1_SCORE,
+  )
+  matcher: Callable[..., Any] | None = retrieval_matcher
+  _confusion_matrix: ThresholdedConfusionMatrix | None = None
+
+  def __post_init__(self):
+    self.thresholds = np.asarray(sorted(self.thresholds), dtype=np.float32)
+    self._confusion_matrix = ThresholdedConfusionMatrix(
+        thresholds=self.thresholds
+    )
+    self.metrics = [
+        RetrievalMetricAtThreshold(metric) for metric in self.metrics
+    ]
+
+  @property
+  def confusion_matrix(self):
+    return self._confusion_matrix
+
+  def add(
+      self,
+      y_true=None,
+      y_pred=None,
+      y_prob=None,
+      matched_true_prob=None,
+      matched_pred_prob=None,
+  ) -> ThresholdedConfusionMatrix:
+    """Compute all true positive counts from the y_true and y_pred.
+
+    If y_true_prob and y_pred_prob are provided, this skips the internal matcher
+    logic. This is useful when mathcer is expensive and is called externally to
+    avoid repeated computations.
+
+    Args:
+      y_true: The ground truth.
+      y_pred: The prediction.
+      y_prob: The probability of the prediction.
+      matched_true_prob: The matched probability of the ground truth, all
+        negative values are filtered out.
+      matched_pred_prob: The matched probability of the prediction, all negative
+        values are filtered out.
+
+    Returns:
+      ThresholdedConfusionMatrix for this batch.
+    """
+    if matched_true_prob is None or matched_pred_prob is None:
+      matched_true_prob, matched_pred_prob = self.matcher(
+          y_true, y_pred, y_prob
+      )
+    # Flatten the 2D list of list to 1D array.
+    matched_true_prob = np.array(list(itertools.chain(*matched_true_prob)))
+    matched_pred_prob = np.array(list(itertools.chain(*matched_pred_prob)))
+    matched_true_prob = matched_true_prob[matched_true_prob >= 0]
+    matched_pred_prob = matched_pred_prob[matched_pred_prob >= 0]
+    # 2D array of true positives at each threshold with a dimension of
+    # num_thresholds x num_y.
+    y_trues = np.array(
+        [matched_true_prob > threshold for threshold in self.thresholds]
+    )
+    y_preds = np.array(
+        [matched_pred_prob > threshold for threshold in self.thresholds]
+    )
+    tp_trues, true_p_count = y_trues.sum(axis=1), len(matched_true_prob)
+    tp_preds, pred_p_count = y_preds.sum(axis=1), len(matched_pred_prob)
+    confusion_matrix = ThresholdedConfusionMatrix(
+        thresholds=self.thresholds,
+        tp_trues=tp_trues,
+        tp_preds=tp_preds,
+        p_trues=true_p_count,
+        p_preds=pred_p_count,
+    )
+    self._confusion_matrix += confusion_matrix
+    return confusion_matrix
+
+  def merge(self, other: ThresholdedRetrieval):
+    self._confusion_matrix += other.confusion_matrix
+
+  def result(self):
+    """Returns the metrics."""
+    result = {'thresholds': self.thresholds}
+    assert self._confusion_matrix is not None
+    for metric in self.metrics:
+      result[metric] = self._confusion_matrix.get_metric(metric)
+    return result
+
+
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class TopKRetrievalConfig(base_types.Makeable):
   """TopKRetrievals.
@@ -242,9 +470,9 @@ class TopKRetrieval(base.MergeableMetric):
     max_pred_count = max(y_pred_count)
     max_pred_count = min(max_pred_count, max(k_list))
     tp = []
-    for y_pred, y_true in zip(y_pred, y_true):
+    for y_pred_row, y_true_row in zip(y_pred, y_true):
       tp.append([
-          int(y_pred[i] in y_true) if i < len(y_pred) else 0
+          int(y_pred_row[i] in y_true_row) if i < len(y_pred_row) else 0
           for i in range(max_pred_count)
       ])
     tp = np.asarray(tp)
@@ -252,7 +480,7 @@ class TopKRetrieval(base.MergeableMetric):
     # The first dimension is always batch dimension (# examples), the second
     # dimension can be either 0D (single-output) or 1D (multioutput) array.
     # E.g., provided one multioutput prediction and its true positive:
-    # topk:         [1,    2,     3]
+    # topk:          [1,    2,     3]
     # true-positive: [True, False, True]
     # We will get the true positives at topKs:
     # topk:     [top1, top2, top3]
