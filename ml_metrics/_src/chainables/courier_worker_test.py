@@ -248,6 +248,13 @@ class CourierWorkerGroupTest(absltest.TestCase):
     self.assertLen(actual, 3)
     self.assertEqual([2] * 3, actual)
 
+  def test_worker_cache_info(self):
+    self.worker_pool.run(lazy_fns.trace(len, use_cache=True)([1, 2]))
+    hits = self.worker_pool.idle_workers()[0].cache_info().hits
+    self.worker_pool.run(lazy_fns.trace(len, use_cache=True)([1, 2]))
+    new_hits = self.worker_pool.idle_workers()[0].cache_info().hits
+    self.assertEqual(new_hits - hits, 1)
+
   def test_worker_group_run_tasks(self):
     tasks = [
         Task.new('echo', blocking=False).add_task(lazy_fns.trace(len)([1, 2]))

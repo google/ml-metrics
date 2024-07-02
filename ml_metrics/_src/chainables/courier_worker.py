@@ -413,6 +413,11 @@ class Worker:
   def clear_cache(self):
     return self.call(courier_method='clear_cache')
 
+  def cache_info(self):
+    return picklers.default.loads(
+        self.call(courier_method='cache_info').result()
+    )
+
   def set_timeout(self, call_timeout: int):
     self.call_timeout = call_timeout
     self._client = courier.Client(self.server_name, call_timeout=call_timeout)

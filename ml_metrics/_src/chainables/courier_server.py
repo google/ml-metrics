@@ -69,6 +69,9 @@ class CourierServerWrapper:
           prefetch_size=self.prefetch_size,
       )
 
+    def pickled_cache_info():
+      return pickler.dumps(lazy_fns.cache_info())
+
     def _next_batch_from_generator(batch_size: int = 0):
       assert self._generator is not None, (
           'Generator is not set, the worker might crashed unexpectedly'
@@ -99,7 +102,7 @@ class CourierServerWrapper:
     server.Bind('shutdown', shutdown)
     # TODO: b/318463291 - Add unit tests.
     server.Bind('clear_cache', lazy_fns.clear_cache)
-    server.Bind('cache_info', lazy_fns.cache_info)
+    server.Bind('cache_info', pickled_cache_info)
     self._server = server
     return self._server
 
