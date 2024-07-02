@@ -201,7 +201,7 @@ def retrieval_matcher(
     y_true: types.NumbersT,
     y_pred: types.NumbersT,
     y_prob: types.NumbersT | None = None,
-) -> tuple[types.NumbersT, types.NumbersT]:
+) -> tuple[types.NumbersT, types.NumbersT, types.NumbersT]:
   """Matches a batched y_true and y_pred optionally with y_prob.
 
   This outputs the matched in the shape of y_true and y_pred with the matching
@@ -216,12 +216,15 @@ def retrieval_matcher(
   Returns:
     matched_true_prob: The matched probability of the ground truth.
     matched_pred_prob: The matched probability of the prediction.
+    matched_y_prob: Same as y_pro but autofilled with 1s when not provided.
   """
-  matched_true_prob, matched_pred_prob = [], []
+  matched_true_prob, matched_pred_prob, matched_y_prob = [], [], []
   y_prob = y_prob or [None] * len(y_true)
   for row_true, row_pred, row_prob in zip(y_true, y_pred, y_prob, strict=True):
     row_prob = (
-        np.asarray(row_prob) if row_prob is not None else np.ones_like(row_pred)
+        np.ones_like(row_pred, dtype=np.float32)
+        if row_prob is None
+        else np.asarray(row_prob)
     )
     row_true, row_pred = np.asarray(row_true), np.asarray(row_pred)
     row_true_prob = np.zeros_like(row_true, dtype=np.float32)
@@ -234,7 +237,8 @@ def retrieval_matcher(
         row_true_prob[ixs[0]] = prob
     matched_true_prob.append(row_true_prob)
     matched_pred_prob.append(row_pred_prob)
-  return matched_true_prob, matched_pred_prob
+    matched_y_prob.append(row_prob)
+  return matched_true_prob, matched_pred_prob, matched_y_prob
 
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
@@ -258,11 +262,11 @@ class ThresholdedConfusionMatrix:
 
   @functools.cached_property
   def precision(self):
-    return self.tp_preds / self.p_preds
+    return math_utils.safe_divide(self.tp_preds, self.p_preds)
 
   @functools.cached_property
   def recall(self):
-    return self.tp_trues / self.p_trues
+    return math_utils.safe_divide(self.tp_trues, self.p_trues)
 
   @functools.cached_property
   def f1_score(self):
@@ -287,7 +291,7 @@ class ThresholdedRetrieval(base.MergeableMetric):
   y_prob = [[0.9, 0.8, 0.7, 0.2], ...]
   The matcher should give me a filtered y_prob to both sides:
   y_true_prob = [[0.9, 0.7, 0.2], ...].
-  y_pred_prob = [[0.9, 0.0, 0.7, 9.2], ...], note that mismatched id is set to
+  y_pred_prob = [[0.9, 0.0, 0.7, 0.2], ...], note that mismatched id is set to
   0.
   If we only are interested in id1:
   y_true_prob = [[0.9, 0.0, 0.0]].
@@ -358,10 +362,11 @@ class ThresholdedRetrieval(base.MergeableMetric):
       ThresholdedConfusionMatrix for this batch.
     """
     if matched_true_prob is None or matched_pred_prob is None:
-      matched_true_prob, matched_pred_prob = self.matcher(
+      matched_true_prob, matched_pred_prob, y_prob = self.matcher(
           y_true, y_pred, y_prob
       )
     # Flatten the 2D list of list to 1D array.
+    y_prob = np.array(list(itertools.chain(*y_prob)))
     matched_true_prob = np.array(list(itertools.chain(*matched_true_prob)))
     matched_pred_prob = np.array(list(itertools.chain(*matched_pred_prob)))
     matched_true_prob = matched_true_prob[matched_true_prob >= 0]
@@ -374,8 +379,9 @@ class ThresholdedRetrieval(base.MergeableMetric):
     y_preds = np.array(
         [matched_pred_prob > threshold for threshold in self.thresholds]
     )
+    y_probs = np.array([y_prob > threshold for threshold in self.thresholds])
     tp_trues, true_p_count = y_trues.sum(axis=1), len(matched_true_prob)
-    tp_preds, pred_p_count = y_preds.sum(axis=1), len(matched_pred_prob)
+    tp_preds, pred_p_count = y_preds.sum(axis=1), y_probs.sum(axis=1)
     confusion_matrix = ThresholdedConfusionMatrix(
         thresholds=self.thresholds,
         tp_trues=tp_trues,

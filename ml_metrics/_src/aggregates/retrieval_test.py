@@ -59,15 +59,15 @@ class ThresholdedRetrievalTest(parameterized.TestCase):
           expected={
               "thresholds": [0.2, 0.3, 0.5],
               "recall": [1 / 2, 1 / 4, 0.0],
-              "precision": [2 / 5, 1 / 5, 0.0],
+              "precision": [2 / 3, 1 / 2, 0.0],
               "f1_score": [
-                  retrieval._f1_score(2 / 5, 1 / 2),
-                  retrieval._f1_score(1 / 5, 1 / 4),
+                  retrieval._f1_score(2 / 3, 1 / 2),
+                  retrieval._f1_score(1 / 2, 1 / 4),
                   0.0,
               ],
               "recall@0.3": 1 / 4,
-              "precision@0.3": 1 / 5,
-              "f1_score@0.3": retrieval._f1_score(1 / 5, 1 / 4),
+              "precision@0.3": 1 / 2,
+              "f1_score@0.3": retrieval._f1_score(1 / 2, 1 / 4),
           },
       ),
       dict(
@@ -111,11 +111,13 @@ class ThresholdedRetrievalTest(parameterized.TestCase):
           thresholds=thresholds,
           metrics=metric_list,
       )
-    matched_true_prob, matched_pred_prob = retrieval_metric.matcher(
+    matched_true_prob, matched_pred_prob, y_prob = retrieval_metric.matcher(
         y_true, y_pred, y_prob
     )
     retrieval_metric.add(
-        matched_true_prob=matched_true_prob, matched_pred_prob=matched_pred_prob
+        y_prob=y_prob,
+        matched_true_prob=matched_true_prob,
+        matched_pred_prob=matched_pred_prob,
     )
     self.assert_nested_sequence_equal(expected, retrieval_metric.result())
 
