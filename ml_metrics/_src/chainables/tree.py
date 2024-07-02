@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 import abc
-from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterator, Mapping
 import copy
 import dataclasses
 import functools
@@ -89,6 +89,13 @@ class MapLike(Protocol[KT, VT]):
   @abc.abstractmethod
   def __getitem__(self, key: KT) -> VT:
     """Returns value for a key, returns a tuple for multi-key."""
+
+
+class NullMap(MapLike):
+  """An empty MapLike to be used as a placeholder."""
+
+  def __getitem__(self, key: Any):
+    return
 
 
 # A MapLike tree is a nested MapLike structure. E.g., Sequence and Mapping
@@ -207,7 +214,7 @@ class Key(tuple[BaseKey, ...]):
 
   This is immutable, and can only be called by either `new('a', 'b')`
   method or inputs a tuple: Path(('a', 'b')). For convenience, user can also
-  attach individual keys by directly referncing the string name. E.g.,
+  attach individual keys by directly referencing the string name. E.g.,
   Path().pred.logits is same as Path('pred', 'logits) and
   Path.new('pred').logits.
   """
@@ -245,7 +252,7 @@ class Key(tuple[BaseKey, ...]):
     return Key(self + (key,))
 
   def __repr__(self):
-    return f'Path({super().__repr__()})'
+    return f'Path{super().__repr__()}'
 
 
 TreeMapKey = BaseKey | Key | Reserved | Literal
@@ -307,7 +314,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
     strict: If True, non-existing key will cause a KeyError.
   """
 
-  data: MapLikeTree | None = None
+  data: MapLikeTree = dataclasses.field(default_factory=NullMap)
   key_paths: tuple[TreeMapKey, ...] | None = None
   map_fn: Callable[..., Any] | None = dataclasses.field(
       kw_only=True,
@@ -325,16 +332,22 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
     """Util to use a MapLikeTree as a Map."""
     if not isinstance(tree_or_view, TreeMapView):
       tree_or_view = TreeMapView(tree_or_view)
-    if map_fn is not None or key_paths is not None:
+    if map_fn is not None:
       tree_or_view = dataclasses.replace(
-          tree_or_view, map_fn=map_fn, key_paths=key_paths
+          tree_or_view,
+          map_fn=map_fn,
+      )
+    if key_paths is not None:
+      tree_or_view = dataclasses.replace(
+          tree_or_view,
+          key_paths=key_paths,
       )
     return tree_or_view
 
   def _maybe_map(self, data):
     return self.map_fn(data) if self.map_fn else data
 
-  def __get(self, key: TreeMapKey) -> MapLikeTree[LeafValueT] | None:
+  def __get(self, key: TreeMapKey) -> LeafValueT:
     """Gets the value from a single Key or Path."""
     key = key if isinstance(key, Key) else Key((key,))
     data = self.data
@@ -343,7 +356,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
         return self._maybe_map(data)
       if isinstance(k, Literal):
         return k.value
-      if isinstance(k, Index) and isinstance(data, Sequence):
+      if isinstance(k, Index) and base_types.is_array_like(data):
         data = data[k]
       elif not isinstance(k, Index) and isinstance(data, Mapping):
         data = data[k]
@@ -355,7 +368,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
 
   def __getitem__(
       self, keys: TreeMapKey | TreeMapKeys
-  ) -> MapLikeTree[LeafValueT] | LeafValueT | None:
+  ) -> tuple[LeafValueT, ...] | LeafValueT:
     """Returns value for a single key, returns a tuple for multi-key."""
     match keys:
       # Check key Path first to distinguish it from multi-key case below.
@@ -413,9 +426,10 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
 
   def _set_by_path(
       self,
-      tree: MapLikeTree | None,
+      tree: MapLikeTree,
       key_path: Key,
       value: LeafValueT,
+      in_place: bool = False,
   ) -> MapLikeTree[LeafValueT]:
     """Shallow copies the root and set tree[k] as "value" when applicable."""
     if not isinstance(key_path, Key):
@@ -426,19 +440,19 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
 
     # Not a mutable container, constructs the mutable counterpart first.
     container_maker = None
-    if tree is None:
+    if isinstance(tree, NullMap):
       if self.strict:
         raise ValueError('Input tree cannot be empty when "strict" is True.')
       return _default_tree(key_path, value)
     elif not hasattr(tree, '__setitem__'):
       # Returns a copy of a tuple from internals.
-      if isinstance(tree, tuple):
+      if not in_place and isinstance(tree, tuple):
         container_maker = tuple
         result = list(tree)
       else:
         raise TypeError(f'Insert to immutable {type(tree)} with {key_path}.')
     else:
-      result = copy.copy(tree)
+      result = tree if in_place else copy.copy(tree)
 
     # Setting the item.
     try:
@@ -446,17 +460,21 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
         case (Reserved() as reserved, *_):
           if _is_key(reserved, _SKIP):
             pass
-        case (Index(key), *rest_keys) if isinstance(result, Sequence):
+        case (Index(key), *rest_keys) if base_types.is_array_like(result):
           if key == len(result):
             assert isinstance(result, list)
-            result.append(None)
-          result[key] = self._set_by_path(result[key], Key(rest_keys), value)
+            result.append(NullMap())
+          result[key] = self._set_by_path(
+              result[key], Key(rest_keys), value, in_place
+          )
         case (key, *rest_keys) if isinstance(result, Mapping):
           result[key] = self._set_by_path(
-              result.get(key, None), Key(rest_keys), value
+              result.get(key, NullMap()), Key(rest_keys), value, in_place
           )
         case _:
-          raise ValueError(f'Unsupported key "{key_path}" for input of {tree}.')
+          raise ValueError(
+              f'Unsupported key "{key_path}" for input of {repr(tree)}.'
+          )
     except (ValueError, KeyError, IndexError) as e:
       raise ValueError(
           f'Failed to insert {key_path}:{value} to \n{tree_shape(result)}'
@@ -466,16 +484,15 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
     result = result if container_maker is None else container_maker(result)
     return result
 
-  # TODO: b/318463291 - adds in-place option for efficiency.
-  def copy_and_set(
-      self, keys: TreeMapKey | TreeMapKeys, values: Any
+  def set(
+      self, keys: TreeMapKey | TreeMapKeys, values: Any, in_place: bool = True
   ) -> TreeMapView[LeafValueT]:
     """Shallow copies the nodes along the path and set the leaf as the value."""
     # Normalizes the key to Path() and routes the correct way to call single
     # Path _copy_and_set.
     match keys:
       case Key():
-        data = self._set_by_path(self.data, keys, values)
+        data = self._set_by_path(self.data, keys, values, in_place)
       case ():
         if values:
           raise ValueError(f'Keys cannot be empty: {keys=}')
@@ -485,10 +502,20 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
         data = self.data
         values = values if isinstance(values, tuple) else (values,)
         for key, value in zip(keys, values, strict=True):
-          data = self._set_by_path(data, key, value)
+          data = self._set_by_path(data, key, value, in_place)
       case _:
-        data = self._set_by_path(self.data, Key.new(keys), values)
-    return dataclasses.replace(self, data=data)  # pylint: disable=undefined-variable
+        data = self._set_by_path(self.data, Key.new(keys), values, in_place)
+    return self if in_place else dataclasses.replace(self, data=data)
+
+  def __setitem__(self, keys: TreeMapKey | TreeMapKeys, values: Any):
+    self.set(keys, values)
+
+  def copy_and_set(
+      self,
+      keys: TreeMapKey | TreeMapKeys,
+      values: Any,
+  ) -> TreeMapView[LeafValueT]:
+    return self.set(keys, values, in_place=False)
 
   def copy_and_update(self, other: Mapping[TreeMapKey, Any]) -> TreeMapView:
     """Copy and update the original tree given a map."""
@@ -497,11 +524,17 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
     else:
       return self
 
-  def copy_and_map(self, map_fn: Callable[..., Any]) -> MapLikeTree:
-    """Copy and apply a map function to the tree."""
-    view = TreeMapView.as_view(self, map_fn=map_fn)
-    return TreeMapView().copy_and_update(view.to_dict())
-
   def __or__(self, other: Mapping[TreeMapKey, Any]) -> TreeMapView:
     """Alias for `copy_and_update`."""
     return self.copy_and_update(other)
+
+  # TODO: b/311207032 - make the container type also consistent across the tree
+  # with the original self.data.
+  def apply(self) -> MapLikeTree[LeafValueT]:
+    """Copy and apply a map function to the tree."""
+    if self.map_fn is None and self.key_paths is None:
+      return self.data
+    initial_map = TreeMapView()
+    if isinstance(self.data, tuple):
+      initial_map = TreeMapView(())
+    return initial_map.copy_and_update(self.to_dict()).data

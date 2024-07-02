@@ -148,7 +148,6 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
     fn_inputs = tree.TreeMapView.as_view(inputs)[input_keys]
     # A tuple of masks will apply to each input per input_keys. Otherwise, the
     # masks will be applied to all inputs.
-    # TODO: b/311207032 - Consider supporting replace masking behavior.
     if self.masks:
       assert isinstance(fn_inputs, tuple)
       fn_inputs = self._apply_masks(fn_inputs)
@@ -171,6 +170,10 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
         ) from e
     else:
       # If the function is None, this serves as a select operation.
+      if fn_kw_inputs:
+        raise ValueError(
+            f'Select operation should not have kw_inputs, got {fn_kw_inputs=}'
+        )
       outputs = fn_inputs
     # Uses TreeMapView to handle multiple key.
     return tree.TreeMapView().copy_and_set(self.output_keys, outputs).data

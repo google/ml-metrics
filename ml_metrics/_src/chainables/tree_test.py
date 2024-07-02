@@ -52,7 +52,7 @@ class PathTest(absltest.TestCase):
     self.assertEqual('Index(1)', repr(Key.Index(1)))
 
   def test_path_repr(self):
-    self.assertEqual("Path(('a', 'b'))", repr(Key(('a', 'b'))))
+    self.assertEqual("Path('a', 'b')", repr(Key(('a', 'b'))))
 
   def test_reserved_repr(self):
     self.assertEqual("Reserved('SELF')", repr(Key.SELF))
@@ -63,7 +63,23 @@ class PathTest(absltest.TestCase):
     self.assertEqual([Key.SKIP], list(Key.SKIP))
 
 
-class TreeMapViewTest(absltest.TestCase):
+class TreeMapViewTest(parameterized.TestCase):
+
+  def assert_nested_sequence_equal(self, a, b):
+    self.assertEqual(type(a), type(b))
+    if isinstance(a, dict):
+      for (k_a, v_a), (k_b, v_b) in zip(
+          sorted(a.items()), sorted(b.items()), strict=True
+      ):
+        self.assertEqual(k_a, k_b)
+        self.assert_nested_sequence_equal(v_a, v_b)
+    elif isinstance(a, str):
+      self.assertEqual(a, b)
+    elif isinstance(a, Iterable):
+      for a_elem, b_elem in zip(a, b, strict=True):
+        self.assert_nested_sequence_equal(a_elem, b_elem)
+    else:
+      self.assertEqual(a, b)
 
   def test_as_view(self):
     data = {'a': [1, 2], 'b': [3, 4]}
@@ -174,6 +190,28 @@ class TreeMapViewTest(absltest.TestCase):
     }
     self.assertEqual(expected, result)
 
+  def test_set(self):
+    data = {'a': 1, 'b': [np.array([1, 2, 3]), [2, 3, 4]]}
+    result = (
+        TreeMapView(data=data)
+        .set('a', 2)
+        .set(Key.new('b', Key.Index(0), Key.Index(1)), 10)
+        .set(Key.new('b', Key.Index(1), Key.Index(0)), 10)
+        .set('c', values=[2, 3])
+    ).apply()
+    expected = {'a': 2, 'b': [np.array([1, 10, 3]), [10, 3, 4]], 'c': [2, 3]}
+    self.assert_nested_sequence_equal(expected, result)
+
+  def test_setitem(self):
+    data = {'a': 1, 'b': [np.array([1, 2, 3]), [2, 3, 4]]}
+    view = TreeMapView(data=data)
+    view['a'] = 2
+    view[Key.new('b', Key.Index(0), Key.Index(1))] = 10
+    view[Key.new('b', Key.Index(1), Key.Index(0))] = 10
+    view['c'] = [2, 3]
+    expected = {'a': 2, 'b': [np.array([1, 10, 3]), [10, 3, 4]], 'c': [2, 3]}
+    self.assert_nested_sequence_equal(expected, view.apply())
+
   def test_iterate_with_user_keys(self):
     data = tree._default_tree(key_path=Key().model1.pred, value=(1, 2, 3))
     result = (
@@ -202,16 +240,41 @@ class TreeMapViewTest(absltest.TestCase):
     with self.assertRaisesRegex(TypeError, 'Insert to immutable'):
       TreeMapView(data).copy_and_set(Key.new('b', 'c'), values=0)
 
-  def test_map_fn(self):
-    data = dict(a=dict(b=1, c=2), e=3)
-    mapped = TreeMapView.as_view(data).copy_and_map(lambda x: x * 2)
-    expected = dict(a=dict(b=2, c=4), e=6)
-    self.assertEqual(expected, mapped.data)
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='dict',
+          data=dict(a=dict(b=1, c=2), e=3),
+          expected=dict(a=dict(b=2, c=4), e=6),
+      ),
+      dict(
+          testcase_name='tuple',
+          data=(1, 2, 3),
+          expected=(2, 4, 6),
+      ),
+      dict(
+          testcase_name='list',
+          data=[1, 2, 3],
+          expected=[2, 4, 6],
+      ),
+      dict(
+          testcase_name='array',
+          data=np.array([1, 2, 3]),
+          expected=np.array([2, 4, 6]),
+      ),
+      dict(
+          testcase_name='dict_of_array',
+          data={'a': np.array([1, 2, 3]), 'b': np.array([4, 5, 6])},
+          expected={'a': np.array([2, 4, 6]), 'b': np.array([8, 10, 12])},
+      ),
+  ])
+  def test_map_fn(self, data, expected):
+    mapped = TreeMapView.as_view(data, map_fn=lambda x: x * 2).apply()
+    self.assert_nested_sequence_equal(expected, mapped)
 
   def test_view_with_map_fn(self):
     data = dict(a=dict(b=1, c=2), e=3)
     view = TreeMapView.as_view(data, map_fn=lambda x: x * 2)
-    mapped = TreeMapView().copy_and_update(view.to_dict())
+    mapped = TreeMapView({}).copy_and_update(view.to_dict())
     expected = dict(a=dict(b=2, c=4), e=6)
     self.assertEqual(expected, mapped.data)
 
