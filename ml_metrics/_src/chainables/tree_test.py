@@ -368,7 +368,6 @@ class ApplyMaskTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='replace_false',
-          mask_behavior=tree.MaskBehavior.REPLACE,
           replace_false_with=-1,
           expected=[1, -1, [5, -1], -1, 5],
       ),
@@ -376,8 +375,7 @@ class ApplyMaskTest(parameterized.TestCase):
   def test_apply_mask(
       self,
       expected,
-      mask_behavior=tree.MaskBehavior.FILTER,
-      replace_false_with=None,
+      replace_false_with=tree.DEFAULT_FILTER,
   ):
     inputs = [1, 2, np.array([5, 6]), 4, 5]
     mask = [True, False, [True, False], False, True]
@@ -385,7 +383,6 @@ class ApplyMaskTest(parameterized.TestCase):
     result = tree.apply_mask(
         inputs,
         masks=mask,
-        mask_behavior=mask_behavior,
         replace_false_with=replace_false_with,
     )
     self.assert_nested_sequence_equal(result, expected)
@@ -397,7 +394,7 @@ class ApplyMaskTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='replace_false',
-          mask_behavior=tree.MaskBehavior.REPLACE,
+          replace_false_with=None,
           expected={
               'a': [1, None, [5, None], None, 5],
               'b': [1, None, 3, None, 5],
@@ -406,7 +403,7 @@ class ApplyMaskTest(parameterized.TestCase):
       ),
   ])
   def test_apply_dict_mask_to_dict(
-      self, expected, mask_behavior=tree.MaskBehavior.FILTER
+      self, expected, replace_false_with=tree.DEFAULT_FILTER
   ):
     inputs = {
         'a': [1, 2, np.array([5, 6]), 4, 5],
@@ -420,7 +417,7 @@ class ApplyMaskTest(parameterized.TestCase):
     result = tree.apply_mask(
         inputs,
         masks=mask,
-        mask_behavior=mask_behavior,
+        replace_false_with=replace_false_with,
     )
     self.assert_nested_sequence_equal(result, expected)
 
@@ -431,12 +428,12 @@ class ApplyMaskTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='replace_false',
-          mask_behavior=tree.MaskBehavior.REPLACE,
+          replace_false_with=-1,
           expected=([2, -1, 4, -1, 6], [1, -1, 3, -1, 5]),
       ),
   ])
   def test_apply_tuple_mask_to_dict(
-      self, expected, mask_behavior=tree.MaskBehavior.FILTER
+      self, expected, replace_false_with=tree.DEFAULT_FILTER
   ):
     inputs = {
         'a': [2, 3, 4, 5, 6],
@@ -447,8 +444,7 @@ class ApplyMaskTest(parameterized.TestCase):
     result = tree.apply_mask(
         inputs,
         masks=mask,
-        mask_behavior=mask_behavior,
-        replace_false_with=-1,
+        replace_false_with=replace_false_with,
     )
     self.assert_nested_sequence_equal(result['a', 'b'], expected)
 

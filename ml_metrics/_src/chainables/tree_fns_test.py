@@ -270,13 +270,13 @@ class TreeFnTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='replace_false',
-          mask_replace_false_with=-1,
+          replace_mask_false_with=-1,
           inputs=[1, 2, np.array([5, 6]), 4, 5],
           expected=([1, -1, [5, -1], -1, 5],),
       ),
       dict(
           testcase_name='replace_false_multi_inputs',
-          mask_replace_false_with=-1,
+          replace_mask_false_with=-1,
           input_keys=(Key.Index(0), Key.Index(1)),
           inputs=([1, 2, np.array([5, 6]), 4, 5], [5, 6, [7, 0], 8, 9]),
           expected=([1, -1, [5, -1], -1, 5], [5, -1, [7, -1], -1, 9]),
@@ -287,13 +287,13 @@ class TreeFnTest(parameterized.TestCase):
       inputs,
       expected,
       input_keys=Key.SELF,
-      mask_replace_false_with=tree_fns.DEFAULT_FILTER,
+      replace_mask_false_with=tree.DEFAULT_FILTER,
   ):
     masks = [True, False, [True, False], False, True]
     tree_fn = tree_fns.TreeFn.new(
         input_keys=input_keys,
         masks=masks,
-        mask_replace_false_with=mask_replace_false_with,
+        replace_mask_false_with=replace_mask_false_with,
     )
     result = tree_fn(inputs)
     self.assert_nested_sequence_equal(result, expected)
@@ -316,7 +316,7 @@ class TreeFnTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='replace_false_multi_inputs',
-          mask_replace_false_with=-1,
+          replace_mask_false_with=-1,
           input_keys=(Key.Index(0), Key.Index(1)),
           inputs=([1, 2, np.array([5, 6]), 4, 5], [5, 6, [7, 0], 8, 9]),
           expected=([1, -1, [5, -1], -1, 5], [5, -1, [7, -1], -1, 9]),
@@ -327,13 +327,13 @@ class TreeFnTest(parameterized.TestCase):
       inputs,
       expected,
       input_keys=Key.SELF,
-      mask_replace_false_with=tree_fns.DEFAULT_FILTER,
+      replace_mask_false_with=tree.DEFAULT_FILTER,
   ):
     masks = tuple([[True, False, [True, False], False, True]] * 2)
     tree_fn = tree_fns.TreeFn.new(
         input_keys=input_keys,
         masks=masks,
-        mask_replace_false_with=mask_replace_false_with,
+        replace_mask_false_with=replace_mask_false_with,
     )
     result = tree_fn(inputs)
     self.assert_nested_sequence_equal(result, expected)

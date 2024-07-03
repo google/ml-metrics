@@ -363,7 +363,10 @@ class CombinedTreeFn:
             metric_key = MetricKey(metric_name, slice_key)
             if metric_key not in state:
               state[metric_key] = tree_agg_fn.create_state()
-            tree_agg_fn = dataclasses.replace(tree_agg_fn, masks=masks)
+            tree_agg_fn = tree_agg_fn.with_masks(
+                masks,
+                replace_mask_false_with=slicer.replace_mask_false_with,
+            )
             state[metric_key] = tree_agg_fn.update_state(
                 state[metric_key], inputs
             )
@@ -788,8 +791,7 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
       slice_name: str | tuple[str, ...] | None = None,
       slice_fn: tree_fns.SliceIteratorFn | None = None,
       slice_mask_fn: tree_fns.SliceMaskIteratorFn | None = None,
-      mask_behavior: tree.MaskBehavior = tree.MaskBehavior.FILTER,
-      mask_replace_false_with: Any = None,
+      replace_mask_false_with: Any = tree.DEFAULT_FILTER,
   ) -> 'AggregateTransform':
     """Adds a slice and stack it on the existing slicers.
 
@@ -810,7 +812,7 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
         multiple masks are provided, the order of the masks have to match the
         order of the inputs of the aggregations that is configured with this
         slicing. The masking behavior is controlled by `mask_behavior` and
-        `mask_replace_false_with`. By default, it only filter out the entries
+        `replace_mask_false_with`. By default, it only filter out the entries
         with False values in the mask.
 
     Args:
@@ -821,10 +823,9 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
       slice_mask_fn: optional callable that returens an iterable of slice and
         masks pair. The order of the masks have to match the order of the inputs
         of the aggregations that is configured with this slicing.
-      mask_behavior: give a boolean mask, whether to filter out or replace the
-        items corresponding to the false values in the mask.
-      mask_replace_false_with: the value to replace the false values in the
-        mask.
+      replace_mask_false_with: the value to replace the false values in the
+        mask. When not set, the maksing behavior is to filter out the entries
+        with False values in the mask.
 
     Returns:
       The AggregateTransform with slices.
@@ -835,8 +836,7 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
         slice_fn=slice_fn,
         slice_name=slice_name,
         slice_mask_fn=slice_mask_fn,
-        mask_behavior=mask_behavior,
-        mask_replace_false_with=mask_replace_false_with,
+        replace_mask_false_with=replace_mask_false_with,
     )
     if slicer.slice_name in set(slicer.slice_name for slicer in self.slicers):
       raise ValueError(f'Duplicate slice name {slicer.slice_name}.')

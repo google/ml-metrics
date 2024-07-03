@@ -105,19 +105,14 @@ MapLikeTree = MapLike[BaseKey, Union['MapLikeTree', LeafValueT]]
 MapLikeTreeCallable = Callable[[MapLikeTree | None], MapLikeTree | None]
 
 
-class MaskBehavior(base_types.StrEnum):
-  """Enum for the behavior of applying masks."""
-
-  FILTER = 'filter'
-  REPLACE = 'replace'
+DEFAULT_FILTER = 'DEFAULT_FILTER'
 
 
 def apply_mask(
     items: MapLikeTree[Any],
     *,
     masks: MapLikeTree[bool],
-    mask_behavior: MaskBehavior = MaskBehavior.FILTER,
-    replace_false_with: Any = None,
+    replace_false_with: Any = DEFAULT_FILTER,
 ):
   """Applies masks to inputs.
 
@@ -127,11 +122,10 @@ def apply_mask(
   Args:
     items: A tree of inputs.
     masks: A tree of masks.
-    mask_behavior: The behavior of applying masks: if "filter", throw away the
-      elements that are False in the masks. If "replace", replace the elements
-      that are False in the masks with the replace_false_with.
     replace_false_with: The value to replace False with when mask_behavior is
-      "replace".
+      "replace". If not set, throw away the elements that are False in the
+      masks. If set, replace the elements that are False in the masks with the
+      value of replace_false_with.
 
   Returns:
     A tree of inputs with the masks applied.
@@ -145,13 +139,12 @@ def apply_mask(
       if isinstance(mask, bool):
         if mask:
           result[key] = value
-        elif mask_behavior == MaskBehavior.REPLACE:
+        elif replace_false_with != DEFAULT_FILTER:
           result[key] = replace_false_with
       else:
         result[key] = apply_mask(
             value,
             masks=mask,
-            mask_behavior=mask_behavior,
             replace_false_with=replace_false_with,
         )
   # When masks is not a dict, try to apply the mask to the leaf elements of the
@@ -163,7 +156,6 @@ def apply_mask(
         map_fn=functools.partial(
             apply_mask,
             masks=masks,
-            mask_behavior=mask_behavior,
             replace_false_with=replace_false_with,
         ),
     )
@@ -178,14 +170,13 @@ def apply_mask(
       if isinstance(mask, bool):
         if mask:
           result.append(elem)
-        elif mask_behavior == MaskBehavior.REPLACE:
+        elif replace_false_with != DEFAULT_FILTER:
           result.append(replace_false_with)
       else:
         result.append(
             apply_mask(
                 elem,
                 masks=mask,
-                mask_behavior=mask_behavior,
                 replace_false_with=replace_false_with,
             )
         )

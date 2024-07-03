@@ -390,26 +390,28 @@ class TransformTest(parameterized.TestCase):
             output_keys='avg_b',
         )
         .add_slice('a')
-        .add_slice('b')
+        .add_slice('b', replace_mask_false_with=0)
     )
     expected = {
         'avg_b': [5.0],
         MetricKey('avg_b', SliceKey(('a',), (1,))): [3.0],
         MetricKey('avg_b', SliceKey(('a',), (2,))): [9.0],
-        MetricKey('avg_b', SliceKey(('b',), (1,))): [1.0],
-        MetricKey('avg_b', SliceKey(('b',), (9,))): [9.0],
-        MetricKey('avg_b', SliceKey(('b',), (5,))): [5.0],
+        MetricKey('avg_b', SliceKey(('b',), (1,))): [1 / 3],
+        MetricKey('avg_b', SliceKey(('b',), (9,))): [9 / 3],
+        MetricKey('avg_b', SliceKey(('b',), (5,))): [5 / 3],
     }
     self.assertEqual(expected, agg.make()(inputs))
 
   def test_aggregate_with_slicing_on_dict(self):
     inputs = {'a': np.array([1, 2, 1]), 'b': np.array([1, 9, 5])}
     agg = (
-        transform.TreeTransform.new()
-        .aggregate(
+        transform.TreeTransform.new().aggregate(
             fn=TestAverageFn(input_key='b'),
             output_keys='avg_b',
         )
+        # x.item() is needed to convert a non-hashable np.array to a hashable
+        # one. While np.array scalar is hashable, it is not hashable in
+        # Jax numpy array.
         .add_slice('a', slice_fn=lambda x: (x.item(),))
     )
     expected = {

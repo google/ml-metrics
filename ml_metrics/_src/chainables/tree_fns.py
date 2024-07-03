@@ -33,10 +33,7 @@ FnT = TypeVar('FnT')
 StateT = TypeVar('StateT')
 ValueT = TypeVar('ValueT')
 
-DEFAULT_FILTER = '_DEFAULT_FILTER'
 
-
-# TODO: b/318463291 - Consider adding `inputs` fields to handle hybrid args.
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
   """A lazy function that takes a dict and outputs either a dict or a tuple.
@@ -52,7 +49,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       by `input_keys`. If one mask is provided, it will be applied to all
       inputs. If a tuple of masks is provided, each mask will be applied to the
       corresponding input in sequence of the keys in `input_keys`.
-    mask_replace_false_with: If provided, replace False in the mask with this
+    replace_mask_false_with: If provided, replace False in the mask with this
       value.
     lazy: If True, the underlying function is lazy, normally, this means it
       needs to be constructed at runtime.
@@ -63,7 +60,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
   output_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
   fn: FnT | lazy_fns.LazyFn[FnT] | None = None
   masks: tuple[MaskTree, ...] = ()
-  mask_replace_false_with: Any = DEFAULT_FILTER
+  replace_mask_false_with: Any = tree.DEFAULT_FILTER
   _default_constructor: bool = dataclasses.field(default=True, repr=False)
 
   def __post_init__(self):
@@ -80,7 +77,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       fn: FnT | lazy_fns.LazyFn[FnT] | None = None,
       input_keys: tree.TreeMapKey | tree.TreeMapKeys = tree.Key.SELF,
       masks: tuple[MaskTree, ...] | MaskTree = (),
-      mask_replace_false_with: Any = DEFAULT_FILTER,
+      replace_mask_false_with: Any = tree.DEFAULT_FILTER,
   ) -> TreeFn[FnT, ValueT]:
     """Normalizes the arguments before constructing a TreeFn."""
     if masks or fn or output_keys is not tree.Key.SELF:
@@ -97,7 +94,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
         input_keys=input_keys,
         fn=fn,
         masks=masks,
-        mask_replace_false_with=mask_replace_false_with,
+        replace_mask_false_with=replace_mask_false_with,
         _default_constructor=False,
     )
 
@@ -118,16 +115,23 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       return dataclasses.replace(self, fn=self.actual_fn)
     return self
 
+  def with_masks(
+      self,
+      masks: tuple[MaskTree, ...],
+      replace_mask_false_with: Any = tree.DEFAULT_FILTER,
+  ) -> Self:
+    """Returns a new TreeFn with the masks."""
+    return dataclasses.replace(
+        self, masks=masks, replace_mask_false_with=replace_mask_false_with
+    )
+
   def _apply_masks(self, items: tuple[tree.MapLikeTree[Any], ...]):
     """Applies multiple masks to multiple inputs."""
     result = []
-    apply_mask_fn = tree.apply_mask
-    if self.mask_replace_false_with != DEFAULT_FILTER:
-      apply_mask_fn = functools.partial(
-          tree.apply_mask,
-          mask_behavior=tree.MaskBehavior.REPLACE,
-          replace_false_with=self.mask_replace_false_with,
-      )
+    apply_mask_fn = functools.partial(
+        tree.apply_mask,
+        replace_false_with=self.replace_mask_false_with,
+    )
     match self.masks:
       case (mask,):
         for item in items:
@@ -248,8 +252,7 @@ class Slicer:
   slice_input_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
   slice_name: str | tuple[str, ...] = ()
   input_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
-  _mask_behavior: tree.MaskBehavior = tree.MaskBehavior.FILTER
-  _mask_replace_false_with: Any = None
+  replace_mask_false_with: Any = tree.DEFAULT_FILTER
   _default_constructor: bool = dataclasses.field(default=True, repr=False)
 
   def __post_init__(self):
@@ -266,8 +269,7 @@ class Slicer:
       slice_name: tree.TreeMapKey | tree.TreeMapKeys = tree.Key.SELF,
       slice_fn: SliceIteratorFn | None = None,
       slice_mask_fn: SliceMaskIteratorFn | None = None,
-      mask_behavior: tree.MaskBehavior = tree.MaskBehavior.FILTER,
-      mask_replace_false_with: Any = None,
+      replace_mask_false_with: Any = tree.DEFAULT_FILTER,
   ) -> Self:
     """Normalizes the arguments before constructing a TreeFn."""
     if slice_fn and slice_mask_fn:
@@ -275,7 +277,6 @@ class Slicer:
           'Cannot provide both slice_fn and slice_mask_fn, got'
           f' {slice_fn=} and {slice_mask_fn=}.'
       )
-
     # Default slice_fns directly takes the slice_inputs.
     slice_fn = slice_fn or (lambda *args: (args,))
 
@@ -285,7 +286,6 @@ class Slicer:
         yield slice_value, (True,)
 
     slice_mask_fn = slice_mask_fn or _slice_mask_fn
-
     if slice_mask_fn and not slice_name:
       raise ValueError(
           'Must provide slice_name when either slice_fn or slice_mask_fn is'
@@ -300,8 +300,7 @@ class Slicer:
         slice_mask_fn=slice_mask_fn,
         slice_name=slice_name,
         input_keys=input_keys,
-        _mask_behavior=mask_behavior,
-        _mask_replace_false_with=mask_replace_false_with,
+        replace_mask_false_with=replace_mask_false_with,
         _default_constructor=False,
     )
 
@@ -365,7 +364,6 @@ class TreeAggregateFn(
       aggregates.Aggregatable | lazy_fns.LazyFn[aggregates.Aggregatable] | None
   ) = None
 
-  # TODO: b/318463291 - adds groupby functionality.
   def create_state(self) -> StateT:
     try:
       return self.actual_fn.create_state()
