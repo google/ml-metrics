@@ -147,7 +147,19 @@ class TreeMapViewTest(parameterized.TestCase):
             Key().a.a1: np.array([1, 2]),
             Key.new('b', Key.Index(0), 0): np.array(['c', 'd']),
         },
-        view.to_dict(),
+        dict(view.items()),
+    )
+
+  def test_to_tuple(self):
+    view = TreeMapView(
+        {'a': {'a1': np.array([1, 2])}, 'b': [{0: np.array(['c', 'd'])}]}
+    )
+    np.testing.assert_equal(
+        (
+            (Key().a.a1, np.array([1, 2])),
+            (Key.new('b', Key.Index(0), 0), np.array(['c', 'd'])),
+        ),
+        tuple(view.items()),
     )
 
   def test_str(self):
@@ -274,7 +286,7 @@ class TreeMapViewTest(parameterized.TestCase):
   def test_view_with_map_fn(self):
     data = dict(a=dict(b=1, c=2), e=3)
     view = TreeMapView.as_view(data, map_fn=lambda x: x * 2)
-    mapped = TreeMapView({}).copy_and_update(view.to_dict())
+    mapped = TreeMapView({}).copy_and_update(view.items())
     expected = dict(a=dict(b=2, c=4), e=6)
     self.assertEqual(expected, mapped.data)
 
@@ -294,7 +306,7 @@ class TreeMapViewTest(parameterized.TestCase):
     data = TreeMapView({}).copy_and_set(Key().model1.pred, (1, 2, 3))
     self.assertEqual(data, data.copy_and_update({}))
 
-  def test_copy_and_update_non_empty(self):
+  def test_or_operator(self):
     data = TreeMapView({}).copy_and_set(Key().model1.pred, (1, 2, 3))
     new = (
         TreeMapView({})
@@ -312,7 +324,30 @@ class TreeMapViewTest(parameterized.TestCase):
         'model2': {'pred3': [[2, 3, 8]]},
         'single_key': [2, 3, 8],
     }
-    actual = (data | new).data
+    actual = (data | new).apply()
+    self.assertEqual(expected, actual)
+
+  def test_copy_and_update_by_items(self):
+    data = TreeMapView({}).copy_and_set(Key().model1.pred, (1, 2, 3))
+    new = (
+        TreeMapView({})
+        .copy_and_set(('a', 'b'), values=(7, 8))
+        .copy_and_set(Key.new('c', 'b'), values=(7, 8))
+        .copy_and_set(Key().model1.pred.at(Key.Index(0)), values=7)
+        .copy_and_set(Key().model2.pred3.at(Key.Index(0)), values=[2, 3, 8])
+        .copy_and_set('single_key', values=[2, 3, 8])
+    )
+    expected = {
+        'model1': {'pred': (7, 2, 3)},
+        'a': 7,
+        'b': 8,
+        'c': {'b': [7, 8]},
+        'model2': {'pred3': [[2, 3, 8]]},
+        'single_key': [2, 3, 8],
+    }
+    actual = data.copy_and_update(new).apply()
+    self.assertEqual(expected, actual)
+    actual = data.copy_and_update(new.items()).apply()
     self.assertEqual(expected, actual)
 
   def test_normalize_keys(self):

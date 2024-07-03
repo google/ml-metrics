@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 import abc
-from collections.abc import Callable, Hashable, Iterator, Mapping
+from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping
 import copy
 import dataclasses
 import functools
@@ -411,10 +411,6 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
     """Directly stringifies as the tree, no metadata is needed."""
     return str(self.data)
 
-  def to_dict(self) -> dict[TreeMapKey, Any]:
-    """Converts the tree to a flat dict with Path as the keys."""
-    return {path: v for path, v in self.items()}
-
   def _set_by_path(
       self,
       tree: MapLikeTree,
@@ -501,6 +497,12 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
   def __setitem__(self, keys: TreeMapKey | TreeMapKeys, values: Any):
     self.set(keys, values)
 
+  def keys(self):
+    return tuple(k for k in self)
+
+  def values(self):
+    return tuple(self[k] for k in self)
+
   def copy_and_set(
       self,
       keys: TreeMapKey | TreeMapKeys,
@@ -508,12 +510,18 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
   ) -> TreeMapView[LeafValueT]:
     return self.set(keys, values, in_place=False)
 
-  def copy_and_update(self, other: Mapping[TreeMapKey, Any]) -> TreeMapView:
+  def copy_and_update(
+      self,
+      other: Mapping[TreeMapKey, Any] | Iterable[tuple[TreeMapKey, Any]],
+  ) -> TreeMapView:
     """Copy and update the original tree given a map."""
-    if other:
+    if not other:
+      return self
+    # tuple of key value pairs.
+    if isinstance(other, Mapping):
       return self.copy_and_set(*zip(*other.items(), strict=True))
     else:
-      return self
+      return self.copy_and_set(*zip(*other))
 
   def __or__(self, other: Mapping[TreeMapKey, Any]) -> TreeMapView:
     """Alias for `copy_and_update`."""
@@ -528,4 +536,4 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
     initial_map = TreeMapView()
     if isinstance(self.data, tuple):
       initial_map = TreeMapView(())
-    return initial_map.copy_and_update(self.to_dict()).data
+    return initial_map.copy_and_update(self.items()).data
