@@ -788,7 +788,7 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
   def add_slice(
       self,
       keys: TreeMapKey | TreeMapKeys,
-      slice_name: str | tuple[str, ...] | None = None,
+      slice_name: str | tuple[str, ...] = (),
       slice_fn: tree_fns.SliceIteratorFn | None = None,
       slice_mask_fn: tree_fns.SliceMaskIteratorFn | None = None,
       replace_mask_false_with: Any = tree.DEFAULT_FILTER,
@@ -830,7 +830,6 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
     Returns:
       The AggregateTransform with slices.
     """
-    slice_name = slice_name or keys
     slicer = tree_fns.Slicer.new(
         input_keys=keys,
         slice_fn=slice_fn,

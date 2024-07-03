@@ -235,7 +235,8 @@ class SliceKey:
     if len(self.features) != len(self.values):
       raise ValueError(
           'SliceKey should have same number of features and values, got'
-          f' {self.features=} and {self.values=}'
+          f' {self.features=} and {self.values=}. It is possible slice_name is'
+          ' not matching with the slice_fn output.'
       )
 
 
@@ -252,6 +253,7 @@ class Slicer:
   slice_input_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
   slice_name: str | tuple[str, ...] = ()
   input_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
+  within_values: tuple[Any, ...] = ()
   replace_mask_false_with: Any = tree.DEFAULT_FILTER
   _default_constructor: bool = dataclasses.field(default=True, repr=False)
 
@@ -278,7 +280,26 @@ class Slicer:
           f' {slice_fn=} and {slice_mask_fn=}.'
       )
     # Default slice_fns directly takes the slice_inputs.
-    slice_fn = slice_fn or (lambda *args: (args,))
+    within_values = ()
+    if isinstance(input_keys, Mapping):
+      input_keys, within_values = tuple(zip(*input_keys.items()))
+      within_values = tuple(map(tree.normalize_keys, within_values))
+    if within_values and (slice_fn or slice_mask_fn):
+      raise ValueError(
+          'Cannot provide within_values when either slice_fn or slice_mask_fn'
+          ' is provided. Within values should be handled directly by slice_fn.'
+      )
+
+    def _default_slice_fn(*args):
+      if not within_values:
+        return (args,)
+      return (
+          arg
+          for arg, within_value in zip(args, within_values, strict=True)
+          if arg in within_value
+      )
+
+    slice_fn = slice_fn or _default_slice_fn
 
     # Converts a pure slice_fn to a slice_mask_fn with dummy masks.
     def _slice_mask_fn(*args):
@@ -286,11 +307,6 @@ class Slicer:
         yield slice_value, (True,)
 
     slice_mask_fn = slice_mask_fn or _slice_mask_fn
-    if slice_mask_fn and not slice_name:
-      raise ValueError(
-          'Must provide slice_name when either slice_fn or slice_mask_fn is'
-          ' provided.'
-      )
     # Fn requires a tuple for positional inputs. Normalize_keys converts
     # the keys into a tuple of keys to make sure the actual selected inputs
     # are also wrapped in a tuple.
@@ -301,6 +317,7 @@ class Slicer:
         slice_name=slice_name,
         input_keys=input_keys,
         replace_mask_false_with=replace_mask_false_with,
+        within_values=within_values,
         _default_constructor=False,
     )
 
