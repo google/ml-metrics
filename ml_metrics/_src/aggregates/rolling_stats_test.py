@@ -289,7 +289,7 @@ class CoeffStateTest(parameterized.TestCase):
 
     actual_result = rolling_stats.PearsonCorrelationCoefficientAggFn()(x, y)
 
-    # From scipy.rolling_stats.pearsonr(x=x, y=y).statistic
+    # From scipy.stats.pearsonr(x=x, y=y).statistic
     expected_result = -0.8285038835884279
 
     self.assertAlmostEqual(actual_result, expected_result)
@@ -301,7 +301,7 @@ class CoeffStateTest(parameterized.TestCase):
 
     actual_result = rolling_stats.PearsonCorrelationCoefficientAggFn()(x, y)
 
-    # From scipy.rolling_stats.pearsonr(x=x, y=y).statistic
+    # From scipy.stats.pearsonr(x=x, y=y).statistic
     expected_result = -0.00029321876957677745
 
     self.assertAlmostEqual(actual_result, expected_result)
@@ -327,7 +327,7 @@ class CoeffStateTest(parameterized.TestCase):
         rolling_stats.PearsonCorrelationCoefficientAggFn().get_result(state)
     )
 
-    # From scipy.rolling_stats.pearsonr(x=x, y=y).statistic
+    # From scipy.stats.pearsonr(x=x, y=y).statistic
     expected_result = 4.231252166809374e-05
 
     self.assertAlmostEqual(actual_result, expected_result, places=15)
@@ -351,7 +351,7 @@ class CoeffStateTest(parameterized.TestCase):
         rolling_stats.PearsonCorrelationCoefficientAggFn().get_result(state)
     )
 
-    # From scipy.rolling_stats.pearsonr(x=x, y=y).statistic
+    # From scipy.stats.pearsonr(x=x, y=y).statistic
     expected_result = 0.9950377257308471
 
     self.assertAlmostEqual(actual_result, expected_result, places=10)
@@ -413,7 +413,7 @@ class CoeffStateTest(parameterized.TestCase):
 
     actual_result = rolling_stats.CoefficientOfDeterminationAggFn()(x, y)
 
-    # From scipy.rolling_stats.pearsonr(x=x, y=y).statistic ** 2
+    # From scipy.stats.pearsonr(x=x, y=y).statistic ** 2
     expected_result = 0.6864186851211073
 
     self.assertAlmostEqual(actual_result, expected_result)
@@ -425,7 +425,7 @@ class CoeffStateTest(parameterized.TestCase):
 
     actual_result = rolling_stats.CoefficientOfDeterminationAggFn()(x, y)
 
-    # From scipy.rolling_stats.pearsonr(x=x, y=y).statistic ** 2
+    # From scipy.stats.pearsonr(x=x, y=y).statistic ** 2
     expected_result = 8.597724683211943e-08
 
     self.assertAlmostEqual(actual_result, expected_result)
@@ -451,7 +451,7 @@ class CoeffStateTest(parameterized.TestCase):
         state
     )
 
-    # From scipy.rolling_stats.pearsonr(x=x, y=y).statistic ** 2
+    # From scipy.stats.pearsonr(x=x, y=y).statistic ** 2
     expected_result = 1.7903494899129026e-09
 
     self.assertAlmostEqual(actual_result, expected_result, places=15)
@@ -475,7 +475,7 @@ class CoeffStateTest(parameterized.TestCase):
         state
     )
 
-    # From scipy.rolling_stats.pearsonr(x=x, y=y).statistic ** 2
+    # From scipy.stats.pearsonr(x=x, y=y).statistic ** 2
     expected_result = 0.9901000756276166
 
     self.assertAlmostEqual(actual_result, expected_result, places=10)
