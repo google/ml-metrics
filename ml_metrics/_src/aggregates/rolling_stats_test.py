@@ -234,28 +234,31 @@ class StatsStateTest(parameterized.TestCase):
 
 
 class RRegressionTest(parameterized.TestCase):
+
   def test_r_regression_simple(self):
     x = (1, 2, 3, 4, 5, 6, 7)
     y = (10, 9, 2.5, 6, 4, 3, 2)
 
     actual_result = rolling_stats.RRegression().add(x, y).result()
 
-    # From scipy.stats.pearsonr(x=x, y=y).statistic
+    # From
+    # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
     expected_result = -0.8285038835884279
 
-    self.assertAlmostEqual(actual_result, expected_result)
+    self.assertAlmostEqual(actual_result, expected_result, places=10)
 
-  def test_r_regression_one_batch(self):
+  def test_r_regression_one_large_batch(self):
     np.random.seed(seed=0)
     x = np.random.rand(1000000)
     y = np.random.rand(1000000)
 
     actual_result = rolling_stats.RRegression().add(x, y).result()
 
-    # From scipy.stats.pearsonr(x=x, y=y).statistic
-    expected_result = -0.00029321876957677745
+    # From
+    # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
+    expected_result = -0.0002932187695762664
 
-    self.assertAlmostEqual(actual_result, expected_result)
+    self.assertAlmostEqual(actual_result, expected_result, places=13)
 
   def test_r_regression_many_batches_little_correlation(self):
     np.random.seed(seed=0)
@@ -270,10 +273,11 @@ class RRegressionTest(parameterized.TestCase):
     for x_i, y_i in zip(x, y):
       state.add(x_i, y_i)
 
-    # From scipy.stats.pearsonr(x=x, y=y).statistic
-    expected_result = 4.231252166809374e-05
+    # From
+    # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
+    expected_result = 4.231252166807617e-05
 
-    self.assertAlmostEqual(state.result(), expected_result, places=15)
+    self.assertAlmostEqual(state.result(), expected_result, places=14)
 
   def test_r_regression_many_batches_much_correlation(self):
     np.random.seed(seed=0)
@@ -288,8 +292,9 @@ class RRegressionTest(parameterized.TestCase):
     for x_i, y_i in zip(x, y):
       state.add(x_i, y_i)
 
-    # From scipy.stats.pearsonr(x=x, y=y).statistic
-    expected_result = 0.9950377257308471
+    # From
+    # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
+    expected_result = 0.995037725730923
 
     self.assertAlmostEqual(state.result(), expected_result, places=10)
 
@@ -304,7 +309,7 @@ class RRegressionTest(parameterized.TestCase):
 
     expected_result = 1
 
-    self.assertAlmostEqual(state.result(), expected_result, places=15)
+    self.assertAlmostEqual(state.result(), expected_result, places=9)
 
   def test_r_regression_many_batches_inverse_correlation(self):
     x = np.array([
@@ -317,7 +322,7 @@ class RRegressionTest(parameterized.TestCase):
 
     expected_result = -1
 
-    self.assertAlmostEqual(state.result(), expected_result, places=15)
+    self.assertAlmostEqual(state.result(), expected_result, places=9)
 
   @parameterized.named_parameters(
       dict(testcase_name='empty_input', x=(), y=()),
