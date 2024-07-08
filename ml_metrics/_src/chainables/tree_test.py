@@ -425,29 +425,52 @@ class ApplyMaskTest(parameterized.TestCase):
   @parameterized.named_parameters([
       dict(
           testcase_name='default',
+          mask={
+              'a': [True, False, [True, False], False, True],
+              'b': [True, False, True, False, True],
+          },
+          expected={'a': [1, [5], 5], 'b': [1, 3, 5]},
+      ),
+      dict(
+          testcase_name='key_false',
+          mask={
+              'a': [True, False, [True, False], False, True],
+              'b': [True, False, True, False, True],
+              'c': False,
+          },
+          expected={'a': [1, [5], 5], 'b': [1, 3, 5]},
+      ),
+      dict(
+          testcase_name='dict_key_false_replace_with_none',
+          mask={
+              'a': [True, False, [True, False], False, True],
+              'b': [True, False, True, False, True],
+              'c': True,
+          },
           expected={'a': [1, [5], 5], 'b': [1, 3, 5], 'c': 'irrelevant'},
       ),
       dict(
-          testcase_name='replace_false',
+          testcase_name='replace_false_with_none',
+          mask={
+              'a': [True, False, [True, False], False, True],
+              'b': [True, False, True, False, True],
+              'c': False,
+          },
           replace_false_with=None,
           expected={
               'a': [1, None, [5, None], None, 5],
               'b': [1, None, 3, None, 5],
-              'c': 'irrelevant',
+              'c': None,
           },
       ),
   ])
   def test_apply_dict_mask_to_dict(
-      self, expected, replace_false_with=tree.DEFAULT_FILTER
+      self, mask, expected, replace_false_with=tree.DEFAULT_FILTER
   ):
     inputs = {
         'a': [1, 2, np.array([5, 6]), 4, 5],
         'b': [1, 2, 3, 4, 5],
         'c': 'irrelevant',
-    }
-    mask = {
-        'a': [True, False, [True, False], False, True],
-        'b': [True, False, True, False, True],
     }
     result = tree.apply_mask(
         inputs,

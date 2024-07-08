@@ -105,6 +105,39 @@ class TestPrecisionRecall:
     return self.precision(), self.recall()
 
 
+def get_mask(inputs, key):
+  if isinstance(inputs, list):
+    return [get_mask(elem, key) for elem in inputs]
+  else:
+    return inputs == key
+
+
+def single_slicer(inputs, for_pred=True, within=()):
+  keys = set()
+  for elems in inputs:
+    for elem in elems:
+      keys.add(elem)
+  within = within or keys
+  for key in sorted(keys):
+    if key in within:
+      mask = get_mask(inputs, key)
+      masks = (mask, True) if for_pred else (True, mask)
+      yield key, masks
+
+
+def multi_slicer(preds, labels, within=()):
+  keys = set()
+  for elem in itertools.chain(preds, labels):
+    keys.update(elem)
+  within = within or keys
+  for key in sorted(keys):
+    if key in within:
+      pred_mask = get_mask(preds, key)
+      label_mask = get_mask(labels, key)
+      masks = (pred_mask, label_mask)
+      yield key, masks
+
+
 class TransformTest(parameterized.TestCase):
 
   @parameterized.named_parameters([
@@ -525,7 +558,55 @@ class TransformTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       agg.make()(inputs)
 
-  def test_transform_with_intra_example_slicing(self):
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='single_mask_on_pred',
+          slicer_input='attr_pred',
+          slice_mask_fn=functools.partial(single_slicer, within=('a', 'b')),
+          slice_name='pred_class',
+          expected={
+              'precision': 0.75,
+              'recall': 0.6,
+              MetricKey('precision', SliceKey(('pred_class',), ('a',))): 0.5,
+              MetricKey('precision', SliceKey(('pred_class',), ('b',))): 1.0,
+              MetricKey('recall', SliceKey(('pred_class',), ('a',))): 0.6,
+              MetricKey('recall', SliceKey(('pred_class',), ('b',))): 0.6,
+          },
+      ),
+      dict(
+          testcase_name='single_mask_on_label',
+          slicer_input='attr_label',
+          slice_mask_fn=functools.partial(
+              single_slicer, for_pred=False, within=('e', 'g')
+          ),
+          slice_name='label_class',
+          expected={
+              'precision': 0.75,
+              'recall': 0.6,
+              MetricKey('precision', SliceKey(('label_class',), ('e',))): 0.75,
+              MetricKey('precision', SliceKey(('label_class',), ('g',))): 0.75,
+              MetricKey('recall', SliceKey(('label_class',), ('e',))): 1.0,
+              MetricKey('recall', SliceKey(('label_class',), ('g',))): 0.5,
+          },
+      ),
+      dict(
+          testcase_name='dual_mask_on_pred_and_label',
+          slicer_input=('pred', 'label'),
+          slice_mask_fn=functools.partial(multi_slicer, within=(0, 1)),
+          slice_name='classes',
+          expected={
+              'precision': 0.75,
+              'recall': 0.6,
+              MetricKey('precision', SliceKey(('classes',), (0,))): 2 / 3,
+              MetricKey('precision', SliceKey(('classes',), (1,))): 1 / 1,
+              MetricKey('recall', SliceKey(('classes',), (0,))): 1 / 1,
+              MetricKey('recall', SliceKey(('classes',), (1,))): 2 / 3,
+          },
+      ),
+  ])
+  def test_intra_example_slicing(
+      self, slicer_input, slice_mask_fn, slice_name, expected
+  ):
     inputs = [{
         'pred': [[0, 0], [0, 1]],
         'label': [[0, 1, 2], [1, 1]],
@@ -548,7 +629,7 @@ class TransformTest(parameterized.TestCase):
     #   precision: 2 / 2 = 1.0
     #   recall:   0.6 (same as overall)
     # slice on 'attr_label' 'e':
-    #   precision: 2 / 2 = 1.0 because the 2nd example is filtered out.
+    #   precision: 0.75 (same as overall)
     #   recall:    1 / 1 = 1.0
     # slice on 'attr_label' 'g':
     #   precision: 0.75 (same as overall)
@@ -566,36 +647,6 @@ class TransformTest(parameterized.TestCase):
       pred_tp = [elem in label for elem in pred]
       label_tp = [elem in pred for elem in label]
       return pred_tp, label_tp
-
-    def get_mask(inputs, key):
-      if isinstance(inputs, list):
-        return [get_mask(elem, key) for elem in inputs]
-      else:
-        return inputs == key
-
-    def single_slicer(inputs, for_pred=True, within=()):
-      keys = set()
-      for elems in inputs:
-        for elem in elems:
-          keys.add(elem)
-      within = within or keys
-      for key in sorted(keys):
-        if key in within:
-          mask = get_mask(inputs, key)
-          masks = (mask, True) if for_pred else (True, mask)
-          yield key, masks
-
-    def multi_slicer(preds, labels, within=()):
-      keys = set()
-      for elem in itertools.chain(preds, labels):
-        keys.add(elem)
-      within = within or keys
-      for key in sorted(keys):
-        if key in within:
-          pred_mask = get_mask(preds, key)
-          label_mask = get_mask(labels, key)
-          masks = (pred_mask, label_mask)
-          yield key, masks
 
     # Without slicing, the aggregate function can use the matcher directly.
     agg_overall = (
@@ -637,41 +688,12 @@ class TransformTest(parameterized.TestCase):
             ),
         )
         .add_slice(
-            'attr_pred',
-            slice_mask_fn=functools.partial(single_slicer, within=('a', 'b')),
-            slice_name='pred_class',
-        )
-        .add_slice(
-            'attr_label',
-            slice_mask_fn=functools.partial(
-                single_slicer, for_pred=False, within=('e', 'g')
-            ),
-            slice_name='label_class',
-        )
-        .add_slice(
-            ('pred', 'label'),
-            slice_mask_fn=functools.partial(multi_slicer, within=(0, 1)),
-            slice_name='classes',
+            slicer_input,
+            slice_mask_fn=slice_mask_fn,
+            slice_name=slice_name,
         )
     )
     agg_result = agg.make()()
-
-    expected = {
-        'precision': 0.75,
-        'recall': 0.6,
-        MetricKey('precision', SliceKey(('pred_class',), ('a',))): 0.5,
-        MetricKey('precision', SliceKey(('pred_class',), ('b',))): 1.0,
-        MetricKey('precision', SliceKey(('label_class',), ('e',))): 1.0,
-        MetricKey('precision', SliceKey(('label_class',), ('g',))): 0.75,
-        MetricKey('precision', SliceKey(('classes',), (0,))): 2 / 3,
-        MetricKey('precision', SliceKey(('classes',), (1,))): 1 / 1,
-        MetricKey('recall', SliceKey(('pred_class',), ('a',))): 0.6,
-        MetricKey('recall', SliceKey(('pred_class',), ('b',))): 0.6,
-        MetricKey('recall', SliceKey(('label_class',), ('e',))): 1.0,
-        MetricKey('recall', SliceKey(('label_class',), ('g',))): 0.5,
-        MetricKey('recall', SliceKey(('classes',), (0,))): 1 / 1,
-        MetricKey('recall', SliceKey(('classes',), (1,))): 2 / 3,
-    }
     self.assertEqual(expected, agg_result)
 
   def test_input_iterator_transform(self):

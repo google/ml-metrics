@@ -130,47 +130,22 @@ def apply_mask(
   Returns:
     A tree of inputs with the masks applied.
   """
-  # The order of the following if-else statements is important because dicts
-  # are also instances of Iterable.
-  if isinstance(masks, dict) and isinstance(items, dict):
-    result = copy.copy(items)
-    for key, value in items.items():
-      mask = masks.get(key, True)
-      if isinstance(mask, bool):
-        if mask:
-          result[key] = value
-        elif replace_false_with != DEFAULT_FILTER:
-          result[key] = replace_false_with
-      else:
-        result[key] = apply_mask(
-            value,
-            masks=mask,
-            replace_false_with=replace_false_with,
-        )
-  # When masks is not a dict, try to apply the mask to the leaf elements of the
-  # dict. Note that TreeMapView will only apply the mask lazily when specific
-  # leaf elements are accessed.
-  elif not isinstance(masks, dict) and isinstance(items, dict):
-    return TreeMapView.as_view(
-        items,
-        map_fn=functools.partial(
-            apply_mask,
-            masks=masks,
-            replace_false_with=replace_false_with,
-        ),
-    )
-  elif isinstance(masks, dict) and not isinstance(items, dict):
-    raise ValueError(
-        f'Items have to be dict when masks are dict, got {type(items)=}'
-    )
-  # Non-dict masks and items.
+  # Test comparison to literal boolean True, note, this includs 1.
+  if not base_types.is_array_like(masks) and masks == True:  # pylint: disable=singleton-comparison
+    return items
+  # array like masks and items, this includes list, tuple, np array.
   elif base_types.is_array_like(items) and base_types.is_array_like(masks):
+    if hasattr(masks, '__array__') and getattr(masks, 'dtype') == bool:
+      if replace_false_with != DEFAULT_FILTER:
+        return np.where(masks, items, replace_false_with)
+      else:
+        return np.asarray(items)[masks]
     result = []
     for elem, mask in zip(items, masks, strict=True):
-      if isinstance(mask, bool):
-        if mask:
-          result.append(elem)
-        elif replace_false_with != DEFAULT_FILTER:
+      if mask == True:  # pylint: disable=singleton-comparison
+        result.append(elem)
+      elif mask == False:  # pylint: disable=singleton-comparison
+        if replace_false_with != DEFAULT_FILTER:
           result.append(replace_false_with)
       else:
         result.append(
@@ -188,10 +163,37 @@ def apply_mask(
         result = np.asarray(result, dtype=hasattr(items, 'dtype'))
       else:
         result = np.asarray(result)
+  elif isinstance(masks, dict) and isinstance(items, dict):
+    result = {}
+    for key, mask in masks.items():
+      value = items.get(key)
+      if mask == True:  # pylint: disable=singleton-comparison
+        result[key] = value
+      elif mask == False:  # pylint: disable=singleton-comparison
+        if replace_false_with != DEFAULT_FILTER:
+          result[key] = replace_false_with
+      else:
+        result[key] = apply_mask(
+            value,
+            masks=mask,
+            replace_false_with=replace_false_with,
+        )
+  # When masks is not a dict, try to apply the mask to the leaf elements of the
+  # dict. Note that TreeMapView will only apply the mask lazily when a leaf
+  # element is accessed.
+  elif base_types.is_array_like(masks) and isinstance(items, dict):
+    return TreeMapView.as_view(
+        items,
+        map_fn=functools.partial(
+            apply_mask,
+            masks=masks,
+            replace_false_with=replace_false_with,
+        ),
+    )
   else:
     raise ValueError(
-        'Masks and inputs have to be both of the same Iterable type (including'
-        f' dict): {type(masks)=}, {type(items)=}'
+        'Masks and inputs have to be of types (dict, dict), (array, array), '
+        f'(array, dict), or (True, Any) got: {type(masks)=}, {type(items)=}'
     )
   return result
 
