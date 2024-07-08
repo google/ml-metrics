@@ -134,8 +134,8 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
 
 
 @dataclasses.dataclass(slots=True)
-class _CoeffState:
-  """The State for Coefficient Metrics."""
+class _PccState:
+  """State for the Pearson Correlation Coefficient Metrics."""
 
   num_samples: int = 0
   sum_x: float = 0
@@ -144,7 +144,7 @@ class _CoeffState:
   sum_yy: float = 0  # sum(y**2)
   sum_xy: float = 0  # sum(x * y)
 
-  def __eq__(self, other: '_CoeffState') -> bool:
+  def __eq__(self, other: '_PccState') -> bool:
     return (
         self.num_samples == other.num_samples
         and self.sum_x == other.sum_x
@@ -154,13 +154,11 @@ class _CoeffState:
         and self.sum_xy == other.sum_xy
     )
 
-  def from_inputs(
-      self, x: Sequence[float], y: Sequence[float]
-  ) -> '_CoeffState':
+  def from_inputs(self, x: Sequence[float], y: Sequence[float]) -> '_PccState':
     x = np.array(x)
     y = np.array(y)
 
-    return _CoeffState(
+    return _PccState(
         num_samples=x.size,
         sum_x=np.sum(x),
         sum_y=np.sum(y),
@@ -169,7 +167,7 @@ class _CoeffState:
         sum_xy=np.sum(x * y),
     )
 
-  def merge(self, other: '_CoeffState') -> '_CoeffState':
+  def merge(self, other: '_PccState') -> '_PccState':
     self.num_samples += other.num_samples
     self.sum_x += other.sum_x
     self.sum_y += other.sum_y
@@ -180,21 +178,21 @@ class _CoeffState:
     return self
 
 
-class _CoeffAggFnBase(base.AggregateFn, abc.ABC):
-  """Base class for Coefficient Aggreation Functions."""
+class _PccAggFnBase(base.AggregateFn, abc.ABC):
+  """Base class for the Pearson Correlation Coefficient Metrics."""
 
   def create_state(self):
-    return _CoeffState()
+    return _PccState()
 
   def update_state(
       self,
-      state: _CoeffState,
+      state: _PccState,
       x: Sequence[float],
       y: Sequence[float],
-  ) -> _CoeffState:
+  ) -> _PccState:
     return state.merge(state.from_inputs(x, y))
 
-  def merge_states(self, states: Iterable[_CoeffState]) -> _CoeffState:
+  def merge_states(self, states: Iterable[_PccState]) -> _PccState:
     states = iter(states)
     result = next(states)
 
@@ -204,11 +202,11 @@ class _CoeffAggFnBase(base.AggregateFn, abc.ABC):
     return result
 
   @abc.abstractmethod
-  def get_result(self, state: _CoeffState) -> float:
+  def get_result(self, state: _PccState) -> float:
     raise NotImplementedError('get_result() is not implemented.')
 
 
-class PearsonCorrelationCoefficientAggFn(_CoeffAggFnBase):
+class PearsonCorrelationCoefficientAggFn(_PccAggFnBase):
   """Computes the Pearson Correlation Coefficient (PCC).
 
   The Pearson correlation coefficient (PCC) is a correlation coefficient that
@@ -225,7 +223,7 @@ class PearsonCorrelationCoefficientAggFn(_CoeffAggFnBase):
   https://en.wikipedia.org/wiki/Pearson_correlation_coefficient
   """
 
-  def get_result(self, state: _CoeffState) -> float:
+  def get_result(self, state: _PccState) -> float:
     """Calculates the Pearson Correlation Coefficient (PCC).
 
     PCC = cov(X, Y) / std(X) / std(Y)
@@ -251,7 +249,7 @@ class PearsonCorrelationCoefficientAggFn(_CoeffAggFnBase):
     where n, x_i, y_i, x_bar, and y_bar are defined as above.
 
     Args:
-      state: The _CoeffState containing the necessary sums to calculate the
+      state: The _PccState containing the necessary sums to calculate the
         Pearson Correlation Coefficient.
 
     Returns:
@@ -279,11 +277,11 @@ class PearsonCorrelationCoefficientAggFn(_CoeffAggFnBase):
     return numerator / denominator
 
 
-class CoefficientOfDeterminationAggFn(_CoeffAggFnBase):
-  """Computes the Coefficient of Determination (r^2).
+class PearsonCorrelationCoefficientSquaredAggFn(_PccAggFnBase):
+  """Computes the Pearson Correlation Coefficient Squared (r^2).
 
-  The Coefficient of Determination is a statistic used in the context of
-  statistical models whose main purpose is either the prediction of future
+  The Pearson Correlation Coefficient Squared is a statistic used in the context
+  of statistical models whose main purpose is either the prediction of future
   outcomes or the testing of hypotheses, on the basis of other related
   information. It provides a measure of how well observed outcomes are
   replicated by the model, based on the proportion of total variation of
@@ -292,11 +290,9 @@ class CoefficientOfDeterminationAggFn(_CoeffAggFnBase):
   https://en.wikipedia.org/wiki/Coefficient_of_determination
   """
 
-  def get_result(self, state: _CoeffState) -> float:
-    """Calculates the Coefficient of Determination (r^2).
+  def get_result(self, state: _PccState) -> float:
+    """Calculates the Pearson Correlation Coefficient Squared (r^2).
 
-    Since this is linear regression, r^2 is equivalent to the square of the
-    Pearson Correlation Coefficient.
     r^2 = (sum(x_i * y_i) - n * x_bar * y_bar) ** 2
     / (sum(x_i ** 2) - n * x_bar ** 2)
     / (sum(y_i ** 2) - n * y_bar ** 2)
@@ -304,11 +300,11 @@ class CoefficientOfDeterminationAggFn(_CoeffAggFnBase):
     x_bar is the sample mean; analagously for y_bar, and n is the sample size.
 
     Args:
-      state: The _CoeffState containing the necessary sums to calculate the
-        Coefficient of Determination.
+      state: The _PccState containing the necessary sums to calculate the
+        Pearson Correlation Coefficient Squared.
 
     Returns:
-      The Coefficient of Determination
+      The Pearson Correlation Coefficient Squared.
     """
     # Since we kept track of the running sums, it is easiest to simplify by
     # multiplying the numerator and denominator by n^2. Thus,
