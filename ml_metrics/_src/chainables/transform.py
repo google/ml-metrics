@@ -39,7 +39,8 @@ Following is an example of an evaluation pipeline where:
       )
       .add_slice('feature_a')
       .add_slice(('feature_a', 'feature_b'))
-      .add_slice('feature_b', slice_fn, slice_name='transformed_feature'),
+      .add_slice('feature_b', slice_fn, slice_name='transformed_feature')
+      .add_slice('feature_a', slice_mask_fn, slice_name='new_feature')
   )
 """
 from __future__ import annotations
