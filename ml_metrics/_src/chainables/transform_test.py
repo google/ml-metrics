@@ -140,6 +140,17 @@ def multi_slicer(preds, labels, within=()):
 
 class TransformTest(parameterized.TestCase):
 
+  def test_transform_call(self):
+
+    t = (
+        transform.TreeTransform.new()
+        .data_source(range(3))
+        .apply(fn=lambda x: x + 1)
+    )
+    self.assertEqual(t.make()(), [1, 2, 3])
+    self.assertEqual([2, 3, 4], t.make()(input_iterator=range(1, 4)))
+    self.assertEqual(2, t.make()(1))
+
   @parameterized.named_parameters([
       dict(
           testcase_name='apply_elem', inputs=0, fn=lambda x: x + 1, expected=1

@@ -438,7 +438,7 @@ class CombinedTreeFn:
       )
     # Overrides the internal input_iterator if either inputs or input_iterator
     # is provided.
-    if input_iterator is None and self.input_iterator is None:
+    if inputs is not None:
       return [inputs]
     else:
       return input_iterator or self.input_iterator
@@ -517,7 +517,7 @@ class CombinedTreeFn:
     else:
       result = list(self.iterate(iter_input))
       # Directly returns the result when inputs (vs. iterator) is fed.
-      if not input_iterator and not self.input_iterator:
+      if inputs is not None:
         return result[0]
       return result
 
