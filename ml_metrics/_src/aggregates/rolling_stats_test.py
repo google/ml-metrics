@@ -233,82 +233,31 @@ class StatsStateTest(parameterized.TestCase):
       )
 
 
-class CoeffStateTest(parameterized.TestCase):
-
-  def test_coeff_state_merge(self):
-    x_1 = (1, 2, 3, 4)
-    y_1 = (10, 9, 2.5, 6)
-
-    x_2 = (5, 6, 7)
-    y_2 = (4, 3, 2)
-
-    new_state = rolling_stats._CoeffState()
-    state_1 = new_state.from_inputs(x_1, y_1)
-    state_2 = new_state.from_inputs(x_2, y_2)
-    result = state_1.merge(state_2)
-
-    expected_result = rolling_stats._CoeffState(
-        num_samples=7,
-        sum_x=28,
-        sum_y=36.5,
-        sum_xx=140,
-        sum_yy=252.25,
-        sum_xy=111.5,
-    )
-
-    self.assertEqual(result, expected_result)
-
-  def test_coeff_agg_fn_base_merge_states(self):
-    x_1 = (1, 2, 3, 4)
-    y_1 = (10, 9, 2.5, 6)
-
-    x_2 = (5, 6, 7)
-    y_2 = (4, 3, 2)
-
-    new_state = rolling_stats._CoeffState()
-    state_1 = new_state.from_inputs(x_1, y_1)
-    state_2 = new_state.from_inputs(x_2, y_2)
-
-    new_agg_fn = rolling_stats.PearsonCorrelationCoefficientAggFn()
-    result = new_agg_fn.merge_states((state_1, state_2))
-
-    expected_result = rolling_stats._CoeffState(
-        num_samples=7,
-        sum_x=28,
-        sum_y=36.5,
-        sum_xx=140,
-        sum_yy=252.25,
-        sum_xy=111.5,
-    )
-
-    self.assertEqual(result, expected_result)
-
-  def test_pearson_correlation_coefficient_simple(self):
+class RRegressionTest(parameterized.TestCase):
+  def test_r_regression_simple(self):
     x = (1, 2, 3, 4, 5, 6, 7)
     y = (10, 9, 2.5, 6, 4, 3, 2)
 
-    actual_result = rolling_stats.PearsonCorrelationCoefficientAggFn()(x, y)
+    actual_result = rolling_stats.RRegression().add(x, y).result()
 
     # From scipy.stats.pearsonr(x=x, y=y).statistic
     expected_result = -0.8285038835884279
 
     self.assertAlmostEqual(actual_result, expected_result)
 
-  def test_pearson_correlation_coefficient_one_batch(self):
+  def test_r_regression_one_batch(self):
     np.random.seed(seed=0)
     x = np.random.rand(1000000)
     y = np.random.rand(1000000)
 
-    actual_result = rolling_stats.PearsonCorrelationCoefficientAggFn()(x, y)
+    actual_result = rolling_stats.RRegression().add(x, y).result()
 
     # From scipy.stats.pearsonr(x=x, y=y).statistic
     expected_result = -0.00029321876957677745
 
     self.assertAlmostEqual(actual_result, expected_result)
 
-  def test_pearson_correlation_coefficient_many_batches_little_correlation(
-      self,
-  ):
+  def test_r_regression_many_batches_little_correlation(self):
     np.random.seed(seed=0)
     x = np.array([
         np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
@@ -317,22 +266,16 @@ class CoeffStateTest(parameterized.TestCase):
         np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
     ])
 
-    state = rolling_stats.PearsonCorrelationCoefficientAggFn().create_state()
+    state = rolling_stats.RRegression()
     for x_i, y_i in zip(x, y):
-      rolling_stats.PearsonCorrelationCoefficientAggFn().update_state(
-          state, x_i, y_i
-      )
-
-    actual_result = (
-        rolling_stats.PearsonCorrelationCoefficientAggFn().get_result(state)
-    )
+      state.add(x_i, y_i)
 
     # From scipy.stats.pearsonr(x=x, y=y).statistic
     expected_result = 4.231252166809374e-05
 
-    self.assertAlmostEqual(actual_result, expected_result, places=15)
+    self.assertAlmostEqual(state.result(), expected_result, places=15)
 
-  def test_pearson_correlation_coefficient_many_batches_much_correlation(self):
+  def test_r_regression_many_batches_much_correlation(self):
     np.random.seed(seed=0)
     x = np.array([
         np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
@@ -341,71 +284,47 @@ class CoeffStateTest(parameterized.TestCase):
         np.random.uniform(low=-1e5, high=1e5, size=10000) for _ in range(10000)
     ])  # This is a noisy version of x.
 
-    state = rolling_stats.PearsonCorrelationCoefficientAggFn().create_state()
+    state = rolling_stats.RRegression()
     for x_i, y_i in zip(x, y):
-      rolling_stats.PearsonCorrelationCoefficientAggFn().update_state(
-          state, x_i, y_i
-      )
-
-    actual_result = (
-        rolling_stats.PearsonCorrelationCoefficientAggFn().get_result(state)
-    )
+      state.add(x_i, y_i)
 
     # From scipy.stats.pearsonr(x=x, y=y).statistic
     expected_result = 0.9950377257308471
 
-    self.assertAlmostEqual(actual_result, expected_result, places=10)
+    self.assertAlmostEqual(state.result(), expected_result, places=10)
 
-  def test_pearson_correlation_coefficient_many_batches_direct_correlation(
-      self,
-  ):
+  def test_r_regression_many_batches_direct_correlation(self):
     x = np.array([
         np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
     ])
 
-    state = rolling_stats.PearsonCorrelationCoefficientAggFn().create_state()
+    state = rolling_stats.RRegression()
     for x_i in x:
-      rolling_stats.PearsonCorrelationCoefficientAggFn().update_state(
-          state, x_i, x_i
-      )
-
-    actual_result = (
-        rolling_stats.PearsonCorrelationCoefficientAggFn().get_result(state)
-    )
+      state.add(x_i, x_i)
 
     expected_result = 1
 
-    self.assertAlmostEqual(actual_result, expected_result, places=15)
+    self.assertAlmostEqual(state.result(), expected_result, places=15)
 
-  def test_pearson_correlation_coefficient_many_batches_inverse_correlation(
-      self,
-  ):
+  def test_r_regression_many_batches_inverse_correlation(self):
     x = np.array([
         np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
     ])
 
-    state = rolling_stats.PearsonCorrelationCoefficientAggFn().create_state()
+    state = rolling_stats.RRegression()
     for x_i in x:
-      rolling_stats.PearsonCorrelationCoefficientAggFn().update_state(
-          state, x_i, -x_i
-      )
-
-    actual_result = (
-        rolling_stats.PearsonCorrelationCoefficientAggFn().get_result(state)
-    )
+      state.add(x_i, -x_i)
 
     expected_result = -1
 
-    self.assertAlmostEqual(actual_result, expected_result, places=15)
+    self.assertAlmostEqual(state.result(), expected_result, places=15)
 
   @parameterized.named_parameters(
       dict(testcase_name='empty_input', x=(), y=()),
       dict(testcase_name='0_input', x=(0, 0), y=(0, 0)),
   )
-  def test_pearson_correlation_coefficient_returns_nan(self, x, y):
-    self.assertTrue(
-        math.isnan(rolling_stats.PearsonCorrelationCoefficientAggFn()(x, y))
-    )
+  def test_r_regression_returns_nan(self, x, y):
+    self.assertTrue(math.isnan(rolling_stats.RRegression().add(x, y).result()))
 
 
 if __name__ == '__main__':

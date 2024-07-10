@@ -13,8 +13,7 @@
 # limitations under the License.
 """Common statistics aggregations."""
 
-import abc
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 import dataclasses
 import math
 from typing import Self
@@ -134,81 +133,7 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
 
 
 @dataclasses.dataclass(slots=True)
-class _CoeffState:
-  """The State for Coefficient Metrics."""
-
-  num_samples: int = 0
-  sum_x: float = 0
-  sum_y: float = 0
-  sum_xx: float = 0  # sum(x**2)
-  sum_yy: float = 0  # sum(y**2)
-  sum_xy: float = 0  # sum(x * y)
-
-  def __eq__(self, other: '_CoeffState') -> bool:
-    return (
-        self.num_samples == other.num_samples
-        and self.sum_x == other.sum_x
-        and self.sum_y == other.sum_y
-        and self.sum_xx == other.sum_xx
-        and self.sum_yy == other.sum_yy
-        and self.sum_xy == other.sum_xy
-    )
-
-  def from_inputs(
-      self, x: Sequence[float], y: Sequence[float]
-  ) -> '_CoeffState':
-    x = np.array(x)
-    y = np.array(y)
-
-    return _CoeffState(
-        num_samples=x.size,
-        sum_x=np.sum(x),
-        sum_y=np.sum(y),
-        sum_xx=np.sum(x**2),
-        sum_yy=np.sum(y**2),
-        sum_xy=np.sum(x * y),
-    )
-
-  def merge(self, other: '_CoeffState') -> '_CoeffState':
-    self.num_samples += other.num_samples
-    self.sum_x += other.sum_x
-    self.sum_y += other.sum_y
-    self.sum_xx += other.sum_xx
-    self.sum_yy += other.sum_yy
-    self.sum_xy += other.sum_xy
-
-    return self
-
-
-class _CoeffAggFnBase(base.AggregateFn, abc.ABC):
-  """Base class for Coefficient Aggreation Functions."""
-
-  def create_state(self):
-    return _CoeffState()
-
-  def update_state(
-      self,
-      state: _CoeffState,
-      x: Sequence[float],
-      y: Sequence[float],
-  ) -> _CoeffState:
-    return state.merge(state.from_inputs(x, y))
-
-  def merge_states(self, states: Iterable[_CoeffState]) -> _CoeffState:
-    states = iter(states)
-    result = next(states)
-
-    for state in states:
-      result.merge(state)
-
-    return result
-
-  @abc.abstractmethod
-  def get_result(self, state: _CoeffState) -> float:
-    raise NotImplementedError('get_result() is not implemented.')
-
-
-class PearsonCorrelationCoefficientAggFn(_CoeffAggFnBase):
+class RRegression(base.MergeableMetric):
   """Computes the Pearson Correlation Coefficient (PCC).
 
   The Pearson correlation coefficient (PCC) is a correlation coefficient that
@@ -225,7 +150,49 @@ class PearsonCorrelationCoefficientAggFn(_CoeffAggFnBase):
   https://en.wikipedia.org/wiki/Pearson_correlation_coefficient
   """
 
-  def get_result(self, state: _CoeffState) -> float:
+  num_samples: int = 0
+  sum_x: float = 0
+  sum_y: float = 0
+  sum_xx: float = 0  # sum(x**2)
+  sum_yy: float = 0  # sum(y**2)
+  sum_xy: float = 0  # sum(x * y)
+
+  def __eq__(self, other: 'RRegression') -> bool:
+    return (
+        self.num_samples == other.num_samples
+        and self.sum_x == other.sum_x
+        and self.sum_y == other.sum_y
+        and self.sum_xx == other.sum_xx
+        and self.sum_yy == other.sum_yy
+        and self.sum_xy == other.sum_xy
+    )
+
+  def add(self, x: Sequence[float], y: Sequence[float]) -> 'RRegression':
+    x = np.array(x)
+    y = np.array(y)
+
+    return self.merge(
+        RRegression(
+            num_samples=x.size,
+            sum_x=np.sum(x),
+            sum_y=np.sum(y),
+            sum_xx=np.sum(x**2),
+            sum_yy=np.sum(y**2),
+            sum_xy=np.sum(x * y),
+        )
+    )
+
+  def merge(self, other: 'RRegression') -> 'RRegression':
+    self.num_samples += other.num_samples
+    self.sum_x += other.sum_x
+    self.sum_y += other.sum_y
+    self.sum_xx += other.sum_xx
+    self.sum_yy += other.sum_yy
+    self.sum_xy += other.sum_xy
+
+    return self
+
+  def result(self) -> float:
     """Calculates the Pearson Correlation Coefficient (PCC).
 
     PCC = cov(X, Y) / std(X) / std(Y)
@@ -250,14 +217,10 @@ class PearsonCorrelationCoefficientAggFn(_CoeffAggFnBase):
           / sqrt(sum(y_i ** 2) - n * y_bar ** 2)
     where n, x_i, y_i, x_bar, and y_bar are defined as above.
 
-    Args:
-      state: The _CoeffState containing the necessary sums to calculate the
-        Pearson Correlation Coefficient.
-
     Returns:
       The Pearson Correlation Coefficient.
     """
-    if state.num_samples == 0:
+    if self.num_samples == 0:
       return float('nan')
 
     # For readability, we will seperate the numerator and denominator.
@@ -267,13 +230,13 @@ class PearsonCorrelationCoefficientAggFn(_CoeffAggFnBase):
     # denominator_y = sqrt(sum(y_i ** 2) - n * y_bar ** 2)
     # denominator = denominator_x * denominator_y
 
-    denominator_x = math.sqrt(state.sum_xx - state.sum_x**2 / state.num_samples)
-    denominator_y = math.sqrt(state.sum_yy - state.sum_y**2 / state.num_samples)
+    denominator_x = math.sqrt(self.sum_xx - self.sum_x**2 / self.num_samples)
+    denominator_y = math.sqrt(self.sum_yy - self.sum_y**2 / self.num_samples)
     denominator = denominator_x * denominator_y
 
     if denominator == 0.0:
       return float('nan')
 
-    numerator = state.sum_xy - state.sum_x * state.sum_y / state.num_samples
+    numerator = self.sum_xy - self.sum_x * self.sum_y / self.num_samples
 
     return numerator / denominator
