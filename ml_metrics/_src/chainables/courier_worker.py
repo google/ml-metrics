@@ -164,16 +164,12 @@ class GeneratorTask(Task):
 _TaskT = TypeVar('_TaskT', bound=Task)
 
 
-def _normalize_tasks(
-    tasks: Iterable[_TaskT | lazy_fns.LazyFn] | lazy_fns.LazyFn,
-) -> list[_TaskT]:
-  if isinstance(tasks, lazy_fns.LazyFn):
-    tasks = [tasks]
-  tasks = [
-      Task.new(task) if isinstance(task, lazy_fns.LazyFn) else task
-      for task in tasks
-  ]
-  return list(reversed(tasks))
+def _as_task(task: _TaskT | lazy_fns.LazyFn) -> _TaskT:
+  return Task.new(task) if isinstance(task, lazy_fns.LazyFn) else task
+
+
+def _as_generator_task(task: GeneratorTask | lazy_fns.LazyFn) -> GeneratorTask:
+  return GeneratorTask.new(task) if isinstance(task, lazy_fns.LazyFn) else task
 
 
 def get_results(
@@ -524,20 +520,30 @@ class WorkerPool:
     time.sleep(0.1)
     return states
 
-  def _run_tasks(
+  def iterate_tasks(
       self,
-      tasks: list[Task],
+      task_iterator: Iterable[Task],
       sleep_interval: float = 0.01,
   ) -> Iterator[Task]:
     """Run tasks within the worker pool."""
+    task_iterator = iter(task_iterator)
     running_tasks = []
-    while tasks or running_tasks:
+    tasks = []
+    exhausted = False
+    while not exhausted or tasks or running_tasks:
       if not self.workers:
         raise ValueError(
-            'No workers are alive, remaining'
+            'No worker is alive, remaining'
             f' {len(tasks)+len(running_tasks)} tasks.'
         )
       for worker in self.idle_workers():
+        # Only append new task when existing queue is empty, this is to ensure
+        # failed tasks are retried before new tasks are submitted.
+        if not tasks and not exhausted:
+          try:
+            tasks.append(_as_task(next(task_iterator)))
+          except StopIteration:
+            exhausted = True
         if tasks:
           running_tasks.append(worker.run_task(tasks.pop()))
       still_running = []
@@ -556,29 +562,27 @@ class WorkerPool:
       running_tasks = still_running
       time.sleep(sleep_interval)
 
-  def run_tasks(self, tasks: Iterable[Task]) -> Iterator[Task]:
-    """Run tasks within the worker pool."""
-    return self._run_tasks(_normalize_tasks(tasks))
-
   def run(
       self,
       tasks: Iterable[lazy_fns.LazyFn] | lazy_fns.LazyFn,
   ) -> Any:
     """Run lazy functions or task within the worker pool."""
-    tasks_w_result = self._run_tasks(_normalize_tasks(tasks))
-    results = get_results([task.state for task in tasks_w_result])
+    normalized_tasks = (
+        [Task.new(tasks)] if isinstance(tasks, lazy_fns.LazyFn) else tasks
+    )
+    tasks_w_result = self.iterate_tasks(normalized_tasks)
+    results = [task.result for task in tasks_w_result]
     return results[0] if isinstance(tasks, lazy_fns.LazyFn) else results
 
   def iterate(
       self,
-      tasks: Iterable[GeneratorTask | lazy_fns.LazyFn] | lazy_fns.LazyFn,
+      task_iterator: Iterable[GeneratorTask | lazy_fns.LazyFn],
       *,
       generator_result_queue: queue.SimpleQueue[Any],
       num_total_failures_threshold: int = _NUM_TOTAL_FAILURES_THRESHOLD,
   ) -> Iterator[Any]:
     """Iterates through the result of a generator if the iterator task."""
-    tasks = _normalize_tasks(tasks)
-    total_tasks = len(tasks)
+    task_iterator = iter(task_iterator)
     output_queue = queue.SimpleQueue()
     start_time = prev_ticker = time.time()
     event_loop = asyncio.new_event_loop()
@@ -590,21 +594,31 @@ class WorkerPool:
     loop_thread = threading.Thread(target=event_loop.run_forever)
     loop_thread.start()
     running_tasks: list[GeneratorTask] = []
+    tasks: list[GeneratorTask] = []
     iterating_servers = set()
-    finished_tasks_cnt, total_failures_cnt = 0, 0
+    total_tasks, finished_tasks_cnt, total_failures_cnt = 0, 0, 0
     batch_cnt, prev_batch_cnt = 0, 0
-    while tasks or running_tasks:
+    exhausted = False
+    while not exhausted or tasks or running_tasks:
       workers = [
           worker
           for worker in self.idle_workers()
           if worker.server_name not in iterating_servers
       ]
       for worker in workers:
+        # Only append new task when existing queue is empty, this is to ensure
+        # failed tasks are retried before new tasks are submitted.
+        if not tasks and not exhausted:
+          try:
+            tasks.append(_as_generator_task(next(task_iterator)))
+            total_tasks += 1
+          except StopIteration:
+            exhausted = True
         if tasks:
+          task = tasks.pop().set(server_name=worker.server_name)
           logging.info(
               'chainables: submitting task to worker %s', worker.server_name
           )
-          task = tasks.pop().set(server_name=worker.server_name)
           aiter_until_complete = iterate_until_complete(
               worker.async_iterate(
                   task, generator_result_queue=generator_result_queue
@@ -685,7 +699,7 @@ class WorkerPool:
         prev_ticker, prev_batch_cnt = ticker, batch_cnt
 
     assert not running_tasks
-    assert total_tasks == finished_tasks_cnt
+    assert exhausted and total_tasks == finished_tasks_cnt
     event_loop.call_soon_threadsafe(event_loop.stop)
     loop_thread.join()
     while not output_queue.empty():

@@ -182,18 +182,17 @@ class CourierWorkerGroupTest(absltest.TestCase):
     self.assertEqual(['echo'], actual)
 
   def test_worker_group_iterate(self):
-    lazy_generators = [lazy_fns.trace(mock_generator)(3)] * 5
+    lazy_generators = (lazy_fns.trace(mock_generator)(3) for _ in range(5))
     courier_worker._LOGGING_INTERVAL_SEC = 0.01
     generator_result_queue = queue.SimpleQueue()
     with self.assertLogs(level='INFO') as cm:
-      results = [
-          result
-          for result in self.worker_pool.iterate(
+      results = list(
+          self.worker_pool.iterate(
               lazy_generators,
               generator_result_queue=generator_result_queue,
               num_total_failures_threshold=0,
           )
-      ]
+      )
     self.assertNotEmpty([l for l in cm.output if 'progress' in l])
     self.assertLen(results, 3 * 5)
     self.assertCountEqual(list(range(3)) * 5, results)
@@ -243,7 +242,12 @@ class CourierWorkerGroupTest(absltest.TestCase):
   #     next(iterator)
 
   def test_worker_group_run(self):
-    tasks = [lazy_fns.trace(len)([1, 2])] * 3
+    tasks = lazy_fns.trace(len)([1, 2])
+    actual = self.worker_pool.run(tasks)
+    self.assertEqual(2, actual)
+
+  def test_worker_group_run_multi_tasks(self):
+    tasks = (lazy_fns.trace(len)([1, 2]) for _ in range(3))
     actual = self.worker_pool.run(tasks)
     self.assertLen(actual, 3)
     self.assertEqual([2] * 3, actual)
@@ -259,7 +263,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
     tasks = [
         Task.new('echo', blocking=False).add_task(lazy_fns.trace(len)([1, 2]))
     ] * 3
-    states = [task.state for task in self.worker_pool.run_tasks(tasks)]
+    states = [task.state for task in self.worker_pool.iterate_tasks(tasks)]
     self.assertLen(states, 3)
     actual = courier_worker.get_results(states)
     self.assertEqual([2] * 3, actual)
