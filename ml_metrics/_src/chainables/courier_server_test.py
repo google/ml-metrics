@@ -31,6 +31,16 @@ def setUpModule():
   testutil.SetupMockBNS()
 
 
+class TestServer(courier_server.CourierServerWrapper):
+  """Test server for CourierServerWrapper."""
+
+  def set_up(self):
+    def plus_one(x: int):
+      return pickler.dumps(x + 1)
+
+    self._server.Bind('plus_one', plus_one)
+
+
 class CourierServerTest(absltest.TestCase):
 
   def setUp(self):
@@ -52,6 +62,19 @@ class CourierServerTest(absltest.TestCase):
     self.assertEqual(
         2, pickler.loads(client.maybe_make(lazy_fns.trace(len)([1, 2])))
     )
+
+  def test_courier_server_set_up(self):
+    server = TestServer()
+    server.build_server()
+    thread = server.start()
+    client = courier.Client(server.address, call_timeout=1)
+    self.assertEqual(2, pickler.loads(client.plus_one(1)))
+    client.shutdown()
+    thread.join()
+
+  def test_courier_server_heartbeat(self):
+    client = courier.Client(self.server.address, call_timeout=1)
+    self.assertTrue(pickler.loads(client.heartbeat()))
 
   def test_courier_server_generator(self):
     client = courier.Client(self.server.address, call_timeout=1)

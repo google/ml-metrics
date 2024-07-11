@@ -46,6 +46,10 @@ class CourierServerWrapper:
   def address(self) -> str:
     return self._server.address if self._server else ''
 
+  def set_up(self):
+    """Custom setup at server build time."""
+    pass
+
   def build_server(self):
     """Build and run a courier server."""
     # Verify the registered makeables.
@@ -94,16 +98,23 @@ class CourierServerWrapper:
     def next_from_generator():
       return pickler.dumps(_next_batch_from_generator(batch_size=1)[0])
 
+    def heartbeat():
+      # On the client side, we still need to check the returned result to make
+      # sure it makes sense, so returning True here.
+      return pickler.dumps(True)
+
     server = courier.Server(self.server_name, port=self.port)
     server.Bind('maybe_make', pickled_maybe_make)
     server.Bind('init_generator', pickled_init_generator)
     server.Bind('next_from_generator', next_from_generator)
     server.Bind('next_batch_from_generator', next_batch_from_generator)
+    server.Bind('heartbeat', heartbeat)
     server.Bind('shutdown', shutdown)
     # TODO: b/318463291 - Add unit tests.
     server.Bind('clear_cache', lazy_fns.clear_cache)
     server.Bind('cache_info', pickled_cache_info)
     self._server = server
+    self.set_up()
     return self._server
 
   def run_until_shutdown(self):

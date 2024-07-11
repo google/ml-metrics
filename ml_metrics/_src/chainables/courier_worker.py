@@ -48,6 +48,7 @@ class Task:
     server_name: The server address this task is sent to.
     parent_task: The parent task that has to be run first.
     state: the result of the task.
+    courier_method: the courier method of the task.
     exception: the exception of the running this task if there is any.
     result: get the result of the task if there is any.
   """
@@ -58,6 +59,7 @@ class Task:
   server_name: str = ''
   parent_task: 'Task | None' = None
   state: futures.Future[Any] | None = None
+  courier_method: str = 'maybe_make'
 
   @classmethod
   def new(
@@ -270,7 +272,7 @@ class Worker:
   def _check_heartbeat(self) -> bool:
     """Ping the worker to check the heartbeat once."""
     if not self._heartbeat:
-      self._heartbeat = self._heartbeat_client.futures.maybe_make(None)
+      self._heartbeat = self._heartbeat_client.futures.heartbeat()
     try:
       if self._heartbeat.done() and self._heartbeat.result():
         self._heartbeat = None

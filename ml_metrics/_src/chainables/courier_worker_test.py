@@ -162,6 +162,18 @@ class CourierWorkerTest(absltest.TestCase):
         self.fail('Server is not shutdown after 10 seconds.')
 
 
+class TestServer(courier_server.CourierServerWrapper):
+  """Test server for CourierServerWrapper."""
+
+  def set_up(self):
+    def plus_one(x: int | bytes):
+      if isinstance(x, bytes):
+        x = lazy_fns.picklers.default.loads(x)
+      return lazy_fns.picklers.default.dumps(x + 1)
+
+    self._server.Bind('plus_one', plus_one)
+
+
 class CourierWorkerGroupTest(absltest.TestCase):
 
   def setUp(self):
@@ -180,6 +192,19 @@ class CourierWorkerGroupTest(absltest.TestCase):
   def test_worker_group_call(self):
     actual = self.worker_pool.call_and_wait('echo')
     self.assertEqual(['echo'], actual)
+
+  def test_worker_group_call_with_method_in_task(self):
+    server = TestServer()
+    server.build_server()
+    thread = server.start(daemon=True)
+    tasks = [courier_worker.Task.new(1, courier_method='plus_one')]
+    worker_pool = courier_worker.WorkerPool([server.address])
+    worker_pool.wait_until_alive(deadline_secs=12)
+    states = [task.state for task in worker_pool.iterate_tasks(tasks)]
+    # We only have one task, so just return the first element.
+    self.assertEqual(2, courier_worker.get_results(states)[0])
+    worker_pool.shutdown()
+    thread.join()
 
   def test_worker_group_iterate(self):
     lazy_generators = (lazy_fns.trace(mock_generator)(3) for _ in range(5))
