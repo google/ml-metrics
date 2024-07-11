@@ -15,9 +15,9 @@ import asyncio
 import pickle
 from unittest import mock
 
-from ml_metrics._src.chainables import lazy_fns
-
 from absl.testing import absltest
+from absl.testing import parameterized
+from ml_metrics._src.chainables import lazy_fns
 
 trace = lazy_fns.trace
 maybe_make = lazy_fns.maybe_make
@@ -58,8 +58,11 @@ class Foo:
   def __call__(self, x):
     return self.a + x
 
+  def c(self):
+    return [1, 2, 3]
 
-class LazyFnsTest(absltest.TestCase):
+
+class LazyFnsTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -72,9 +75,46 @@ class LazyFnsTest(absltest.TestCase):
     pickled = self.pickler.dumps(lazy_fns.trace(len)([1, 2, 3]))
     self.assertEqual(3, lazy_fns.maybe_make(pickled))
 
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='callable',
+          lazy_f=lazy_fns.trace_object(Foo(1))(2),
+          expected=3,
+      ),
+      dict(
+          testcase_name='member_fn',
+          lazy_f=lazy_fns.trace_object(Foo(1)).c(),
+          expected=[1, 2, 3],
+      ),
+      dict(
+          testcase_name='member_fn_with_index',
+          lazy_f=lazy_fns.trace_object(Foo(1)).c()[1],
+          expected=2,
+      ),
+      dict(
+          testcase_name='member_attr',
+          lazy_f=lazy_fns.trace_object(Foo(1)).a,
+          expected=1,
+      ),
+      dict(
+          testcase_name='pickled',
+          lazy_f=pickle.dumps(lazy_fns.trace_object(Foo(1))(2)),
+          expected=3,
+      ),
+  )
+  def test_maybe_make_from_traced_object(self, lazy_f, expected):
+    self.assertEqual(expected, lazy_fns.maybe_make(lazy_f))
+
   def test_pickler_register_assertion(self):
     with self.assertRaises(TypeError):
       lazy_fns.picklers.register(len)
+
+  def test_cached_pickle(self):
+    pickled_foo = self.pickler.dumps(trace(Foo)(1)(0))
+    self.assertEqual(1, maybe_make(pickled_foo))
+    with mock.patch.object(self.pickler, 'loads', autospec=True) as mock_loads:
+      self.assertEqual(1, maybe_make(pickled_foo))
+      mock_loads.assert_not_called()
 
   def test_maybe_make_cached(self):
     lazy_foo = trace(Foo, use_cache=True)(a=1)

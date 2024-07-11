@@ -71,9 +71,14 @@ class _Makers(collections.UserDict):
 makeables = _Makers()
 
 
+@functools.lru_cache(maxsize=64)
+def _cached_pickle(elem: bytes) -> Any:
+  return picklers.default.loads(elem)
+
+
 def maybe_make(maybe_lazy: LazyFn[_ValueT] | bytes) -> _ValueT:
   if isinstance(maybe_lazy, bytes):
-    maybe_lazy = picklers.default.loads(maybe_lazy)
+    maybe_lazy = _cached_pickle(maybe_lazy)
   # User defined maker as an escape path for custom lazy instances.
   if maker := makeables[type(maybe_lazy)]:
     return maker(maybe_lazy)
@@ -260,12 +265,12 @@ class LazyFn(Generic[_ValueT], Callable[..., 'LazyFn']):
     self.__dict__.update(state)
 
 
-@functools.lru_cache(maxsize=256)
+@functools.lru_cache(maxsize=64)
 def _cached_make(fn: LazyFn | bytes) -> Any:
   """Instantiate a lazy fn to a actual fn when applicable."""
   logging.info('chainables: cache miss, making %s', fn)
   if isinstance(fn, bytes):
-    fn = picklers.default.loads(fn)
+    fn = _cached_pickle(fn)
   if not fn.fn:
     return None
   args = tuple(maybe_make(arg) for arg in fn.args)
@@ -317,6 +322,7 @@ makeables.register(LazyFn, _make)
 def clear_cache():
   """Clear the cache for maybe_make."""
   _cached_make.cache_clear()
+  _cached_pickle.cache_clear()
 
 
 def cache_info():
@@ -374,6 +380,31 @@ def trace(
     return LazyFn.new(fn=fn, args=args, kwargs=kwargs, cache_result=use_cache)
 
   return wrapped
+
+
+def _identity_fn(elem: Any) -> Any:
+  return elem
+
+
+def trace_object(elem) -> Any:
+  """Converts an object to a LazyFn by wrapping it in an identify function.
+
+  This is useful when the object itself is not a function, and thus cannot be
+  used directly with `trace`, but the user still wants to access its attributes
+  lazily.
+
+  Example usage:
+    trace_object(f).make()  # if f has a member function make;
+    trace_oject(f).x  # if f has an attribute x;
+    trace_object(f)[0]  # if f is indexable.
+
+  Args:
+    elem: The object to be wrapped as a LazyFn.
+
+  Returns:
+    A LazyFn that wraps the object.
+  """
+  return trace(_identity_fn)(elem)
 
 
 @dataclasses.dataclass(frozen=True)
