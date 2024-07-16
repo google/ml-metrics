@@ -25,12 +25,25 @@ from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import transform
 from ml_metrics._src.orchestration import orchestrate
+import tensorflow as tf
 
 MASTER = 'master'
 WORKERS = 'workers'
 
 
+def _init_tpu():
+  resolver = tf.distribute.cluster_resolver.TPUClusterResolver('')
+  tf.config.experimental_connect_to_cluster(resolver)
+  tf.tpu.experimental.initialize_tpu_system(resolver)
+  tf.config.experimental.enable_mlir_bridge()
+
+
 def run_courier_server(worker_addr: str | lp.Address):
+  """Runs the courier server."""
+  try:
+    _init_tpu()
+  except Exception as e:  # pylint: disable=broad-exception-caught
+    logging.warning('chainables: failed to init tpu: %s', e)
   if isinstance(worker_addr, lp.Address):
     worker_addr = worker_addr.resolve()
     server = courier_server.CourierServerWrapper(
