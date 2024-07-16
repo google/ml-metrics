@@ -13,9 +13,8 @@
 # limitations under the License.
 """Common statistics aggregations."""
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 import dataclasses
-import math
 from typing import Self
 
 from ml_metrics._src import base_types
@@ -151,11 +150,11 @@ class RRegression(base.MergeableMetric):
   """
 
   num_samples: int = 0
-  sum_x: float = 0
+  sum_x: types.NumbersT = 0
   sum_y: float = 0
-  sum_xx: float = 0  # sum(x**2)
+  sum_xx: types.NumbersT = 0  # sum(x**2)
   sum_yy: float = 0  # sum(y**2)
-  sum_xy: float = 0  # sum(x * y)
+  sum_xy: types.NumbersT = 0  # sum(x * y)
 
   def __eq__(self, other: 'RRegression') -> bool:
     return (
@@ -167,20 +166,27 @@ class RRegression(base.MergeableMetric):
         and self.sum_xy == other.sum_xy
     )
 
-  def add(self, x: Sequence[float], y: Sequence[float]) -> 'RRegression':
-    x = np.array(x)
-    y = np.array(y)
+  def add(self, x: types.NumbersT, y: types.NumbersT) -> 'RRegression':
+    """Updates the Class with the given batch.
 
-    return self.merge(
-        RRegression(
-            num_samples=x.size,
-            sum_x=np.sum(x),
-            sum_y=np.sum(y),
-            sum_xx=np.sum(x**2),
-            sum_yy=np.sum(y**2),
-            sum_xy=np.sum(x * y),
-        )
-    )
+    Args:
+      x: The data matrix of shape (n_samples, n_examples).
+      y: The target vector of shape (n_samples,).
+
+    Returns:
+      The updated Class.
+    """
+    x = np.asarray(x)
+    y = np.asarray(y)
+
+    self.num_samples += len(y)
+    self.sum_x += np.sum(x, axis=0)
+    self.sum_y += np.sum(y)
+    self.sum_xx += np.sum(x**2, axis=0)
+    self.sum_yy += np.sum(y**2)
+    self.sum_xy += np.sum(x * (y if x.ndim == 1 else y[:, np.newaxis]), axis=0)
+
+    return self
 
   def merge(self, other: 'RRegression') -> 'RRegression':
     self.num_samples += other.num_samples
@@ -192,7 +198,7 @@ class RRegression(base.MergeableMetric):
 
     return self
 
-  def result(self) -> float:
+  def result(self) -> types.NumbersT:
     """Calculates the Pearson Correlation Coefficient (PCC).
 
     PCC = cov(X, Y) / std(X) / std(Y)
@@ -220,9 +226,6 @@ class RRegression(base.MergeableMetric):
     Returns:
       The Pearson Correlation Coefficient.
     """
-    if self.num_samples == 0:
-      return float('nan')
-
     # For readability, we will seperate the numerator and denominator.
     # Further, we will seperate the denominator such that
     # numerator = sum(x_i * y_i) - n * x_bar * y_bar
@@ -230,12 +233,9 @@ class RRegression(base.MergeableMetric):
     # denominator_y = sqrt(sum(y_i ** 2) - n * y_bar ** 2)
     # denominator = denominator_x * denominator_y
 
-    denominator_x = math.sqrt(self.sum_xx - self.sum_x**2 / self.num_samples)
-    denominator_y = math.sqrt(self.sum_yy - self.sum_y**2 / self.num_samples)
+    denominator_x = np.sqrt(self.sum_xx - self.sum_x**2 / self.num_samples)
+    denominator_y = np.sqrt(self.sum_yy - self.sum_y**2 / self.num_samples)
     denominator = denominator_x * denominator_y
-
-    if denominator == 0.0:
-      return float('nan')
 
     numerator = self.sum_xy - self.sum_x * self.sum_y / self.num_samples
 

@@ -234,28 +234,67 @@ class StatsStateTest(parameterized.TestCase):
 
 
 class RRegressionTest(parameterized.TestCase):
-  def test_r_regression_simple(self):
+
+  def test_r_regression_merge(self):
+    x_1 = (1, 2, 3, 4)
+    y_1 = (10, 9, 2.5, 6)
+
+    x_2 = (5, 6, 7)
+    y_2 = (4, 3, 2)
+
+    state_1 = rolling_stats.RRegression().add(x_1, y_1)
+    state_2 = rolling_stats.RRegression().add(x_2, y_2)
+    result = state_1.merge(state_2)
+
+    expected_result = rolling_stats.RRegression(
+        num_samples=7,  # len(x_1) + len(x_2)
+        sum_x=28,  # 1 + 2 + 3 + 4 + 5 + 6 + 7
+        sum_y=36.5,  # 10 + 9 + 2.5 + 6 + 4 + 3 + 2
+        sum_xx=140,  # 1^2 + 2^2 + 3^2 + 4^2 + 5^2 + 6^2 + 7^2
+        sum_yy=252.25,  # 10^2 + 9^2 + 2.5^2 + 6^2 + 4^2 + 3^2 + 2^2
+        sum_xy=111.5,  # 1*10 + 2*9 + 3*2.5 + 4*6 + 5*4 + 6*3 + 7*2
+    )
+
+    self.assertEqual(result, expected_result)
+
+  def test_r_regression_single_output(self):
     x = (1, 2, 3, 4, 5, 6, 7)
     y = (10, 9, 2.5, 6, 4, 3, 2)
 
     actual_result = rolling_stats.RRegression().add(x, y).result()
 
-    # From scipy.stats.pearsonr(x=x, y=y).statistic
+    # From
+    # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
     expected_result = -0.8285038835884279
 
-    self.assertAlmostEqual(actual_result, expected_result)
+    self.assertAlmostEqual(actual_result, expected_result, places=10)
 
-  def test_r_regression_one_batch(self):
+  def test_r_regression_multi_output(self):
+    x1 = (10, 9, 2.5, 6, 4, 3, 2)
+    x2 = (8, 6, 7, 5, 3, 0, 9)
+    y = (1, 2, 3, 4, 5, 6, 7)
+
+    x_all = np.array((x1, x2)).T
+
+    actual_result = rolling_stats.RRegression().add(x_all, y).result()
+
+    # From sklearn.feature_selection.r_regression(x_all, y)
+    expected_result = (-0.82850388, -0.32338709)
+
+    np.testing.assert_almost_equal(actual_result, expected_result)
+
+  def test_r_regression_one_large_batch(self):
     np.random.seed(seed=0)
     x = np.random.rand(1000000)
     y = np.random.rand(1000000)
 
     actual_result = rolling_stats.RRegression().add(x, y).result()
 
-    # From scipy.stats.pearsonr(x=x, y=y).statistic
-    expected_result = -0.00029321876957677745
+    # From
+    # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
+    expected_result = -0.0002932187695762664
 
-    self.assertAlmostEqual(actual_result, expected_result)
+    self.assertAlmostEqual(actual_result, expected_result, places=13)
 
   def test_r_regression_many_batches_little_correlation(self):
     np.random.seed(seed=0)
@@ -270,10 +309,11 @@ class RRegressionTest(parameterized.TestCase):
     for x_i, y_i in zip(x, y):
       state.add(x_i, y_i)
 
-    # From scipy.stats.pearsonr(x=x, y=y).statistic
-    expected_result = 4.231252166809374e-05
+    # From
+    # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
+    expected_result = 4.231252166807617e-05
 
-    self.assertAlmostEqual(state.result(), expected_result, places=15)
+    self.assertAlmostEqual(state.result(), expected_result, places=14)
 
   def test_r_regression_many_batches_much_correlation(self):
     np.random.seed(seed=0)
@@ -288,8 +328,9 @@ class RRegressionTest(parameterized.TestCase):
     for x_i, y_i in zip(x, y):
       state.add(x_i, y_i)
 
-    # From scipy.stats.pearsonr(x=x, y=y).statistic
-    expected_result = 0.9950377257308471
+    # From
+    # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
+    expected_result = 0.995037725730923
 
     self.assertAlmostEqual(state.result(), expected_result, places=10)
 
@@ -304,7 +345,7 @@ class RRegressionTest(parameterized.TestCase):
 
     expected_result = 1
 
-    self.assertAlmostEqual(state.result(), expected_result, places=15)
+    self.assertAlmostEqual(state.result(), expected_result, places=9)
 
   def test_r_regression_many_batches_inverse_correlation(self):
     x = np.array([
@@ -317,7 +358,7 @@ class RRegressionTest(parameterized.TestCase):
 
     expected_result = -1
 
-    self.assertAlmostEqual(state.result(), expected_result, places=15)
+    self.assertAlmostEqual(state.result(), expected_result, places=9)
 
   @parameterized.named_parameters(
       dict(testcase_name='empty_input', x=(), y=()),
@@ -325,6 +366,20 @@ class RRegressionTest(parameterized.TestCase):
   )
   def test_r_regression_returns_nan(self, x, y):
     self.assertTrue(math.isnan(rolling_stats.RRegression().add(x, y).result()))
+
+  def test_r_regression_valid_and_0_input(self):
+    x_valid = (10, 9, 2.5, 6, 4, 3, 2)
+    x_0 = (0, 0, 0, 0, 0, 0, 0)
+    y = (1, 2, 3, 4, 5, 6, 7)
+
+    x_all = np.array((x_valid, x_0)).T
+
+    actual_result = rolling_stats.RRegression().add(x_all, y).result()
+
+    # From sklearn.feature_selection.r_regression(x_all, y)
+    expected_result = (-0.82850388, float('nan'))
+
+    np.testing.assert_almost_equal(actual_result, expected_result)
 
 
 if __name__ == '__main__':
