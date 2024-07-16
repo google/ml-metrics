@@ -21,9 +21,8 @@ import dataclasses
 import queue
 import threading
 import time
-from typing import Any
-from typing import Self
-from typing import TypeVar
+import typing
+from typing import Any, Self, TypeVar
 
 from absl import logging
 import courier
@@ -36,6 +35,12 @@ _NUM_TOTAL_FAILURES_THRESHOLD = 60
 picklers = lazy_fns.picklers
 
 
+def _empty_future() -> futures.Future[Any]:
+  result = futures.Future()
+  result.set_exception(None)
+  return result
+
+
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class Task:
   """Lazy function that runs on courier methods.
@@ -45,17 +50,19 @@ class Task:
     kwargs: The named arguments later used to pass in the fn.
     blocking: Whether the wait for the call to complete.
     keep_result: Whether to keep the result.
-    server_name: The server address this task is sent to.
+    worker: The courier worker that runs this task.
     parent_task: The parent task that has to be run first.
     state: the result of the task.
     exception: the exception of the running this task if there is any.
     result: get the result of the task if there is any.
+    server_name: The server address this task is sent to.
+    is_alive: True if the worker running this task is alive.
   """
 
   args: tuple[Any, ...] = ()
   kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
   blocking: bool = False
-  server_name: str = ''
+  worker: Worker | None = None
   parent_task: 'Task | None' = None
   state: futures.Future[Any] | None = None
 
@@ -85,18 +92,30 @@ class Task:
   @property
   def done(self) -> bool | None:
     """Checks whether the task is done."""
-    if self.state is not None:
-      return self.state.done()
+    if (state := self.state) is not None:
+      return state.done()
 
   @property
   def exception(self):
-    return self.state and self.state.exception()
+    if (state := self.state) is not None:
+      return state.exception()
 
   @property
   def result(self):
     if self.state is None:
       return None
     return picklers.default.loads(self.state.result())
+
+  @property
+  def server_name(self) -> str:
+    assert self.worker is not None
+    return self.worker.server_name
+
+  @property
+  def is_alive(self) -> bool:
+    worker = self.worker
+    assert worker is not None
+    return worker.is_alive
 
   def set(self, **kwargs) -> Self:
     return dataclasses.replace(self, **kwargs)
@@ -153,13 +172,6 @@ class GeneratorTask(Task):
     exception: the exception of the running this task if there is any.
     result: get the result of the task if there is any.
   """
-
-  def next_batch(self, worker_pool: WorkerPool):
-    return self.set(
-        state=worker_pool.get_worker_by_name(
-            self.server_name
-        ).next_batch_from_generator()
-    )
 
 _TaskT = TypeVar('_TaskT', bound=Task)
 
@@ -233,35 +245,93 @@ def _normalize_args(args, kwargs):
 
 
 # TODO(b/311207032): Adds unit test to cover logic for disconneted worker.
-@dataclasses.dataclass
 class Worker:
   """Courier client wrapper that works as a chainable worker."""
 
   server_name: str
-  call_timeout: int = 60
   max_parallelism: int = 1
   heartbeat_threshold_secs: int = 180
   iterate_batch_size: int = 1
+  _call_timeout: int = 60
+  _lock: threading.Lock = threading.Lock()
+  _worker_pool: WorkerPool | None
   _shutdown_requested: bool = False
-  _client: courier.Client | None = dataclasses.field(default=None, init=False)
-  _pendings: list[futures.Future[Any]] = dataclasses.field(
-      default_factory=list, init=False
-  )
-  _heartbeat_client: courier.Client | None = dataclasses.field(
-      default=None, init=False
-  )
+  _client: courier.Client
+  _pendings: list[futures.Future[Any]]
+  _heartbeat_client: courier.Client
   _heartbeat: futures.Future[Any] | None = dataclasses.field(
       default=None, init=False
   )
-  _last_heartbeat: float = 0.0
+  _last_heartbeat: float
 
-  def __post_init__(self):
-    self._client = courier.Client(
-        self.server_name, call_timeout=self.call_timeout
-    )
+  def __init__(
+      self,
+      server_name: str | None = '',
+      *,
+      call_timeout: int = 60,
+      max_parallelism: int = 1,
+      heartbeat_threshold_secs: int = 180,
+      iterate_batch_size: int = 1,
+  ):
+    self.server_name = server_name or ''
+    self.max_parallelism = max_parallelism
+    self.heartbeat_threshold_secs = heartbeat_threshold_secs
+    self.iterate_batch_size = iterate_batch_size
+    self._call_timeout = call_timeout
+    self._lock = threading.Lock()
+    self._worker_pool = None
+    self._shutdown_requested = True if server_name is None else False
+    self._pendings = []
+    self._client = courier.Client(self.server_name, call_timeout=call_timeout)
     self._heartbeat_client = courier.Client(
         self.server_name, call_timeout=self.heartbeat_threshold_secs
     )
+    self._heartbeat = None
+    self._last_heartbeat = 0.0
+
+  @property
+  def call_timeout(self):
+    return self._call_timeout
+
+  @property
+  def worker_pool(self):
+    return self._worker_pool
+
+  @call_timeout.setter
+  def call_timeout(self, call_timeout: int):
+    self.set_timeout(call_timeout)
+
+  def set_timeout(self, call_timeout: int):
+    self._call_timeout = call_timeout
+    self._client = courier.Client(
+        self.server_name, call_timeout=self.call_timeout
+    )
+
+  def is_available(self, worker_pool: WorkerPool) -> bool:
+    """Checks whether the worker is available to the worker pool."""
+    return not self._lock.locked() or (self._worker_pool is worker_pool)
+
+  def is_locked(self, worker_pool: WorkerPool | None = None) -> bool:
+    """Checks whether the worker is locked optionally with a worker pool."""
+    return self._lock.locked() and (
+        not worker_pool or self._worker_pool is worker_pool
+    )
+
+  def acquire_by(
+      self, worker_pool: WorkerPool, *, blocking: bool = False
+  ) -> bool:
+    """Acquires the worker if not acquired already."""
+    if self._worker_pool is not worker_pool and self._lock.acquire(
+        blocking=blocking
+    ):
+      self._worker_pool = worker_pool
+    return self._worker_pool is worker_pool
+
+  def release(self):
+    """Releases the worker."""
+    if self._lock.locked():
+      self._lock.release()
+    self._worker_pool = None
 
   @property
   def has_capacity(self) -> bool:
@@ -344,7 +414,7 @@ class Worker:
       state = self.call(*task.args, **task.kwargs)
       if task.blocking:
         wait_until_done([state])
-      result.append(task.set(state=state, server_name=self.server_name))
+      result.append(task.set(state=state, worker=self))
     return Task.from_list_of_tasks(result)
 
   def next_batch_from_generator(
@@ -414,10 +484,6 @@ class Worker:
         self.call(courier_method='cache_info').result()
     )
 
-  def set_timeout(self, call_timeout: int):
-    self.call_timeout = call_timeout
-    self._client = courier.Client(self.server_name, call_timeout=call_timeout)
-
   def shutdown(self) -> futures.Future[Any]:
     self._shutdown_requested = True
     self.state = self._client.futures.shutdown()
@@ -432,28 +498,74 @@ def _raise_if_return_error(task: Task):
     )
 
 
-@dataclasses.dataclass
 class WorkerPool:
   """Worker group that constructs a group of courier workers."""
 
-  server_names: list[str]
-  call_timeout: int = 30
-  max_parallelism: int = 1
-  heartbeat_threshold_secs: int = 180
-  iterate_batch_size: int = 1
-  _workers: dict[str, Worker] = dataclasses.field(default_factory=dict)
+  _workers: list[Worker]
 
-  def __post_init__(self):
-    self._workers = {
-        name: Worker(
-            name,
-            call_timeout=self.call_timeout,
-            max_parallelism=self.max_parallelism,
-            heartbeat_threshold_secs=self.heartbeat_threshold_secs,
-            iterate_batch_size=self.iterate_batch_size,
-        )
-        for name in self.server_names
-    }
+  def __init__(
+      self,
+      names_or_workers: Iterable[str] | Iterable[Worker] = (),
+      *,
+      call_timeout: int = 0,
+      max_parallelism: int = 0,
+      heartbeat_threshold_secs: int = 0,
+      iterate_batch_size: int = 0,
+  ):
+    if all(isinstance(name, str) for name in names_or_workers):
+      self._workers = [Worker(name) for name in names_or_workers]
+    elif all(isinstance(worker, Worker) for worker in names_or_workers):
+      self._workers = typing.cast(list[Worker], list(names_or_workers))
+    else:
+      raise TypeError(
+          'Expected either a list of names or a list of workers, got'
+          f' {names_or_workers}'
+      )
+    for worker in self._workers:
+      worker.call_timeout = call_timeout or worker.call_timeout
+      worker.max_parallelism = max_parallelism or worker.max_parallelism
+      worker.heartbeat_threshold_secs = (
+          heartbeat_threshold_secs or worker.heartbeat_threshold_secs
+      )
+      worker.iterate_batch_size = (
+          iterate_batch_size or worker.iterate_batch_size
+      )
+
+  @property
+  def server_names(self) -> list[str]:
+    return [worker.server_name for worker in self._workers]
+
+  @property
+  def acquired_workers(self) -> list[Worker]:
+    return [worker for worker in self._workers if worker.is_locked(self)]
+
+  def _acquire_all(
+      self,
+      workers: Iterable[Worker] | None = None,
+      num_workers: int = 0,
+      blocking: bool = False,
+  ) -> list[bool]:
+    """Acquires all workers."""
+    if workers is None:
+      workers = self._workers
+    result = []
+    for worker in workers:
+      if blocking:
+        result.append(worker.acquire_by(self, blocking=True))
+      else:
+        if worker.is_available(self):
+          result.append(worker.acquire_by(self))
+        else:
+          result.append(False)
+      if sum(result) == num_workers:
+        break
+    return result
+
+  def _release_all(self, workers: Iterable[Worker] = ()):
+    workers = workers or self._workers
+    for worker in workers:
+      if worker.is_available(self):
+        worker.release()
 
   def wait_until_alive(
       self,
@@ -467,7 +579,7 @@ class WorkerPool:
     num_attempts = int(max(deadline_secs // sleep_interval_secs, 1))
     for _ in range(num_attempts):
       try:
-        workers = self.idle_workers()
+        workers = self.workers
         logging.info('chainables: Available workers: %d', len(workers))
         # Proceed if reached minimum number of workers.
         if len(workers) >= minimum_num_workers:
@@ -481,35 +593,72 @@ class WorkerPool:
           f' {self.server_names}'
       )
 
-  def call_and_wait(self, *args, courier_method='', **kwargs):
+  def call_and_wait(self, *args, courier_method='', **kwargs) -> Any:
+    """Calls the workers and waits for the results."""
+    self._acquire_all()
     states = [
         c.call(*args, courier_method=courier_method, **kwargs)
-        for c in self._workers.values()
+        for c in self._workers
     ]
     states = [state for state in states if state is not None]
-    return get_results(states)
+    try:
+      result = get_results(states)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      raise e
+    finally:
+      self._release_all()
+    return result
 
   def set_timeout(self, timeout: int):
-    self.call_timeout = timeout
-    for c in self._workers.values():
-      c.set_timeout(timeout)
+    for c in self._workers:
+      c.call_timeout = timeout
 
-  def idle_workers(self):
-    return [c for c in self._workers.values() if c.has_capacity and c.is_alive]
+  # TODO: b/311207032 - deprectate this method in favor of next_idle_worker.
+  def idle_workers(self) -> list[Worker]:
+    """Attempts to acquire and returns alive workers that have capacity."""
+    return [
+        worker
+        for worker in self._workers
+        if worker.is_available(self) and worker.has_capacity and worker.is_alive
+    ]
+
+  def next_idle_worker(
+      self,
+      workers: Iterable[Worker] | None = None,
+      *,
+      maybe_acquire: bool = True,
+  ) -> Worker | None:
+    """Non-blocking acquire and yields alive workers that have capacity."""
+    if workers is None:
+      workers = self._workers
+    unacquired_workers: list[Worker] = []
+    # Find the worker from acquired worker first.
+    for worker in workers:
+      if worker.is_locked(self):
+        if worker.has_capacity and worker.is_alive:
+          return worker
+      elif maybe_acquire:
+        unacquired_workers.append(worker)
+    for worker in unacquired_workers:
+      if worker.acquire_by(self) and worker.has_capacity and worker.is_alive:
+        return worker
 
   @property
-  def workers(self):
-    return [c for c in self._workers.values() if c.is_alive]
+  def workers(self) -> list[Worker]:
+    """Workers that are alive."""
+    return [c for c in self._workers if c.is_alive]
+
+  @property
+  def all_workers(self) -> list[Worker]:
+    """All workers regardless of their status."""
+    return self._workers
 
   @property
   def num_workers(self):
     return len(self.server_names)
 
-  def get_worker_by_name(self, name: str) -> Worker:
-    return self._workers[name]
-
   def shutdown(self):
-    remaining_workers = self.idle_workers()
+    remaining_workers = self.workers
     logging.info(
         'chainables: shutting down %d workers, remaining %d workers are not'
         ' connected, needs to be manually shutdown.',
@@ -524,11 +673,12 @@ class WorkerPool:
       self,
       task_iterator: Iterable[Task],
       sleep_interval: float = 0.01,
+      ignore_failures: bool = False,
   ) -> Iterator[Task]:
     """Run tasks within the worker pool."""
     task_iterator = iter(task_iterator)
-    running_tasks = []
-    tasks = []
+    running_tasks: list[Task] = []
+    tasks: list[Task] = []
     exhausted = False
     while not exhausted or tasks or running_tasks:
       if not self.workers:
@@ -536,7 +686,10 @@ class WorkerPool:
             'No worker is alive, remaining'
             f' {len(tasks)+len(running_tasks)} tasks.'
         )
-      for worker in self.idle_workers():
+      while tasks or not exhausted:
+        worker = self.next_idle_worker()
+        if worker is None:
+          break
         # Only append new task when existing queue is empty, this is to ensure
         # failed tasks are retried before new tasks are submitted.
         if not tasks and not exhausted:
@@ -544,13 +697,24 @@ class WorkerPool:
             tasks.append(_as_task(next(task_iterator)))
           except StopIteration:
             exhausted = True
-        if tasks:
-          running_tasks.append(worker.run_task(tasks.pop()))
-      still_running = []
+            break
+        running_tasks.append(worker.run_task(tasks.pop()))
+      still_running: list[Task] = []
       for task in running_tasks:
         if task.done:
-          yield task
-        elif not self._workers[task.server_name].is_alive:
+          # TODO: b/311207032 - distinguish timeout exception and categorize
+          # it as discconnected.
+          if task.exception:
+            logging.exception(
+                'chainables: task failed with exception: %s, task: %s',
+                task.exception,
+                task.set(parent_task=None),
+            )
+            if not ignore_failures:
+              tasks.append(task)
+          else:
+            yield task
+        elif not task.is_alive:
           logging.warning(
               'chainables: Worker %s is not alive, re-appending task %s',
               task.server_name,
@@ -560,7 +724,15 @@ class WorkerPool:
         else:
           still_running.append(task)
       running_tasks = still_running
+      if exhausted and not tasks:
+        running_workers = set(task.server_name for task in running_tasks)
+        unused_workers = filter(
+            lambda worker: worker.server_name not in running_workers,
+            self.workers,
+        )
+        self._release_all(unused_workers)
       time.sleep(sleep_interval)
+    self._release_all()
 
   def run(
       self,
@@ -574,6 +746,7 @@ class WorkerPool:
     results = [task.result for task in tasks_w_result]
     return results[0] if isinstance(tasks, lazy_fns.LazyFn) else results
 
+  # TODO: b/311207032 - Provide gradual worker lock and unlock mechanism.
   def iterate(
       self,
       task_iterator: Iterable[GeneratorTask | lazy_fns.LazyFn],
@@ -595,7 +768,7 @@ class WorkerPool:
     loop_thread.start()
     running_tasks: list[GeneratorTask] = []
     tasks: list[GeneratorTask] = []
-    iterating_servers = set()
+    iterating_servers: set[str] = set()
     total_tasks, finished_tasks_cnt, total_failures_cnt = 0, 0, 0
     batch_cnt, prev_batch_cnt = 0, 0
     exhausted = False
@@ -615,7 +788,7 @@ class WorkerPool:
           except StopIteration:
             exhausted = True
         if tasks:
-          task = tasks.pop().set(server_name=worker.server_name)
+          task = tasks.pop().set(worker=worker)
           logging.info(
               'chainables: submitting task to worker %s', worker.server_name
           )
@@ -641,6 +814,8 @@ class WorkerPool:
       for task in running_tasks:
         if task.done:
           if task.exception:
+            # TODO: b/311207032 - distinguish timeout exception and categorize
+            # it as discconnected.
             logging.exception(
                 'chainables: task failed with exception: %s, task: %s',
                 task.exception,
@@ -650,7 +825,7 @@ class WorkerPool:
           else:
             finished_tasks_cnt += 1
         else:
-          if self.get_worker_by_name(task.server_name).is_alive:
+          if task.is_alive:
             still_running_tasks.append(task)
           else:
             disconnected_tasks.append(task)
@@ -658,8 +833,8 @@ class WorkerPool:
 
       # Preemptively cancel task from the disconnected workers.
       for task in disconnected_tasks:
-        assert task.state is not None
-        task.state.cancel()
+        if (state := task.state) is not None:
+          state.cancel()
       if failed_tasks or disconnected_tasks:
         logging.info(
             'chainables: %d tasks failed, %d tasks disconnected.',

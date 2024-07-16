@@ -13,6 +13,7 @@
 # limitations under the License.
 import asyncio
 import queue
+import threading
 import time
 
 from absl.testing import absltest
@@ -22,6 +23,7 @@ from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
 import portpicker
 
+
 Task = courier_worker.Task
 
 
@@ -30,8 +32,10 @@ def setUpModule():
   testutil.SetupMockBNS()
 
 
-def mock_generator(n):
-  yield from range(n)
+def mock_generator(n, sleep_interval=0.0):
+  for i in range(n):
+    yield i
+    time.sleep(sleep_interval)
   return n
 
 
@@ -179,9 +183,10 @@ class CourierWorkerGroupTest(absltest.TestCase):
 
   def test_worker_group_call(self):
     actual = self.worker_pool.call_and_wait('echo')
+    self.assertEmpty(self.worker_pool.acquired_workers)
     self.assertEqual(['echo'], actual)
 
-  def test_worker_group_iterate(self):
+  def test_worker_group_iterate_lazy_generator(self):
     lazy_generators = (lazy_fns.trace(mock_generator)(3) for _ in range(5))
     courier_worker._LOGGING_INTERVAL_SEC = 0.01
     generator_result_queue = queue.SimpleQueue()
@@ -193,7 +198,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
               num_total_failures_threshold=0,
           )
       )
-    self.assertNotEmpty([l for l in cm.output if 'progress' in l])
+    self.assertEmpty(self.worker_pool.acquired_workers)
     self.assertLen(results, 3 * 5)
     self.assertCountEqual(list(range(3)) * 5, results)
     self.assertEqual(6, generator_result_queue.qsize())
@@ -218,6 +223,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
               num_total_failures_threshold=0,
           )
       ]
+    self.assertEmpty(self.worker_pool.acquired_workers)
     self.assertNotEmpty([l for l in cm.output if 'progress' in l])
     self.assertLen(results, 3 * 5)
     self.assertCountEqual(list(range(3)) * 5, results)
@@ -226,7 +232,6 @@ class CourierWorkerGroupTest(absltest.TestCase):
     while not generator_result_queue.empty():
       actual_agg.append(generator_result_queue.get())
     self.assertEqual([3] * 5, actual_agg[:-1])
-    self.assertNotEmpty([l for l in cm.output if 'progress' in l])
 
   # TODO: b/349174267 - re-neable the test when this test does not hang when
   # exiting.
@@ -241,14 +246,28 @@ class CourierWorkerGroupTest(absltest.TestCase):
   #   with self.assertRaises(TypeError):
   #     next(iterator)
 
+  def test_shared_worker_pool_run(self):
+    shared_worker_pool = courier_worker.WorkerPool(self.worker_pool.all_workers)
+    self.assertNotEmpty(shared_worker_pool.workers)
+    tasks = [lazy_fns.trace(time.sleep)(0.01)] * 6
+    t = threading.Thread(target=shared_worker_pool.run, args=(tasks,))
+    t.start()
+    # The worker is not immediately acquirable while locked by the
+    # shared_worker_pool.
+    self.assertSameElements([False], self.worker_pool._acquire_all())
+    self.assertEqual([None] * 6, self.worker_pool.run(tasks))
+    self.assertEmpty(shared_worker_pool.acquired_workers)
+
   def test_worker_group_run(self):
     tasks = lazy_fns.trace(len)([1, 2])
     actual = self.worker_pool.run(tasks)
+    self.assertEmpty(self.worker_pool.acquired_workers)
     self.assertEqual(2, actual)
 
   def test_worker_group_run_multi_tasks(self):
     tasks = (lazy_fns.trace(len)([1, 2]) for _ in range(3))
     actual = self.worker_pool.run(tasks)
+    self.assertEmpty(self.worker_pool.acquired_workers)
     self.assertLen(actual, 3)
     self.assertEqual([2] * 3, actual)
 
