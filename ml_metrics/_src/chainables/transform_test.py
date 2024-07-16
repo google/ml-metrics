@@ -761,6 +761,25 @@ class TransformTest(parameterized.TestCase):
       assert state is not None
       actual_fn.merge_states([state.agg_state], strict_states_cnt=2)
 
+  def test_flatten_transform(self):
+    input_iterator = [[1, 2, 3], [2, 3, 4]]
+    t = (
+        transform.TreeTransform.new()
+        # consecutive datasource, asign, and apply form one tranform.
+        .data_source(iterator=lazy_fns.trace(lambda: input_iterator)())
+        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 1), output_keys='a')
+        .assign('b', fn=lazy_fns.iterate_fn(lambda x: x + 1), input_keys='a')
+        # aggregate is a new tranform.
+        .aggregate(fn=TestAverageFn(), input_keys='b')
+        # asign or apply after aggregate is a new tranform.
+        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 10))
+        # aggregate is a new tranform.
+        .aggregate(fn=TestAverageFn())
+    )
+
+    transforms = t.flatten_transform()
+    self.assertLen(transforms, 4)
+
   def test_chain(self):
     input_iterator = [[1, 2, 3], [2, 3, 4]]
     read = transform.TreeTransform.new().data_source(
