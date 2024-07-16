@@ -149,6 +149,11 @@ class RRegression(base.MergeableMetric):
   https://en.wikipedia.org/wiki/Pearson_correlation_coefficient
   """
 
+  # If True, center the data matrix x and the target vector y.
+  # The centered r-regression is the "Pearson's Correlation".
+  # The not-centered r-regression is the "Reflective Correlation".
+  center: bool = True
+
   num_samples: int = 0
   sum_x: types.NumbersT = 0
   sum_y: float = 0
@@ -226,17 +231,21 @@ class RRegression(base.MergeableMetric):
     Returns:
       The Pearson Correlation Coefficient.
     """
-    # For readability, we will seperate the numerator and denominator.
-    # Further, we will seperate the denominator such that
-    # numerator = sum(x_i * y_i) - n * x_bar * y_bar
-    # denominator_x = sqrt(sum(x_i ** 2) - n * x_bar ** 2)
-    # denominator_y = sqrt(sum(y_i ** 2) - n * y_bar ** 2)
-    # denominator = denominator_x * denominator_y
+    if self.center:  # Pearson's Correlation
+      # numerator = sum(x_i * y_i) - n * x_bar * y_bar
 
-    denominator_x = np.sqrt(self.sum_xx - self.sum_x**2 / self.num_samples)
-    denominator_y = np.sqrt(self.sum_yy - self.sum_y**2 / self.num_samples)
-    denominator = denominator_x * denominator_y
+      # denominator_x = sqrt(sum(x_i ** 2) - n * x_bar ** 2)
+      # denominator_y = sqrt(sum(y_i ** 2) - n * y_bar ** 2)
+      # denominator = denominator_x * denominator_y
 
-    numerator = self.sum_xy - self.sum_x * self.sum_y / self.num_samples
+      numerator = self.sum_xy - self.sum_x * self.sum_y / self.num_samples
+
+      denominator_x = np.sqrt(self.sum_xx - self.sum_x**2 / self.num_samples)
+      denominator_y = np.sqrt(self.sum_yy - self.sum_y**2 / self.num_samples)
+      denominator = denominator_x * denominator_y
+
+    else:  # Reflective Correlation
+      numerator = self.sum_xy
+      denominator = np.sqrt(self.sum_xx * self.sum_yy)
 
     return numerator / denominator

@@ -228,22 +228,24 @@ class StatsStateTest(parameterized.TestCase):
         'total': np.nansum(batch, axis=0),
     }
     for property_name, value in expected_properties_dict.items():
-      np.testing.assert_allclose(
-          getattr(state.result(), property_name), value
-      )
+      np.testing.assert_allclose(getattr(state.result(), property_name), value)
 
 
 class RRegressionTest(parameterized.TestCase):
 
-  def test_r_regression_merge(self):
+  @parameterized.named_parameters(
+      dict(testcase_name='centered', center=True),
+      dict(testcase_name='not_centered', center=False),
+  )
+  def test_r_regression_merge(self, center):
     x_1 = (1, 2, 3, 4)
     y_1 = (10, 9, 2.5, 6)
 
     x_2 = (5, 6, 7)
     y_2 = (4, 3, 2)
 
-    state_1 = rolling_stats.RRegression().add(x_1, y_1)
-    state_2 = rolling_stats.RRegression().add(x_2, y_2)
+    state_1 = rolling_stats.RRegression(center=center).add(x_1, y_1)
+    state_2 = rolling_stats.RRegression(center=center).add(x_2, y_2)
     result = state_1.merge(state_2)
 
     expected_result = rolling_stats.RRegression(
@@ -257,29 +259,59 @@ class RRegressionTest(parameterized.TestCase):
 
     self.assertEqual(result, expected_result)
 
-  def test_r_regression_single_output(self):
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='centered',
+          center=True,
+          # From
+          # sklearn.feature_selection.r_regression(
+          # X=np.reshape(x, (-1, 1)), y=y
+          # )[0]
+          expected_result=-0.8285038835884279,
+      ),
+      dict(
+          testcase_name='not_centered',
+          center=False,
+          # From
+          # sklearn.feature_selection.r_regression(
+          # X=np.reshape(x, (-1, 1)), y=y, center=False
+          # )[0]
+          expected_result=0.5933285714624903,
+      ),
+  )
+  def test_r_regression_single_output(self, center, expected_result):
     x = (1, 2, 3, 4, 5, 6, 7)
     y = (10, 9, 2.5, 6, 4, 3, 2)
 
-    actual_result = rolling_stats.RRegression().add(x, y).result()
-
-    # From
-    # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
-    expected_result = -0.8285038835884279
+    actual_result = rolling_stats.RRegression(center=center).add(x, y).result()
 
     self.assertAlmostEqual(actual_result, expected_result, places=10)
 
-  def test_r_regression_multi_output(self):
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='centered',
+          center=True,
+          # From sklearn.feature_selection.r_regression(x_all, y)
+          expected_result=(-0.82850388, -0.32338709),
+      ),
+      dict(
+          testcase_name='not_centered',
+          center=False,
+          # From
+          # sklearn.feature_selection.r_regression(X=x_all, y=y, center=False)
+          expected_result=(0.59332857, 0.72301752),
+      ),
+  )
+  def test_r_regression_multi_output(self, center, expected_result):
     x1 = (10, 9, 2.5, 6, 4, 3, 2)
     x2 = (8, 6, 7, 5, 3, 0, 9)
     y = (1, 2, 3, 4, 5, 6, 7)
 
     x_all = np.array((x1, x2)).T
 
-    actual_result = rolling_stats.RRegression().add(x_all, y).result()
-
-    # From sklearn.feature_selection.r_regression(x_all, y)
-    expected_result = (-0.82850388, -0.32338709)
+    actual_result = (
+        rolling_stats.RRegression(center=center).add(x_all, y).result()
+    )
 
     np.testing.assert_almost_equal(actual_result, expected_result)
 
