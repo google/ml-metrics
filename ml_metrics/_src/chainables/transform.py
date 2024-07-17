@@ -50,7 +50,7 @@ import inspect
 import itertools
 import queue
 import time
-from typing import Any, Generic, Self, TypeVar
+from typing import Any, Generic, TypeVar
 
 from absl import logging
 from ml_metrics._src import base_types
@@ -250,6 +250,7 @@ class CombinedTreeFn:
 
   From a TreeTransform standpoint, the sequence of TreeTransforms are translted
   and into one function here:
+    * `IteratorSource` is translated to `input_iterator`
     * Base `TreeTrsnform`s (`apply()`, `assign()`, `select()`) are translated to
       `input_fns` in sequence.
     * The first `AggregateTransform` in the chain is translated to `slicers` and
@@ -281,15 +282,10 @@ class CombinedTreeFn:
     transforms = transform.flatten_transform() if recursive else [transform]
     input_nodes, output_nodes = [], []
     iterator_node, agg_node = None, None
-    for i, node in enumerate(transforms):
-      if node.input_iterator is not None:
-        if i > 0:
-          raise ValueError(
-              f'Only the first node can have input_iterator, got one at {node=}'
-          )
+    for node in transforms:
+      if isinstance(node, IteratorSource):
         iterator_node = node
-      # Iterator node can also be other types of nodes.
-      if agg_node is None and isinstance(node, AggregateTransform):
+      elif agg_node is None and isinstance(node, AggregateTransform):
         agg_node = node
       elif agg_node is None:
         input_nodes.append(node)
@@ -307,7 +303,7 @@ class CombinedTreeFn:
 
     # Collect input_iterator.
     input_iterator = lazy_fns.maybe_make(
-        iterator_node and iterator_node.input_iterator
+        iterator_node and iterator_node.iterator
     )
     # Collect all the input functions from the input nodes.
     input_fns = list(
@@ -588,14 +584,12 @@ class TreeTransform(Generic[TreeFnT]):
     )
 
   Attributes:
-    input_iterator: the input iterator, cannot coexist with the input_transform.
     input_transform: the transform that outputs the input of this transform.
     fns: the underlying routines of the transforms.
     is_noop: whether the transform is a no-op, e.g., no function to execute.
       This is useful at the beginning of a chain by calling `Transform.new()`.
   """
 
-  input_iterator: Iterable[Any] | lazy_fns.LazyFn | None = None
   input_transform: TreeTransform | None = None
   fns: list[TreeFnT] = dataclasses.field(default_factory=list)
   _default_constructor: bool = dataclasses.field(default=True, repr=False)
@@ -606,31 +600,17 @@ class TreeTransform(Generic[TreeFnT]):
           f'Do not use default constructor {self.__class__.__name__}, uses'
           ' "new()" instead.'
       )
-    if self.input_iterator and self.input_transform:
-      raise ValueError(
-          'Ambiguous inputs: input_iteartor and input_transform are both set.'
-          f'got {self.input_iterator=} and {self.input_transform=}.'
-      )
 
   @classmethod
-  def new(
-      cls,
-      *,
-      input_iterator: Iterable[Any] | lazy_fns.LazyFn | None = None,
-      input_transform: TreeTransformT | None = None,
-  ) -> Self:
+  def new(cls, *, input_transform: TreeTransformT | None = None):
     if input_transform and input_transform.is_noop:
       # Skip the input_transform if there is a no-op logically.
       input_transform = input_transform.input_transform
-    return cls(
-        input_transform=input_transform,
-        input_iterator=input_iterator,
-        _default_constructor=False,
-    )
+    return cls(input_transform=input_transform, _default_constructor=False)
 
   @property
   def is_noop(self):
-    return not self.fns and not self.input_iterator
+    return not self.fns
 
   def chain(self, transform: TreeTransform):
     """Chains self to the input of the first node in the other transform."""
@@ -648,8 +628,13 @@ class TreeTransform(Generic[TreeFnT]):
     """Makes the concrete function instance from the transform."""
     return CombinedTreeFn.from_transform(self, recursive=recursive, mode=mode)
 
-  def data_source(self, iterator: Any = None) -> TreeTransform:
-    return TreeTransform.new(input_iterator=iterator)
+  def data_source(self, iterator: Any = None) -> IteratorSource:
+    if self.input_transform:
+      raise ValueError(
+          f'Cannot add data_source to {self} when there is already an'
+          ' input_transform.'
+      )
+    return IteratorSource.new(iterator)
 
   def assign(
       self,
@@ -720,18 +705,45 @@ class TreeTransform(Generic[TreeFnT]):
     """Flatten all the chain of transforms into a list."""
     if not self.input_transform:
       return [self]
-    return self.input_transform.flatten_transform() + [
-        dataclasses.replace(self, input_transform=None)
-    ]
+    return self.input_transform.flatten_transform() + [self]
 
   def _maybe_new_transform(self, fn):
-    """Breaks apart the transform when this is an aggregate or source."""
+    # Break apart the transform when this is an aggregate transform.
     if isinstance(self, AggregateTransform):
+      return TreeTransform(
+          input_transform=self, fns=[fn], _default_constructor=False
+      )
+    elif isinstance(self, IteratorSource):
       return TreeTransform(
           input_transform=self, fns=[fn], _default_constructor=False
       )
     else:
       return dataclasses.replace(self, fns=self.fns + [fn])
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class IteratorSource(TreeTransform):
+  """A source that wraps around an iterator."""
+
+  # Any iterable or an instance that can make an iterable either from the
+  # registered lazy_fns.makeables or from an implemented LazyFn.
+  iterator: Iterable[Any] | lazy_fns.LazyFn | Any
+
+  def __post_init__(self):
+    if self.input_transform:
+      raise ValueError(
+          f'Source cannot have an input_transform, got {self.input_transform}'
+      )
+    if self.fns:
+      raise ValueError(f'Source must not have any fn, got {self.fns}')
+
+  @classmethod
+  def new(cls, iterator: Any):
+    return cls(iterator=iterator, _default_constructor=False)
+
+  @property
+  def is_noop(self):
+    return not self.iterator
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
