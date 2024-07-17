@@ -46,9 +46,9 @@ class CourierServerWrapper:
   def address(self) -> str:
     return self._server.address if self._server else ''
 
-  def build_server(self):
-    """Build and run a courier server."""
-    # Verify the registered makeables.
+  def set_up(self) -> None:
+    """Set up (e.g. binding to methods) at server build time."""
+   # Verify the registered makeables.
     assert lazy_fns.makeables[lazy_fns.LazyFn] is not None
 
     def shutdown():
@@ -94,16 +94,24 @@ class CourierServerWrapper:
     def next_from_generator():
       return pickler.dumps(_next_batch_from_generator(batch_size=1)[0])
 
-    server = courier.Server(self.server_name, port=self.port)
-    server.Bind('maybe_make', pickled_maybe_make)
-    server.Bind('init_generator', pickled_init_generator)
-    server.Bind('next_from_generator', next_from_generator)
-    server.Bind('next_batch_from_generator', next_batch_from_generator)
-    server.Bind('shutdown', shutdown)
+    def heartbeat() -> None:
+      pass
+
+    assert self._server is not None, 'Server is not built.'
+    self._server.Bind('maybe_make', pickled_maybe_make)
+    self._server.Bind('init_generator', pickled_init_generator)
+    self._server.Bind('next_from_generator', next_from_generator)
+    self._server.Bind('next_batch_from_generator', next_batch_from_generator)
+    self._server.Bind('heartbeat', heartbeat)
+    self._server.Bind('shutdown', shutdown)
     # TODO: b/318463291 - Add unit tests.
-    server.Bind('clear_cache', lazy_fns.clear_cache)
-    server.Bind('cache_info', pickled_cache_info)
-    self._server = server
+    self._server.Bind('clear_cache', lazy_fns.clear_cache)
+    self._server.Bind('cache_info', pickled_cache_info)
+
+  def build_server(self) -> courier.Server:
+    """Build and run a courier server."""
+    self._server = courier.Server(self.server_name, port=self.port)
+    self.set_up()
     return self._server
 
   def run_until_shutdown(self):

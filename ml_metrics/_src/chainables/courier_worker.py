@@ -53,6 +53,7 @@ class Task:
     worker: The courier worker that runs this task.
     parent_task: The parent task that has to be run first.
     state: the result of the task.
+    courier_method: the courier method of the task.
     exception: the exception of the running this task if there is any.
     result: get the result of the task if there is any.
     server_name: The server address this task is sent to.
@@ -65,12 +66,14 @@ class Task:
   worker: Worker | None = None
   parent_task: 'Task | None' = None
   state: futures.Future[Any] | None = None
+  courier_method: str = 'maybe_make'
 
   @classmethod
   def new(
       cls,
       *args,
       blocking: bool = False,
+      courier_method: str = 'maybe_make',
       **kwargs,
   ):
     """Convenient function to make a Task."""
@@ -78,6 +81,7 @@ class Task:
         args=args,
         kwargs=kwargs,
         blocking=blocking,
+        courier_method=courier_method,
     )
 
   @classmethod
@@ -340,9 +344,9 @@ class Worker:
   def _check_heartbeat(self) -> bool:
     """Ping the worker to check the heartbeat once."""
     if not self._heartbeat:
-      self._heartbeat = self._heartbeat_client.futures.maybe_make(None)
+      self._heartbeat = self._heartbeat_client.futures.heartbeat()
     try:
-      if self._heartbeat.done() and self._heartbeat.result():
+      if self._heartbeat.done():
         self._heartbeat = None
         self._last_heartbeat = time.time()
         return True
@@ -411,7 +415,9 @@ class Worker:
     for task in task.flatten():
       while not self.has_capacity:
         time.sleep(0)
-      state = self.call(*task.args, **task.kwargs)
+      state = self.call(
+          *task.args, courier_method=task.courier_method, **task.kwargs
+      )
       if task.blocking:
         wait_until_done([state])
       result.append(task.set(state=state, worker=self))
