@@ -17,6 +17,7 @@ import dataclasses
 import functools
 import itertools
 from typing import Any
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from ml_metrics._src.aggregates import base as aggretates
@@ -25,6 +26,7 @@ from ml_metrics._src.chainables import transform
 from ml_metrics._src.chainables import tree
 from ml_metrics._src.chainables import tree_fns
 import numpy as np
+
 
 Key = tree.Key
 MetricKey = transform.MetricKey
@@ -152,8 +154,16 @@ def multi_slicer(preds, labels, within=()):
 
 class TransformTest(parameterized.TestCase):
 
-  def test_transform_call(self):
+  def test_queue_from_generator(self):
+    q = transform.queue_from_generator(range(10))
+    for i in range(10):
+      self.assertEqual(i, q.get())
 
+  def test_queue_as_generator(self):
+    q = transform.queue_from_generator(range(10))
+    self.assertEqual(list(range(10)), list(transform.queue_as_generator(q)))
+
+  def test_transform_call(self):
     t = (
         transform.TreeTransform.new()
         .data_source(MockGenerator(range(3)))
@@ -820,7 +830,7 @@ class TransformTest(parameterized.TestCase):
         .data_source(iterator=MockGenerator(inputs))
         .aggregate(fn=MockAverageFn())
     )
-    iterator = transform.PrefetchableIterator(
+    iterator = transform.PrefetchedIterator(
         p.make().iterate(with_agg_result=True), prefetch_size=2
     )
     iterator.prefetch()
