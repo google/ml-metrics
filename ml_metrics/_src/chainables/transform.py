@@ -89,48 +89,16 @@ def iterate_with_returned(
 
 
 def get_generator_returned(
-    generator: Generator[Any, None, _ValueT],
-) -> _ValueT | None:
+    generator: Generator[Any, None, AggregateResult],
+) -> AggregateResult | None:
   """Returns the aggregate result by from a TreeTransform based generator."""
-  *_, last = iterate_with_returned(generator)
-  return last
+  result = AggregateResult()
+  for result in iterate_with_returned(generator):
+    pass
+  return result
 
 
-def queue_from_generator(
-    generator: Iterator[_ValueT],
-    maxsize: int = 0,
-    output_queue: queue.Queue[_ValueT | StopIteration] | None = None,
-) -> queue.Queue[_ValueT | StopIteration]:
-  """Converts an iterator to a queue, stops when meeting StopIteration."""
-  generator = iter(generator)
-  if output_queue is None:
-    output_queue = queue.Queue(maxsize=maxsize)
-  while True:
-    try:
-      output_queue.put(next(generator))
-    except StopIteration as e:
-      output_queue.put(e)
-      break
-  return output_queue
-
-
-def queue_as_generator(
-    input_queue: queue.SimpleQueue[_ValueT | StopIteration],
-    *,
-    num_steps: int = -1,
-) -> Iterator[_ValueT]:
-  """Converts a queue to an iterator, stops when meeting StopIteration."""
-  i = 0
-  run_until_exhausted = num_steps < 0
-  while run_until_exhausted or i < num_steps:
-    value = input_queue.get()
-    if isinstance(value, StopIteration):
-      return value.value
-    yield value
-    i += 1
-
-
-class PrefetchedIterator:
+class PrefetchableIterator:
   """An iterator that can also prefetch before iterated."""
 
   def __init__(self, generator, prefetch_size: int = 2):

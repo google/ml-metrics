@@ -38,7 +38,7 @@ class CourierServerWrapper:
   _shutdown_requested: dict[str, bool] = dataclasses.field(
       default_factory=lambda: {_DEFAULT: False}, init=False
   )
-  _generator: transform.PrefetchedIterator | None = dataclasses.field(
+  _generator: transform.PrefetchableIterator | None = dataclasses.field(
       default=None, init=False
   )
 
@@ -48,7 +48,7 @@ class CourierServerWrapper:
 
   def set_up(self) -> None:
     """Set up (e.g. binding to methods) at server build time."""
-    # Verify the registered makeables.
+   # Verify the registered makeables.
     assert lazy_fns.makeables[lazy_fns.LazyFn] is not None
 
     def shutdown():
@@ -64,7 +64,7 @@ class CourierServerWrapper:
         raise TypeError(
             f'The {result} is not a generator, but a {type(result)}.'
         )
-      self._generator = transform.PrefetchedIterator(
+      self._generator = transform.PrefetchableIterator(
           result,
           prefetch_size=self.prefetch_size,
       )
