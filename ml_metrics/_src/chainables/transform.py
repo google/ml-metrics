@@ -92,8 +92,10 @@ def get_generator_returned(
     generator: Generator[Any, None, _ValueT],
 ) -> _ValueT | None:
   """Returns the aggregate result by from a TreeTransform based generator."""
-  *_, last = iterate_with_returned(generator)
-  return last
+  result = None
+  for result in iterate_with_returned(generator):
+    pass
+  return result
 
 
 def queue_from_generator(
