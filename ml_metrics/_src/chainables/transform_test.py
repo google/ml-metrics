@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Tests for transform."""
+
 from collections.abc import Callable, Iterable
 import dataclasses
 import functools
 import itertools
 from typing import Any
+from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -172,6 +174,21 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual(t.make()(), [1, 2, 3])
     self.assertEqual([2, 3, 4], t.make()(input_iterator=range(1, 4)))
     self.assertEqual(2, t.make()(1))
+
+  def test_cached_make(self):
+    t = (
+        transform.TreeTransform.new()
+        .data_source(MockGenerator(range(3)))
+        .apply(fn=lambda x: x + 1)
+        .aggregate(fn=lazy_fns.trace(MockAverageFn)())
+        .apply(fn=lambda x: x + 1)
+    )
+    with mock.patch.object(
+        transform, '_transform_make', autospec=True
+    ) as mock_make_transform:
+      t.make(use_cache=True)
+      t.make(use_cache=True)
+      mock_make_transform.assert_called_once()
 
   @parameterized.named_parameters([
       dict(
