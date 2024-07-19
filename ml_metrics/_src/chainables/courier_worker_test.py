@@ -57,18 +57,30 @@ class CourierWorkerTest(absltest.TestCase):
   def test_worker_call(self):
     self.assertEqual(
         ['echo'],
-        courier_worker.get_results([self.worker.call('echo')], blocking=True),
+        courier_worker.get_results([self.worker.call('echo')]),
     )
+
+  def test_task_done(self):
+    task = Task.new('echo')
+    self.assertFalse(task.done())
+    task = self.worker.submit(task)
+    courier_worker.wait([task])
+    self.assertTrue(task.done())
 
   def test_worker_run_task(self):
     task = Task.new('echo').add_task(
         Task.new(lazy_fns.trace(len)([1, 2]), blocking=True)
     )
-    result = self.worker.run_task(task)
-    self.assertEqual(2, lazy_fns.maybe_make(result.state.result()))
+    result = self.worker.submit(task)
+    self.assertEqual(2, result.result())
     self.assertEqual(
         'echo', lazy_fns.maybe_make(result.parent_task.state.result())
     )
+
+  def test_wait_timeout(self):
+    task = Task.new(lazy_fns.trace(time.sleep)(0.1))
+    task = self.worker.submit(task)
+    self.assertNotEmpty(courier_worker.wait([task], timeout=0).not_done)
 
   def test_worker_async_iterate(self):
 
@@ -138,7 +150,6 @@ class CourierWorkerTest(absltest.TestCase):
 
   def test_worker_exception(self):
     state_futures = [self.worker.call(lazy_fns.trace(len)(0.3))]
-    courier_worker.wait_until_done(state_futures)
     exceptions = courier_worker.get_exceptions(state_futures)
     self.assertLen(exceptions, 1)
     self.assertIsInstance(exceptions[0], Exception)
@@ -207,7 +218,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
     tasks = [courier_worker.Task.new(1, courier_method='plus_one')]
     worker_pool = courier_worker.WorkerPool([server.address])
     worker_pool.wait_until_alive(deadline_secs=12)
-    states = [task.state for task in worker_pool.iterate_tasks(tasks)]
+    states = list(worker_pool.as_completed(tasks))
     # We only have one task, so just return the first element.
     self.assertEqual(2, courier_worker.get_results(states)[0])
     worker_pool.shutdown()
@@ -305,11 +316,11 @@ class CourierWorkerGroupTest(absltest.TestCase):
     new_hits = self.worker_pool.idle_workers()[0].cache_info().hits
     self.assertEqual(new_hits - hits, 1)
 
-  def test_worker_group_run_tasks(self):
+  def test_worker_group_as_completed(self):
     tasks = [
         Task.new('echo', blocking=False).add_task(lazy_fns.trace(len)([1, 2]))
     ] * 3
-    states = [task.state for task in self.worker_pool.iterate_tasks(tasks)]
+    states = list(self.worker_pool.as_completed(tasks))
     self.assertLen(states, 3)
     actual = courier_worker.get_results(states)
     self.assertEqual([2] * 3, actual)

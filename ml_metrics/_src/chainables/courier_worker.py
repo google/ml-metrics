@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Courier worker that can take and run a registered makeable instance."""
+
 from __future__ import annotations
 
+import abc
 import asyncio
 from collections.abc import AsyncIterator, Iterable, Iterator
 from concurrent import futures
@@ -22,7 +24,7 @@ import queue
 import threading
 import time
 import typing
-from typing import Any, Self, TypeVar
+from typing import Any, NamedTuple, Protocol, Self, TypeVar
 
 from absl import logging
 import courier
@@ -33,16 +35,27 @@ from ml_metrics._src.chainables import transform
 _LOGGING_INTERVAL_SEC = 30
 _NUM_TOTAL_FAILURES_THRESHOLD = 60
 picklers = lazy_fns.picklers
+_T = TypeVar('_T')
 
 
-def _empty_future() -> futures.Future[Any]:
-  result = futures.Future()
-  result.set_exception(None)
-  return result
+class _FutureLike(Protocol[_T]):
+
+  @abc.abstractmethod
+  def done(self) -> bool:
+    """Indicates the future is done."""
+
+  @abc.abstractmethod
+  def result(self) -> _T:
+    """Returns the result of the future."""
+
+  @abc.abstractmethod
+  def exception(self) -> BaseException | None:
+    """Returns the exception of the future."""
 
 
+# TODO: b/311207032 - Implements Future interface for Task.
 @dataclasses.dataclass(kw_only=True, frozen=True)
-class Task:
+class Task(_FutureLike[_T]):
   """Lazy function that runs on courier methods.
 
   Attributes:
@@ -75,7 +88,7 @@ class Task:
       blocking: bool = False,
       courier_method: str = 'maybe_make',
       **kwargs,
-  ):
+  ) -> Self:
     """Convenient function to make a Task."""
     return cls(
         args=args,
@@ -85,7 +98,7 @@ class Task:
     )
 
   @classmethod
-  def from_list_of_tasks(cls, tasks: list['Task']) -> 'Task':
+  def from_list_of_tasks(cls, tasks: list[Self]) -> Self:
     iter_tasks = iter(tasks)
     task = next(iter_tasks)
     assert isinstance(task, Task)
@@ -93,22 +106,20 @@ class Task:
       task = dataclasses.replace(next_task, parent_task=task)
     return task
 
-  @property
-  def done(self) -> bool | None:
+  # The followings are to implement the _FutureLike interfaces.
+  def done(self) -> bool:
     """Checks whether the task is done."""
     if (state := self.state) is not None:
       return state.done()
+    return False
 
-  @property
-  def exception(self):
+  def result(self) -> _T:
+    if self.state is not None:
+      return picklers.default.loads(self.state.result())
+
+  def exception(self) -> BaseException | None:
     if (state := self.state) is not None:
       return state.exception()
-
-  @property
-  def result(self):
-    if self.state is None:
-      return None
-    return picklers.default.loads(self.state.result())
 
   @property
   def server_name(self) -> str:
@@ -177,10 +188,8 @@ class GeneratorTask(Task):
     result: get the result of the task if there is any.
   """
 
-_TaskT = TypeVar('_TaskT', bound=Task)
 
-
-def _as_task(task: _TaskT | lazy_fns.LazyFn) -> _TaskT:
+def _as_task(task: Task | lazy_fns.LazyFn) -> Task:
   return Task.new(task) if isinstance(task, lazy_fns.LazyFn) else task
 
 
@@ -188,47 +197,65 @@ def _as_generator_task(task: GeneratorTask | lazy_fns.LazyFn) -> GeneratorTask:
   return GeneratorTask.new(task) if isinstance(task, lazy_fns.LazyFn) else task
 
 
+MaybeDoneTasks = NamedTuple(
+    'DoneNotDoneTask',
+    [('done', list[_FutureLike]), ('not_done', list[_FutureLike])],
+)
+
+
+def _maybe_unpickle(value: Any) -> Any:
+  if isinstance(value, bytes):
+    return picklers.default.loads(value)
+  return value
+
+
 def get_results(
-    states: list[futures.Future[Any]],
-    with_states: bool = False,
-    blocking: bool = True,
-):
-  """Gets the result of the futures, optionally outputs the non-done states."""
-  states_left, result = [], []
-  if blocking:
-    wait_until_done(states)
-  for state in states:
-    assert isinstance(
-        state, futures.Future
-    ), f'state has to be a futures.Future, got {type(state)}'
-    if state.done():
-      result.append(state.result())
-    else:
-      states_left.append(state)
-  result = [
-      picklers.default.loads(state) if isinstance(state, bytes) else state
-      for state in result
+    states: Iterable[_FutureLike[_T]], timeout: float | None = None
+) -> list[_T]:
+  """Gets the result of the futures, blocking by default."""
+  return [
+      _maybe_unpickle(task.result())
+      for task in wait(states, timeout=timeout).done
   ]
-  return (result, states_left) if with_states else result
-
-
-def _get_exception(state: futures.Future[Any]):
-  """Gets the exception, non blocking."""
-  if state.done():
-    return state.exception()
 
 
 def get_exceptions(
-    states: list[futures.Future[Any]],
-) -> list[Exception]:
+    states: list[_FutureLike], timeout: float | None = None
+) -> list[BaseException]:
   """Gets the exceptions from all states, non blocking."""
-  result = [_get_exception(state) for state in states]
-  return [state for state in result if state is not None]
+  return [
+      exc
+      for state in wait(states, timeout=timeout).done
+      if (exc := state.exception()) is not None
+  ]
 
 
-def wait_until_done(states: list[futures.Future[Any]]):
-  while not all(state.done() for state in states):
-    time.sleep(0.01)
+def wait(
+    tasks: Iterable[_FutureLike], timeout: float | None = None
+) -> MaybeDoneTasks:
+  """Waits for the tasks to complete optionally with a timeout.
+
+  Args:
+    tasks: The tasks to wait for.
+    timeout: The timeout in seconds to wait for the tasks to complete.
+
+  Returns:
+    A named tuple with the done tasks under 'done' and not done tasks under
+    'not_done'.
+  """
+  start_time = time.time()
+  done_tasks, not_done_tasks = [], list(tasks)
+  while not_done_tasks:
+    still_not_done_tasks = []
+    for task in not_done_tasks:
+      if task.done():
+        done_tasks.append(task)
+      else:
+        still_not_done_tasks.append(task)
+    not_done_tasks = still_not_done_tasks
+    if timeout is not None and time.time() - start_time > timeout:
+      return MaybeDoneTasks(done_tasks, not_done_tasks)
+  return MaybeDoneTasks(done_tasks, not_done_tasks)
 
 
 def _normalize_args(args, kwargs):
@@ -409,8 +436,10 @@ class Worker:
     self._pendings.append(state)
     return state
 
-  def run_task(self, task: Task) -> Task:
-    """Runs tasks sequentially and returns the futures."""
+  def submit(self, task: Task | lazy_fns.LazyFn) -> Task:
+    """Runs tasks sequentially and returns the task."""
+    if isinstance(task, lazy_fns.LazyFn):
+      task = Task.new(task)
     result = []
     for task in task.flatten():
       while not self.has_capacity:
@@ -419,7 +448,7 @@ class Worker:
           *task.args, courier_method=task.courier_method, **task.kwargs
       )
       if task.blocking:
-        wait_until_done([state])
+        futures.wait([state])
       result.append(task.set(state=state, worker=self))
     return Task.from_list_of_tasks(result)
 
@@ -443,7 +472,7 @@ class Worker:
     """Iterates the generator task."""
     # Make the actual generator.
     if task.parent_task is not None:
-      self.run_task(task.parent_task)
+      self.submit(task.parent_task)
     # Artificially insert a pending state to block other tasks.
     generator_state = futures.Future()
     self._pendings.append(generator_state)
@@ -494,14 +523,6 @@ class Worker:
     self._shutdown_requested = True
     self.state = self._client.futures.shutdown()
     return self.state
-
-
-def _raise_if_return_error(task: Task):
-  if not (result := task.state) or (result := task.exception):
-    raise TypeError(
-        f'Expected iterator, got {result} from'
-        f' task: {dataclasses.replace(task, parent_task=None)}'
-    )
 
 
 class WorkerPool:
@@ -675,10 +696,9 @@ class WorkerPool:
     time.sleep(0.1)
     return states
 
-  def iterate_tasks(
+  def as_completed(
       self,
-      task_iterator: Iterable[Task],
-      sleep_interval: float = 0.01,
+      task_iterator: Iterable[Task | lazy_fns.LazyFn],
       ignore_failures: bool = False,
   ) -> Iterator[Task]:
     """Run tasks within the worker pool."""
@@ -704,16 +724,16 @@ class WorkerPool:
           except StopIteration:
             exhausted = True
             break
-        running_tasks.append(worker.run_task(tasks.pop()))
+        running_tasks.append(worker.submit(tasks.pop()))
       still_running: list[Task] = []
       for task in running_tasks:
-        if task.done:
+        if task.done():
           # TODO: b/311207032 - distinguish timeout exception and categorize
           # it as discconnected.
-          if task.exception:
+          if task.exception():
             logging.exception(
                 'chainables: task failed with exception: %s, task: %s',
-                task.exception,
+                task.exception(),
                 task.set(parent_task=None),
             )
             if not ignore_failures:
@@ -726,7 +746,12 @@ class WorkerPool:
               task.server_name,
               dataclasses.replace(task, parent_task=None),
           )
+          assert task.state is not None
+          task.state.set_exception(
+              TimeoutError(f'Worker {task.server_name} is not alive')
+          )
           tasks.append(task)
+
         else:
           still_running.append(task)
       running_tasks = still_running
@@ -737,20 +762,19 @@ class WorkerPool:
             self.workers,
         )
         self._release_all(unused_workers)
-      time.sleep(sleep_interval)
+      time.sleep(0.0)
     self._release_all()
 
   def run(
       self,
-      tasks: Iterable[lazy_fns.LazyFn] | lazy_fns.LazyFn,
+      fns: Iterable[lazy_fns.LazyFn | Task] | lazy_fns.LazyFn | Task,
+      ignore_failures: bool = False,
   ) -> Any:
     """Run lazy functions or task within the worker pool."""
-    normalized_tasks = (
-        [Task.new(tasks)] if isinstance(tasks, lazy_fns.LazyFn) else tasks
-    )
-    tasks_w_result = self.iterate_tasks(normalized_tasks)
-    results = [task.result for task in tasks_w_result]
-    return results[0] if isinstance(tasks, lazy_fns.LazyFn) else results
+    if signle_task := isinstance(fns, (lazy_fns.LazyFn, Task)):
+      fns = [fns]
+    results = get_results(self.as_completed(fns, ignore_failures))
+    return results[0] if signle_task else results
 
   # TODO: b/311207032 - Provide gradual worker lock and unlock mechanism.
   def iterate(
@@ -818,13 +842,13 @@ class WorkerPool:
       # Acquiring unfinished and failed tasks
       failed_tasks, disconnected_tasks, still_running_tasks = [], [], []
       for task in running_tasks:
-        if task.done:
-          if task.exception:
+        if task.done():
+          if task.exception():
             # TODO: b/311207032 - distinguish timeout exception and categorize
             # it as discconnected.
             logging.exception(
                 'chainables: task failed with exception: %s, task: %s',
-                task.exception,
+                task.exception(),
                 task.set(parent_task=None),
             )
             failed_tasks.append(task)
