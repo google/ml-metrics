@@ -317,6 +317,7 @@ class RRegressionTest(parameterized.TestCase):
 
   def test_r_regression_one_large_batch(self):
     np.random.seed(seed=0)
+
     x = np.random.rand(1000000)
     y = np.random.rand(1000000)
 
@@ -330,12 +331,9 @@ class RRegressionTest(parameterized.TestCase):
 
   def test_r_regression_many_batches_little_correlation(self):
     np.random.seed(seed=0)
-    x = np.array([
-        np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
-    ])
-    y = np.array([
-        np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
-    ])
+
+    x = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
+    y = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
 
     state = rolling_stats.RRegression()
     for x_i, y_i in zip(x, y):
@@ -349,12 +347,11 @@ class RRegressionTest(parameterized.TestCase):
 
   def test_r_regression_many_batches_much_correlation(self):
     np.random.seed(seed=0)
-    x = np.array([
-        np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
-    ])
-    y = x + np.array([
-        np.random.uniform(low=-1e5, high=1e5, size=10000) for _ in range(10000)
-    ])  # This is a noisy version of x.
+
+    x = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
+
+    # This is a noisy version of x.
+    y = x + np.random.uniform(low=-1e5, high=1e5, size=(10000, 10000))
 
     state = rolling_stats.RRegression()
     for x_i, y_i in zip(x, y):
@@ -367,9 +364,7 @@ class RRegressionTest(parameterized.TestCase):
     self.assertAlmostEqual(state.result(), expected_result, places=10)
 
   def test_r_regression_many_batches_direct_correlation(self):
-    x = np.array([
-        np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
-    ])
+    x = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
 
     state = rolling_stats.RRegression()
     for x_i in x:
@@ -380,9 +375,7 @@ class RRegressionTest(parameterized.TestCase):
     self.assertAlmostEqual(state.result(), expected_result, places=9)
 
   def test_r_regression_many_batches_inverse_correlation(self):
-    x = np.array([
-        np.random.uniform(low=-1e6, high=1e6, size=10000) for _ in range(10000)
-    ])
+    x = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
 
     state = rolling_stats.RRegression()
     for x_i in x:
