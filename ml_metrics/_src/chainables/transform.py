@@ -42,15 +42,18 @@ Following is an example of an evaluation pipeline where:
       .add_slice('feature_b', slice_fn, slice_name='transformed_feature'),
   )
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
 import dataclasses
+import functools
 import inspect
 import itertools
 import queue
 import time
 from typing import Any, Generic, Self, TypeVar
+import uuid
 
 from absl import logging
 from ml_metrics._src import base_types
@@ -58,6 +61,7 @@ from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
 from ml_metrics._src.chainables import tree_fns
+
 
 TreeMapKey = tree.TreeMapKey
 TreeMapKeys = tree.TreeMapKeys
@@ -72,7 +76,6 @@ TreeFn = tree_fns.TreeFn
 _ValueT = TypeVar('_ValueT')
 
 _LOGGING_INTERVAL_SECS = 60
-_CACHED_TRANSFORM = {}
 
 
 def is_stop_iteration(inputs) -> bool:
@@ -347,6 +350,21 @@ def _transform_make(
   )
 
 
+@functools.lru_cache(maxsize=128)
+def _cached_transform_make(
+    transform: TreeTransform,
+    recursive: bool = True,
+    mode: RunnerMode = RunnerMode.DEFAULT,
+):
+  return _transform_make(transform, recursive=recursive, mode=mode)
+
+
+def clear_cache():
+  """Clear the cache for maybe_make."""
+  _cached_transform_make.cache_clear()
+  lazy_fns.clear_cache()
+
+
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class CombinedTreeFn:
   """Combining multiple transforms into concrete functions.
@@ -379,15 +397,10 @@ class CombinedTreeFn:
       transform: TreeTransform,
       recursive: bool = True,
       mode: RunnerMode = RunnerMode.DEFAULT,
-      use_cache: bool = False,
   ) -> Self:
     """Builds a TreeFn from a transform with caching."""
-    if use_cache:
-      if result := _CACHED_TRANSFORM.get(transform, None):
-        return result
-      result = _transform_make(transform, recursive, mode)
-      _CACHED_TRANSFORM[transform] = result
-      return result
+    if transform.use_cache:
+      return _cached_transform_make(transform, recursive=recursive, mode=mode)
     return _transform_make(transform, recursive, mode)
 
   @property
@@ -640,54 +653,66 @@ class TreeTransform(Generic[TreeFnT]):
     )
 
   Attributes:
+    name: a readable name of the transform.
     input_iterator: the input iterator, cannot coexist with the input_transform.
     input_transform: the transform that outputs the input of this transform.
     fns: the underlying routines of the transforms.
+    use_cache: a boolean to indicate whether to use cache for the transform.
+    id: the id of the transform, unique for each transform.
     is_noop: whether the transform is a no-op, e.g., no function to execute.
       This is useful at the beginning of a chain by calling `Transform.new()`.
   """
 
+  name: str = ''
   input_iterator: Iterable[Any] | lazy_fns.LazyFn | None = None
   input_transform: TreeTransform | None = None
   fns: tuple[TreeFnT, ...] = dataclasses.field(default_factory=tuple)
-  _default_constructor: bool = dataclasses.field(default=True, repr=False)
+  use_cache: bool = False
+  _id: uuid.UUID = dataclasses.field(default_factory=uuid.uuid4, init=False)
 
   def __post_init__(self):
-    if self._default_constructor:
-      raise ValueError(
-          f'Do not use default constructor {self.__class__.__name__}, uses'
-          ' "new()" instead.'
-      )
     if self.input_iterator is not None and self.input_transform is not None:
       raise ValueError(
           'Ambiguous inputs: input_iteartor and input_transform are both set.'
           f'got {self.input_iterator=} and {self.input_transform=}.'
       )
+    input_transform = self.input_transform
+    if input_transform and input_transform.is_noop:
+      # Skip the input_transform if there is a no-op logically.
+      input_transform = input_transform.input_transform
+    # Uses __setattr__ for frozen dataclasses.
+    object.__setattr__(self, 'input_transform', input_transform)
+    object.__setattr__(self, '_id', uuid.uuid3(uuid.uuid4(), self.name))
 
   @classmethod
   def new(
       cls,
       *,
+      name: str = '',
+      use_cache: bool = False,
       input_iterator: Iterable[Any] | lazy_fns.LazyFn | None = None,
       input_transform: TreeTransformT | None = None,
   ) -> Self:
-    if input_transform and input_transform.is_noop:
-      # Skip the input_transform if there is a no-op logically.
-      input_transform = input_transform.input_transform
     return cls(
         input_transform=input_transform,
         input_iterator=input_iterator,
-        _default_constructor=False,
+        name=name,
+        use_cache=use_cache,
     )
+
+  @property
+  def id(self):
+    return self._id
 
   @property
   def is_noop(self):
     return not self.fns and self.input_iterator is None
 
   def __hash__(self):
-    if self.input_transform:
-      return hash(tuple(self.flatten_transform()))
-    return hash((self.fns, self.input_iterator))
+    return hash(self._id)
+
+  def __eq__(self, other):
+    return self.id == other.id
 
   def chain(self, transform: TreeTransform):
     """Chains self to the input of the first node in the other transform."""
@@ -704,15 +729,14 @@ class TreeTransform(Generic[TreeFnT]):
       *,
       recursive=True,
       mode: RunnerMode = RunnerMode.DEFAULT,
-      use_cache: bool = False,
   ) -> CombinedTreeFn:
     """Makes the concrete function instance from the transform."""
-    return CombinedTreeFn.from_transform(
-        self, recursive=recursive, mode=mode, use_cache=use_cache
-    )
+    return CombinedTreeFn.from_transform(self, recursive=recursive, mode=mode)
 
   def data_source(self, iterator: Any = None) -> TreeTransform:
-    return TreeTransform.new(input_iterator=iterator)
+    return TreeTransform.new(
+        input_iterator=iterator, name=self.name, use_cache=self.use_cache
+    )
 
   def assign(
       self,
@@ -727,18 +751,18 @@ class TreeTransform(Generic[TreeFnT]):
         fn=fn,
         input_keys=input_keys,
     )
-    fns = {}
+    fn_by_output_keys = {}
     for fn_ in self.fns:
-      fns.update({key: fn_ for key in fn_.output_keys})
-    if conflicting_keys := set(fn.output_keys).intersection(fns):
+      fn_by_output_keys.update({key: fn_ for key in fn_.output_keys})
+    if conflicting_keys := set(fn.output_keys).intersection(fn_by_output_keys):
       raise ValueError(
           f'Duplicate output_keys: {conflicting_keys} from assignment of'
           f' {fn.output_keys}'
       )
-    if tree.Key.SELF in fns:
+    if tree.Key.SELF in fn_by_output_keys:
       raise ValueError(
-          f'Cannot add new key {fn.output_keys} when other aggregate output is'
-          f' SELF: {fns[tree.Key.SELF]}'
+          f'Cannot add new key {fn.output_keys} when other output key has'
+          f' SELF: {fn_by_output_keys[tree.Key.SELF]}'
       )
     return self._maybe_new_transform(fn)
 
@@ -756,9 +780,9 @@ class TreeTransform(Generic[TreeFnT]):
       fn: lazy_fns.LazyFn | aggregates.Aggregatable | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
   ) -> AggregateTransform:
-    return AggregateTransform.new(input_transform=self).add_aggregate(
-        input_keys=input_keys, output_keys=output_keys, fn=fn
-    )
+    return AggregateTransform.new(
+        input_transform=self, use_cache=self.use_cache, name=self.name
+    ).add_aggregate(input_keys=input_keys, output_keys=output_keys, fn=fn)
 
   def agg(self, **kwargs) -> AggregateTransform:
     """Alias for aggregate."""
@@ -791,7 +815,10 @@ class TreeTransform(Generic[TreeFnT]):
     """Breaks apart the transform when this is an aggregate or source."""
     if isinstance(self, AggregateTransform):
       return TreeTransform(
-          input_transform=self, fns=(fn,), _default_constructor=False
+          input_transform=self,
+          fns=(fn,),
+          use_cache=self.use_cache,
+          name=self.name,
       )
     return dataclasses.replace(self, fns=self.fns + (fn,))
 

@@ -105,7 +105,7 @@ class CourierServerWrapper:
     self._server.Bind('heartbeat', heartbeat)
     self._server.Bind('shutdown', shutdown)
     # TODO: b/318463291 - Add unit tests.
-    self._server.Bind('clear_cache', lazy_fns.clear_cache)
+    self._server.Bind('clear_cache', transform.clear_cache)
     self._server.Bind('cache_info', pickled_cache_info)
 
   def build_server(self) -> courier.Server:

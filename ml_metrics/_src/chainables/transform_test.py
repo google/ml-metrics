@@ -165,6 +165,23 @@ class TransformTest(parameterized.TestCase):
     q = transform.queue_from_generator(range(10))
     self.assertEqual(list(range(10)), list(transform.queue_as_generator(q)))
 
+  def test_transform_unique_ids_with_each_op(self):
+    seen_ids = set()
+    t = transform.TreeTransform.new()
+    seen_ids.add(t.id)
+    t = dataclasses.replace(t, name='foo')
+    seen_ids.add(t.id)
+    t = t.apply(output_keys='a', fn=lambda x: x + 1)
+    seen_ids.add(t.id)
+    t = t.assign('b', fn=lambda x: x + 1)
+    seen_ids.add(t.id)
+    t = t.aggregate(output_keys='c', fn=lambda x: x + 1)
+    seen_ids.add(t.id)
+    t = t.add_aggregate(output_keys='d', fn=MockAverageFn()).add_slice('a')
+    seen_ids.add(t.id)
+    # Each new transform should create a unique id.
+    self.assertLen(seen_ids, 6)
+
   def test_transform_call(self):
     t = (
         transform.TreeTransform.new()
@@ -177,18 +194,30 @@ class TransformTest(parameterized.TestCase):
 
   def test_cached_make(self):
     t = (
-        transform.TreeTransform.new()
+        transform.TreeTransform.new(use_cache=True)
         .data_source(MockGenerator(range(3)))
         .apply(fn=lambda x: x + 1)
         .aggregate(fn=lazy_fns.trace(MockAverageFn)())
         .apply(fn=lambda x: x + 1)
     )
+    pickled_t = lazy_fns.picklers.default.dumps(lazy_fns.trace_object(t).make())
+    self.assertIsInstance(
+        lazy_fns.maybe_make(pickled_t), transform.CombinedTreeFn
+    )
+    lazy_fns.maybe_make(pickled_t)
     with mock.patch.object(
         transform, '_transform_make', autospec=True
     ) as mock_make_transform:
-      t.make(use_cache=True)
-      t.make(use_cache=True)
-      mock_make_transform.assert_called_once()
+      lazy_fns.maybe_make(pickled_t)
+      mock_make_transform.assert_not_called()
+
+  def test_transform_equal(self):
+    t = transform.TreeTransform.new()
+    pickled_t = lazy_fns.picklers.default.dumps(lazy_fns.trace_object(t))
+    self.assertEqual(
+        lazy_fns.maybe_make(pickled_t),
+        lazy_fns.maybe_make(pickled_t),
+    )
 
   @parameterized.named_parameters([
       dict(
