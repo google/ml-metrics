@@ -132,6 +132,70 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
 
 
 @dataclasses.dataclass(slots=True)
+class R2Tjur(base.MergeableMetric):
+  """Computes Tjur's R^2.
+
+  Also known as Tjur's D or Tjur's coefficient of discrimination, the Tjur
+  pseudo R^2 value compares the average fitted probability π¯ of the two
+  response outcomes. In particular, it is the difference between the average
+  fitted probability for the binary outcome coded to 1 (success level) and the
+  average fitted probability for the binary outcome coded to 0 (the failure
+  level).
+
+
+  https://www.statease.com/docs/v12/contents/advanced-topics/glm/tjur-pseudo-r-squared/
+
+  sum_y_true: The sum of y_true.
+  sum_y_pred: The sum of y_true * y_pred.
+  sum_neg_y_true: The sum of 1 - y_true.
+  sum_neg_y_pred: The sum of (1 - y_true) * y_pred.
+  """
+  sum_y_true: float = 0
+  sum_y_pred: float = 0
+  sum_neg_y_true: float = 0
+  sum_neg_y_pred: float = 0
+
+  def __eq__(self, other: 'R2Tjur') -> bool:
+    return (
+        self.sum_y_true == other.sum_y_true
+        and self.sum_y_pred == other.sum_y_pred
+        and self.sum_neg_y_true == other.sum_neg_y_true
+        and self.sum_neg_y_pred == other.sum_neg_y_pred
+    )
+
+  def add(self, y_true: types.NumbersT, y_pred: types.NumbersT) -> 'R2Tjur':
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
+
+    neg_y_true = 1 - y_true
+
+    self.sum_y_true += np.sum(y_true)
+    self.sum_y_pred += np.sum(y_true * y_pred)
+    self.sum_neg_y_true += np.sum(neg_y_true)
+    self.sum_neg_y_pred += np.sum(neg_y_true * y_pred)
+
+    return self
+
+  def merge(self, other: 'R2Tjur') -> 'R2Tjur':
+    self.sum_y_true += other.sum_y_true
+    self.sum_y_pred += other.sum_y_pred
+    self.sum_neg_y_true += other.sum_neg_y_true
+    self.sum_neg_y_pred += other.sum_neg_y_pred
+
+    return self
+
+  # TODO: b/354067462 - Add Tjur's Relative R^2 metric.
+  def result(self) -> types.NumbersT:
+    if self.sum_y_true == 0 or self.sum_neg_y_true == 0:
+      return float('nan')
+
+    return (
+        self.sum_y_pred / self.sum_y_true
+        - self.sum_neg_y_pred / self.sum_neg_y_true
+    )
+
+
+@dataclasses.dataclass(slots=True)
 class RRegression(base.MergeableMetric):
   """Computes the Pearson Correlation Coefficient (PCC).
 
