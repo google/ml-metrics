@@ -71,14 +71,9 @@ class _Makers(collections.UserDict):
 makeables = _Makers()
 
 
-@functools.lru_cache(maxsize=64)
-def _cached_pickle(elem: bytes) -> Any:
-  return picklers.default.loads(elem)
-
-
 def maybe_make(maybe_lazy: LazyFn[_ValueT] | bytes) -> _ValueT:
   if isinstance(maybe_lazy, bytes):
-    maybe_lazy = _cached_pickle(maybe_lazy)
+    maybe_lazy = picklers.default.loads(maybe_lazy)
   # User defined maker as an escape path for custom lazy instances.
   if maker := makeables[type(maybe_lazy)]:
     return maker(maybe_lazy)
@@ -270,7 +265,7 @@ def _cached_make(fn: LazyFn | bytes) -> Any:
   """Instantiate a lazy fn to a actual fn when applicable."""
   logging.info('chainables: cache miss, making %s', fn)
   if isinstance(fn, bytes):
-    fn = _cached_pickle(fn)
+    fn = picklers.default.loads(fn)
   if not fn.fn:
     return None
   args = tuple(maybe_make(arg) for arg in fn.args)
@@ -322,7 +317,6 @@ makeables.register(LazyFn, _make)
 def clear_cache():
   """Clear the cache for maybe_make."""
   _cached_make.cache_clear()
-  _cached_pickle.cache_clear()
 
 
 def cache_info():

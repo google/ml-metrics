@@ -109,13 +109,6 @@ class LazyFnsTest(parameterized.TestCase):
     with self.assertRaises(TypeError):
       lazy_fns.picklers.register(len)
 
-  def test_cached_pickle(self):
-    pickled_foo = self.pickler.dumps(trace(Foo)(1)(0))
-    self.assertEqual(1, maybe_make(pickled_foo))
-    with mock.patch.object(self.pickler, 'loads', autospec=True) as mock_loads:
-      self.assertEqual(1, maybe_make(pickled_foo))
-      mock_loads.assert_not_called()
-
   def test_maybe_make_cached(self):
     lazy_foo = trace(Foo, use_cache=True)(a=1)
     self.assertEqual(Foo(a=1)(x=1), maybe_make(trace(get)(lazy_foo)(x=1)))
