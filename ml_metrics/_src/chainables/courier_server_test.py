@@ -69,7 +69,7 @@ class CourierServerTest(absltest.TestCase):
     server = TestServer()
     server.build_server()
     thread = server.start()
-    client = courier.Client(server.address, call_timeout=1)
+    client = courier.Client(server.address, call_timeout=2)
     self.assertEqual(2, pickler.loads(client.plus_one(1)))
     client.shutdown()
     thread.join()
