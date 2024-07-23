@@ -50,6 +50,7 @@ import dataclasses
 import functools
 import inspect
 import itertools
+import operator
 import queue
 import time
 from typing import Any, Generic, Self, TypeVar
@@ -723,6 +724,30 @@ class TreeTransform(Generic[TreeFnT]):
           transform, input_transform=input_transform
       )
     return input_transform
+
+  def named_transforms(self):
+    """Returns a dict of transforms with their names as the keys."""
+
+    def name_and_transforms():
+      for transform in self.flatten_transform():
+        yield transform.name, transform
+
+    result = {}
+    prev_key = None
+    for key, group in itertools.groupby(
+        name_and_transforms(), key=operator.itemgetter(0)
+    ):
+      if key in result and key != prev_key:
+        raise ValueError(f'Duplicate transform name {key}.')
+      for _, node in group:
+        if node.input_transform == result.get(key, None):
+          result[key] = node
+        else:
+          result[key] = dataclasses.replace(
+              node, input_transform=result.get(key, None)
+          )
+      prev_key = key
+    return result
 
   def make(
       self,

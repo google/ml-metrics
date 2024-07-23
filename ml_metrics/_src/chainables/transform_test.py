@@ -211,6 +211,41 @@ class TransformTest(parameterized.TestCase):
       lazy_fns.maybe_make(pickled_t)
       mock_make_transform.assert_not_called()
 
+  def test_transform_named_transforms(self):
+    t1 = (
+        transform.TreeTransform.new(name='A')
+        .data_source(MockGenerator(range(3)))
+        .apply(fn=lambda x: x + 1)
+    )
+    t2 = (
+        transform.TreeTransform.new(name='B')
+        .aggregate(fn=lazy_fns.trace(MockAverageFn)())
+        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 1))
+    )
+    t = t1.chain(t2)
+    self.assertSameElements(t.named_transforms().keys(), ('A', 'B'))
+    # The first groupd of nodes are identical.
+    self.assertEqual(t.named_transforms()['A'], t1)
+    self.assertEqual(t.named_transforms()['A'].make()(), t1.make()())
+    inputs = [1, 2, 3]
+    self.assertEqual(
+        t.named_transforms()['B'].make()(inputs), t2.make()(inputs)
+    )
+
+  def test_transform_named_transforms_with_duplicate_names(self):
+    t1 = transform.TreeTransform.new(name='A').data_source(
+        MockGenerator(range(3))
+    )
+    t2 = transform.TreeTransform.new(name='B').aggregate(
+        fn=lazy_fns.trace(MockAverageFn)()
+    )
+    t3 = transform.TreeTransform.new(name='A').apply(
+        fn=lazy_fns.iterate_fn(lambda x: x + 1)
+    )
+    t = t1.chain(t2).chain(t3)
+    with self.assertRaisesRegex(ValueError, 'Duplicate transform name'):
+      t.named_transforms()
+
   def test_transform_equal(self):
     t = transform.TreeTransform.new()
     pickled_t = lazy_fns.picklers.default.dumps(lazy_fns.trace_object(t))
