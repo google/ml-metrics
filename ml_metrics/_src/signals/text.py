@@ -18,13 +18,12 @@ import re
 from typing import Any
 
 
-def alphabetical_char_count(text: str):
+def alphabetical_char_count(text: str) -> int:
   """Computes the number of alphabetical characters."""
-
   return len(re.sub(r'[^a-zA-Z]', '', text))
 
 
-def word_count(text: str):
+def word_count(text: str) -> int:
   """Computes the number of words.
 
   Computes the number of words within the text. Characters that are not letters
@@ -38,13 +37,11 @@ def word_count(text: str):
   Returns:
     Number of words.
   """
-
   return len(re.sub(r'[^a-zA-Z ]', '', text).split())
 
 
-def token_count(text: str, tokenizer: Callable[[str], Sequence[Any]]):
+def token_count(text: str, tokenizer: Callable[[str], Sequence[Any]]) -> int:
   """Computes the number of tokens."""
-
   return len(tokenizer(text))
 
 
@@ -71,3 +68,22 @@ def reference_in_sample_match(sample: str, reference: str) -> bool:
 def sample_in_reference_match(sample: str, reference: str) -> bool:
   """True when the sample in reference match."""
   return sample in reference
+
+
+def non_ascii_char_count(text: str) -> int:
+  """Computes the number of non-ascii characters."""
+  return len(re.sub(r'[^\x00-\x7F]+', '', text))
+
+
+def is_all_whitespace(text: str) -> bool:
+  r"""Checks if the text is all whitespace.
+
+  Check if string is empty-ish e.g. consisting of whitespace, \n, \t.
+
+  Args:
+    text: Input text.
+
+  Returns:
+    True if the text is all whitespace.
+  """
+  return not text.strip()

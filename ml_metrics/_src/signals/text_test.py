@@ -109,6 +109,16 @@ class TextTest(parameterized.TestCase):
   def test_matchers(self, sample, reference, matcher, expected_result):
     self.assertEqual(expected_result, matcher(sample, reference))
 
+  def test_non_ascii_char_count(self):
+    count = text.non_ascii_char_count(text='Hällö, wörld!')
+    # Non-ascii characters are "Hll, wrld!"
+    self.assertEqual(10, count)
+
+  def test_is_all_whitespace(self):
+    self.assertTrue(text.is_all_whitespace(text=''))
+    self.assertTrue(text.is_all_whitespace(text=' \n\t'))
+    self.assertFalse(text.is_all_whitespace(text='abc'))
+
 
 if __name__ == '__main__':
   absltest.main()
