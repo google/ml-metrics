@@ -233,15 +233,19 @@ class StatsStateTest(parameterized.TestCase):
 
 class R2TjurTest(parameterized.TestCase):
 
-  def test_r2_tjur_merge(self):
+  @parameterized.named_parameters(
+      dict(testcase_name='absolute', r2_metric=rolling_stats.R2Tjur),
+      dict(testcase_name='relative', r2_metric=rolling_stats.R2TjurRelative),
+  )
+  def test_r2_tjur_merge(self, r2_metric):
     y_true_1 = (0, 1)
     y_pred_1 = (0.8, 0.3)
 
     y_true_2 = 1
     y_pred_2 = 0.9
 
-    state_1 = rolling_stats.R2Tjur().add(y_true_1, y_pred_1)
-    state_2 = rolling_stats.R2Tjur().add(y_true_2, y_pred_2)
+    state_1 = r2_metric().add(y_true_1, y_pred_1)
+    state_2 = r2_metric().add(y_true_2, y_pred_2)
     result = state_1.merge(state_2)
 
     # sum(y_true) = 0.0 + 1.0 + 1.0  = 2.0
@@ -249,51 +253,97 @@ class R2TjurTest(parameterized.TestCase):
     # sum(1 - y_true) = 1.0 + 0.0 + 0.0 = 1.0
     # sum((1 - y_true) * y_pred) = 1.0 * 0.8 + 0.0 * 0.3 + 0.0 * 0.9 = 0.8
 
-    expected_result = rolling_stats.R2Tjur(
+    expected_result = r2_metric(
         sum_y_true=2.0, sum_y_pred=1.2, sum_neg_y_true=1.0, sum_neg_y_pred=0.8
     )
 
     self.assertEqual(result, expected_result)
 
-  def test_r2_tjur_simple(self):
+  @parameterized.named_parameters(
+      # sum_y_true = 2.0, sum_y_pred = 1.2
+      # sum_neg_y_true = 1.0, sum_neg_y_pred = 0.1
+      dict(
+          testcase_name='absolute',
+          r2_metric=rolling_stats.R2Tjur,
+          expected_result=(1.2 / 2.0) - (0.8 / 1.0),
+      ),
+      dict(
+          testcase_name='relative',
+          r2_metric=rolling_stats.R2TjurRelative,
+          expected_result=(1.2 / 2.0) / (0.8 / 1.0),
+      ),
+  )
+  def test_r2_tjur_simple(self, r2_metric, expected_result):
     y_true = (0, 1, 1)
     y_pred = (0.8, 0.3, 0.9)
 
-    # sum_y_true = 2.0, sum_y_pred = 1.2
-    # sum_neg_y_true = 1.0, sum_neg_y_pred = 0.1
-    expected_result = (1.2 / 2.0) - (0.8 / 1.0)
-
-    actual_result = rolling_stats.R2Tjur().add(y_true, y_pred).result()
+    actual_result = r2_metric().add(y_true, y_pred).result()
 
     self.assertAlmostEqual(actual_result, expected_result)
 
-  def test_r2_tjur_one_large_batch(self):
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='absolute',
+          r2_metric=rolling_stats.R2Tjur,
+          expected_result=-9.78031226162579e-05,
+      ),
+      dict(
+          testcase_name='relative',
+          r2_metric=rolling_stats.R2TjurRelative,
+          expected_result=0.9998043715885978,
+      ),
+  )
+  def test_r2_tjur_one_large_batch(self, r2_metric, expected_result):
     np.random.seed(seed=0)
 
     y_true = np.random.rand(1000000)
     y_pred = np.random.rand(1000000)
 
-    actual_result = rolling_stats.R2Tjur().add(y_true, y_pred).result()
-
-    expected_result = -9.78031226162579e-05
+    actual_result = r2_metric().add(y_true, y_pred).result()
 
     self.assertAlmostEqual(actual_result, expected_result, places=14)
 
-  def test_r2_tjur_many_batches_little_correlation(self):
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='absolute',
+          r2_metric=rolling_stats.R2Tjur,
+          expected_result=-2340.933593683032,
+      ),
+      dict(
+          testcase_name='relative',
+          r2_metric=rolling_stats.R2TjurRelative,
+          expected_result=1.0129655857337465,
+      ),
+  )
+  def test_r2_tjur_many_batches_little_correlation(
+      self, r2_metric, expected_result
+  ):
     np.random.seed(seed=0)
 
     y_true = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
     y_pred = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
 
-    state = rolling_stats.R2Tjur()
+    state = r2_metric()
     for y_true_i, y_pred_i in zip(y_true, y_pred):
       state.add(y_true_i, y_pred_i)
 
-    expected_result = -2340.933593683032
-
     self.assertAlmostEqual(state.result(), expected_result)
 
-  def test_r2_tjur_many_batches_much_correlation(self):
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='absolute',
+          r2_metric=rolling_stats.R2Tjur,
+          expected_result=0.9999901799905766,
+      ),
+      dict(
+          testcase_name='relative',
+          r2_metric=rolling_stats.R2TjurRelative,
+          expected_result=214595.2102587055,
+      ),
+  )
+  def test_r2_tjur_many_batches_much_correlation(
+      self, r2_metric, expected_result
+  ):
     np.random.seed(seed=0)
 
     y_true = np.random.uniform(low=1e-5, high=1 - 1e-5, size=(10000, 10000))
@@ -306,15 +356,13 @@ class R2TjurTest(parameterized.TestCase):
     y_true = np.round(y_true)
     y_pred = np.round(y_pred)
 
-    state = rolling_stats.R2Tjur()
+    state = r2_metric()
     for y_true_i, y_pred_i in zip(y_true, y_pred):
       state.add(y_true_i, y_pred_i)
 
-    expected_result = 0.9999901799905766
-
     self.assertAlmostEqual(state.result(), expected_result, places=10)
 
-  def test_r2_tjur_many_batches_direct_correlation(self):
+  def test_r2_tjur_absolute_many_batches_direct_correlation(self):
     y = np.round(np.random.uniform(size=(10000, 10000)))
 
     state = rolling_stats.R2Tjur()
@@ -325,14 +373,35 @@ class R2TjurTest(parameterized.TestCase):
 
     self.assertAlmostEqual(state.result(), expected_result, places=9)
 
-  def test_r2_tjurn_many_batches_inverse_correlation(self):
+  def test_r2_tjur_relative_many_batches_direct_correlation(self):
     y = np.round(np.random.uniform(size=(10000, 10000)))
 
-    state = rolling_stats.R2Tjur()
+    state = rolling_stats.R2TjurRelative()
+    for y_i in y:
+      state.add(y_i, y_i)
+
+    self.assertTrue(math.isnan(state.result()))
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='absolute',
+          r2_metric=rolling_stats.R2Tjur,
+          expected_result=-1,
+      ),
+      dict(
+          testcase_name='relative',
+          r2_metric=rolling_stats.R2TjurRelative,
+          expected_result=0,
+      ),
+  )
+  def test_r2_tjurn_many_batches_inverse_correlation(
+      self, r2_metric, expected_result
+  ):
+    y = np.round(np.random.uniform(size=(10000, 10000)))
+
+    state = r2_metric()
     for y_i in y:
       state.add(y_i, 1 - y_i)
-
-    expected_result = -1
 
     self.assertAlmostEqual(state.result(), expected_result, places=9)
 
@@ -340,11 +409,25 @@ class R2TjurTest(parameterized.TestCase):
       dict(testcase_name='y_true_is_0', y_true=(0, 0, 0)),
       dict(testcase_name='y_true_is_1', y_true=(1, 1, 1)),
   )
-  def test_r2_tjur_returns_nan(self, y_true):
+  def test_r2_tjur_absolute_returns_nan(self, y_true):
     y_pred = (1, 0, 1)
 
     self.assertTrue(
         math.isnan(rolling_stats.R2Tjur().add(y_true, y_pred).result())
+    )
+
+  @parameterized.named_parameters(
+      dict(testcase_name='y_true_is_0', y_true=(0, 0, 0), y_pred=(1, 0, 1)),
+      dict(
+          testcase_name='sum_neg_y_pred_is_0',
+          # all(y_t == 1 or y_p == 0 for y_t, y_p in zip(y_true, y_pred))
+          y_true=(1, 0, 1),
+          y_pred=(1, 0, 1),
+      ),
+  )
+  def test_r2_tjur_relative_returns_nan(self, y_true, y_pred):
+    self.assertTrue(
+        math.isnan(rolling_stats.R2TjurRelative().add(y_true, y_pred).result())
     )
 
 

@@ -13,8 +13,10 @@
 # limitations under the License.
 """Common statistics aggregations."""
 
+import abc
 from collections.abc import Callable
 import dataclasses
+import math
 from typing import Self
 
 from ml_metrics._src import base_types
@@ -132,8 +134,8 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
 
 
 @dataclasses.dataclass(slots=True)
-class R2Tjur(base.MergeableMetric):
-  """Computes Tjur's R^2.
+class _R2TjurBase(abc.ABC, base.MergeableMetric):
+  """Base class for Tjur's R^2.
 
   Also known as Tjur's D or Tjur's coefficient of discrimination, the Tjur
   pseudo R^2 value compares the average fitted probability π¯ of the two
@@ -150,12 +152,13 @@ class R2Tjur(base.MergeableMetric):
   sum_neg_y_true: The sum of 1 - y_true.
   sum_neg_y_pred: The sum of (1 - y_true) * y_pred.
   """
+
   sum_y_true: float = 0
   sum_y_pred: float = 0
   sum_neg_y_true: float = 0
   sum_neg_y_pred: float = 0
 
-  def __eq__(self, other: 'R2Tjur') -> bool:
+  def __eq__(self, other: '_R2TjurBase') -> bool:
     return (
         self.sum_y_true == other.sum_y_true
         and self.sum_y_pred == other.sum_y_pred
@@ -163,7 +166,9 @@ class R2Tjur(base.MergeableMetric):
         and self.sum_neg_y_pred == other.sum_neg_y_pred
     )
 
-  def add(self, y_true: types.NumbersT, y_pred: types.NumbersT) -> 'R2Tjur':
+  def add(
+      self, y_true: types.NumbersT, y_pred: types.NumbersT
+  ) -> '_R2TjurBase':
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
 
@@ -176,7 +181,7 @@ class R2Tjur(base.MergeableMetric):
 
     return self
 
-  def merge(self, other: 'R2Tjur') -> 'R2Tjur':
+  def merge(self, other: '_R2TjurBase') -> '_R2TjurBase':
     self.sum_y_true += other.sum_y_true
     self.sum_y_pred += other.sum_y_pred
     self.sum_neg_y_true += other.sum_neg_y_true
@@ -184,14 +189,35 @@ class R2Tjur(base.MergeableMetric):
 
     return self
 
-  # TODO: b/354067462 - Add Tjur's Relative R^2 metric.
+  @abc.abstractmethod
   def result(self) -> types.NumbersT:
-    if self.sum_y_true == 0 or self.sum_neg_y_true == 0:
+    """Must be overwritten by the specific Tjur's R^2 Metric."""
+    pass
+
+
+class R2Tjur(_R2TjurBase):
+
+  def result(self) -> types.NumbersT:
+    if math.isclose(self.sum_y_true, 0) or math.isclose(self.sum_neg_y_true, 0):
       return float('nan')
 
     return (
         self.sum_y_pred / self.sum_y_true
         - self.sum_neg_y_pred / self.sum_neg_y_true
+    )
+
+
+class R2TjurRelative(_R2TjurBase):
+
+  def result(self) -> types.NumbersT:
+    if math.isclose(self.sum_y_true, 0) or math.isclose(self.sum_neg_y_pred, 0):
+      return float('nan')
+
+    return (
+        self.sum_y_pred
+        * self.sum_neg_y_true
+        / self.sum_y_true
+        / self.sum_neg_y_pred
     )
 
 
