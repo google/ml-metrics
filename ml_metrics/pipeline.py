@@ -28,10 +28,10 @@ from ml_metrics._src.chainables.lazy_fns import trace
 from ml_metrics._src.chainables.lazy_fns import trace_object
 from ml_metrics._src.chainables.transform import AggregateResult
 from ml_metrics._src.chainables.transform import AggregateTransform
+from ml_metrics._src.chainables.transform import dequeue_as_generator
+from ml_metrics._src.chainables.transform import enqueue_from_generator
 from ml_metrics._src.chainables.transform import iterate_with_returned
 from ml_metrics._src.chainables.transform import PrefetchedIterator
-from ml_metrics._src.chainables.transform import queue_as_generator
-from ml_metrics._src.chainables.transform import queue_from_generator
 from ml_metrics._src.chainables.transform import RunnerMode
 from ml_metrics._src.chainables.transform import TreeTransform as Pipeline
 from ml_metrics._src.chainables.tree import Key

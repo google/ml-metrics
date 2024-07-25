@@ -17,6 +17,7 @@ from collections.abc import Callable, Iterable
 import dataclasses
 import functools
 import itertools
+import queue
 from typing import Any
 from unittest import mock
 
@@ -156,14 +157,22 @@ def multi_slicer(preds, labels, within=()):
 
 class TransformTest(parameterized.TestCase):
 
-  def test_queue_from_generator(self):
-    q = transform.queue_from_generator(range(10))
-    for i in range(10):
-      self.assertEqual(i, q.get())
+  def test_enqueue_dequeue_from_generator(self):
+    q = queue.Queue()
+    expected = list(transform.enqueue_from_generator(range(10), q))
+    actual = list(transform.dequeue_as_generator(q))
+    self.assertSequenceEqual(expected, actual)
 
-  def test_queue_as_generator(self):
-    q = transform.queue_from_generator(range(10))
-    self.assertEqual(list(range(10)), list(transform.queue_as_generator(q)))
+  def test_enqueue_from_generator_timeout(self):
+    q = queue.Queue(maxsize=1)
+    with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout after'):
+      list(transform.enqueue_from_generator(range(2), q, timeout=0.1))
+
+  def test_dequeue_from_generator_timeout(self):
+    q = queue.Queue(maxsize=1)
+    q.put(1)
+    with self.assertRaisesRegex(TimeoutError, 'Dequeue timeout after'):
+      list(transform.dequeue_as_generator(q, timeout=0.1))
 
   def test_transform_unique_ids_with_each_op(self):
     seen_ids = set()

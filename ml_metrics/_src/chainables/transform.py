@@ -102,34 +102,54 @@ def get_generator_returned(
   return result
 
 
-def queue_from_generator(
+def enqueue_from_generator(
     generator: Iterator[_ValueT],
-    maxsize: int = 0,
-    output_queue: queue.Queue[_ValueT | StopIteration] | None = None,
-) -> queue.Queue[_ValueT | StopIteration]:
-  """Converts an iterator to a queue, stops when meeting StopIteration."""
+    output_queue: queue.Queue[_ValueT | StopIteration],
+    timeout: float | None = None,
+) -> Iterator[int]:
+  """Iterates through a generator while enqueue its elements."""
   generator = iter(generator)
-  if output_queue is None:
-    output_queue = queue.Queue(maxsize=maxsize)
-  while True:
+  exhausted = False
+  while not exhausted:
     try:
-      output_queue.put(next(generator))
+      value = next(generator)
     except StopIteration as e:
-      output_queue.put(e)
-      break
-  return output_queue
+      value = e
+      exhausted = True
+    ticker = time.time()
+    while True:
+      try:
+        output_queue.put_nowait(value)
+        if isinstance(value, StopIteration):
+          return value.value
+        yield value
+        break
+      except queue.Full as e:
+        time.sleep(0)
+        if timeout is not None and time.time() - ticker > timeout:
+          raise TimeoutError(f'Enqueue timeout after {timeout} seconds.') from e
 
 
-def queue_as_generator(
-    input_queue: queue.SimpleQueue[_ValueT | StopIteration],
+def dequeue_as_generator(
+    input_queue: queue.Queue[_ValueT | StopIteration],
     *,
     num_steps: int = -1,
+    timeout: float | None = None,
 ) -> Iterator[_ValueT]:
   """Converts a queue to an iterator, stops when meeting StopIteration."""
   i = 0
+  ticker = None
   run_until_exhausted = num_steps < 0
   while run_until_exhausted or i < num_steps:
-    value = input_queue.get()
+    try:
+      ticker = ticker or time.time()
+      value = input_queue.get_nowait()
+    except queue.Empty as e:
+      if timeout is not None and ticker and time.time() - ticker > timeout:
+        raise TimeoutError(f'Dequeue timeout after {timeout} seconds.') from e
+      time.sleep(0)
+      continue
+    ticker = None  # Reset the ticker to indicate the last get() is successful.
     if isinstance(value, StopIteration):
       return value.value
     yield value
@@ -668,8 +688,10 @@ class TreeTransform(Generic[TreeFnT]):
   input_iterator: Iterable[Any] | lazy_fns.LazyFn | None = None
   input_transform: TreeTransform | None = None
   fns: tuple[TreeFnT, ...] = dataclasses.field(default_factory=tuple)
-  use_cache: bool = False
-  _id: uuid.UUID = dataclasses.field(default_factory=uuid.uuid4, init=False)
+  use_cache: bool = dataclasses.field(default=False, repr=False)
+  _id: uuid.UUID = dataclasses.field(
+      default_factory=uuid.uuid4, init=False, repr=False
+  )
 
   def __post_init__(self):
     if self.input_iterator is not None and self.input_transform is not None:
