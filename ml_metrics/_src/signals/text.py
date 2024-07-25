@@ -87,3 +87,11 @@ def is_all_whitespace(text: str) -> bool:
     True if the text is all whitespace.
   """
   return not text.strip()
+
+
+def average_word_length(text: str) -> float:
+  """Computes the average word length."""
+  words = re.sub(r'[^a-zA-Z ]', '', text).split()
+  if not words:
+    return 0.0
+  return sum(len(word) for word in words) / len(words)

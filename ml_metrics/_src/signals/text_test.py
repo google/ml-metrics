@@ -119,6 +119,26 @@ class TextTest(parameterized.TestCase):
     self.assertTrue(text.is_all_whitespace(text=' \n\t'))
     self.assertFalse(text.is_all_whitespace(text='abc'))
 
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='simple_text',
+          text_input='Hello. How are you?',
+          expected_count=3.5,
+      ),
+      dict(
+          testcase_name='empty_text',
+          text_input='',
+          expected_count=0.0,
+      ),
+      dict(
+          testcase_name='no_word',
+          text_input='., ? !',
+          expected_count=0.0,
+      ),
+  )
+  def test_average_word_length(self, text_input, expected_count):
+    self.assertAlmostEqual(expected_count, text.average_word_length(text_input))
+
 
 if __name__ == '__main__':
   absltest.main()
