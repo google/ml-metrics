@@ -184,6 +184,7 @@ class TransformTest(parameterized.TestCase):
     seen_ids.add(t.id)
     t = t.assign('b', fn=lambda x: x + 1)
     seen_ids.add(t.id)
+    t = dataclasses.replace(t, name='')
     t = t.aggregate(output_keys='c', fn=lambda x: x + 1)
     seen_ids.add(t.id)
     t = t.add_aggregate(output_keys='d', fn=MockAverageFn()).add_slice('a')
@@ -220,25 +221,32 @@ class TransformTest(parameterized.TestCase):
       lazy_fns.maybe_make(pickled_t)
       mock_make_transform.assert_not_called()
 
-  def test_transform_named_transforms(self):
+  def test_transform_named_transforms_default(self):
     t1 = (
-        transform.TreeTransform.new(name='A')
+        transform.TreeTransform.new()
         .data_source(MockGenerator(range(3)))
         .apply(fn=lambda x: x + 1)
     )
-    t2 = (
+    t2 = transform.TreeTransform.new(name='A').aggregate(
+        fn=lazy_fns.trace(MockAverageFn)()
+    )
+    t3 = (
         transform.TreeTransform.new(name='B')
-        .aggregate(fn=lazy_fns.trace(MockAverageFn)())
+        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 1))
         .apply(fn=lazy_fns.iterate_fn(lambda x: x + 1))
     )
-    t = t1.chain(t2)
-    self.assertSameElements(t.named_transforms().keys(), ('A', 'B'))
-    # The first groupd of nodes are identical.
-    self.assertEqual(t.named_transforms()['A'], t1)
-    self.assertEqual(t.named_transforms()['A'].make()(), t1.make()())
+    t = t1.chain(t2).chain(t3)
+    self.assertSameElements(t.named_transforms().keys(), (t1.id, 'A', 'B'))
+    # The first group of nodes are identical.
+    self.assertEqual(t.named_transforms()[t1.id], t1)
+    self.assertEqual(t.named_transforms()[t1.id].make()(), t1.make()())
     inputs = [1, 2, 3]
     self.assertEqual(
-        t.named_transforms()['B'].make()(inputs), t2.make()(inputs)
+        t.named_transforms()['A'].make()(inputs), t2.make()(inputs)
+    )
+    inputs = [1, 2, 3]
+    self.assertEqual(
+        t.named_transforms()['B'].make()(inputs), t3.make()(inputs)
     )
 
   def test_transform_named_transforms_with_duplicate_names(self):
@@ -252,7 +260,7 @@ class TransformTest(parameterized.TestCase):
         fn=lazy_fns.iterate_fn(lambda x: x + 1)
     )
     t = t1.chain(t2).chain(t3)
-    with self.assertRaisesRegex(ValueError, 'Duplicate transform name'):
+    with self.assertRaisesRegex(ValueError, 'Duplicate transform'):
       t.named_transforms()
 
   def test_transform_equal(self):
@@ -894,7 +902,18 @@ class TransformTest(parameterized.TestCase):
     )
 
     transforms = t.flatten_transform()
+    self.assertTrue(all(t is not None for t in transforms))
     self.assertLen(transforms, 4)
+    self.assertSequenceEqual(transforms, t.flatten_transform())
+    other_transforms = t.flatten_transform(remove_input_transform=True)
+    self.assertTrue(all(t is not None for t in other_transforms))
+    self.assertEqual(transforms[0], other_transforms[0])
+    self.assertTrue(
+        all(
+            x != y
+            for x, y in zip(transforms[1:], other_transforms[1:], strict=True)
+        )
+    )
 
   def test_chain(self):
     input_iterator = [[1, 2, 3], [2, 3, 4]]

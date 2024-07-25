@@ -50,7 +50,6 @@ import dataclasses
 import functools
 import inspect
 import itertools
-import operator
 import queue
 import time
 from typing import Any, Generic, Self, TypeVar
@@ -310,7 +309,10 @@ def _transform_make(
   # the aggregation node for the concrete function. Any node before it is
   # input nodes, any node after it regardless of its type (aggregation or not)
   # is output_node.
-  transforms = transform.flatten_transform() if recursive else [transform]
+  if recursive:
+    transforms = transform.flatten_transform(remove_input_transform=True)
+  else:
+    transforms = [transform]
   input_nodes, output_nodes = [], []
   input_iterator, agg_node = None, None
   for i, node in enumerate(transforms):
@@ -538,8 +540,8 @@ class CombinedTreeFn:
       input_iterator: Iterable[Any] | None = None,
       *,
       with_result: bool = True,
-      with_agg_state: bool = False,
-      with_agg_result: bool = False,
+      with_agg_state: bool = True,
+      with_agg_result: bool = True,
       state: Any = None,
   ) -> Generator[Any, None, AggregateResult | None]:
     """An iterator runner that takes an input_iterator runs the transform.
@@ -612,7 +614,14 @@ class CombinedTreeFn:
       return result
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
+def _eq(a, b):
+  try:
+    return a == b
+  except Exception:  # pylint: disable=broad-exception-caught
+    return False
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True, eq=False)
 class TreeTransform(Generic[TreeFnT]):
   """A lazy transform interface that works on a map like data.
 
@@ -734,47 +743,36 @@ class TreeTransform(Generic[TreeFnT]):
   def __hash__(self):
     return hash(self._id)
 
-  def __eq__(self, other):
+  def __eq__(self, other: TreeTransform) -> bool:
     return self.id == other.id
+
+  def maybe_replace(self, **kwargs) -> Self:
+    filtered = {k: v for k, v in kwargs.items() if not _eq(getattr(self, k), v)}
+    return dataclasses.replace(self, **filtered) if filtered else self
 
   def chain(self, transform: TreeTransform):
     """Chains self to the input of the first node in the other transform."""
     transforms = transform.flatten_transform()
     input_transform = self
     for transform in transforms:
-      input_transform = dataclasses.replace(
-          transform, input_transform=input_transform
-      )
+      input_transform = transform.maybe_replace(input_transform=input_transform)
     return input_transform
 
-  def named_transforms(self):
+  def named_transforms(self) -> dict[str | uuid.UUID, TreeTransform]:
     """Returns a dict of transforms with their names as the keys."""
-
-    def name_and_transforms():
-      for transform in self.flatten_transform():
-        yield transform.name, transform
-
     result = {}
-    prev_key = None
-    for key, group in itertools.groupby(
-        name_and_transforms(), key=operator.itemgetter(0)
-    ):
-      if key in result and key != prev_key:
-        raise ValueError(f'Duplicate transform name {key}.')
-      for _, node in group:
-        if node.input_transform == result.get(key, None):
-          result[key] = node
-        else:
-          result[key] = dataclasses.replace(
-              node, input_transform=result.get(key, None)
-          )
-      prev_key = key
+    for transform in self.flatten_transform():
+      name = transform.name or transform.id
+      if name in result:
+        raise ValueError(f'Duplicate transform {name}.')
+      result[name] = transform.maybe_replace(input_transform=None)
     return result
 
   def make(
       self,
       *,
       recursive=True,
+      # TODO: b/318463291 - deprecates runner mode in favor named transform.
       mode: RunnerMode = RunnerMode.DEFAULT,
   ) -> CombinedTreeFn:
     """Makes the concrete function instance from the transform."""
@@ -827,9 +825,13 @@ class TreeTransform(Generic[TreeFnT]):
       fn: lazy_fns.LazyFn | aggregates.Aggregatable | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
   ) -> AggregateTransform:
-    return AggregateTransform.new(
-        input_transform=self, use_cache=self.use_cache, name=self.name
-    ).add_aggregate(input_keys=input_keys, output_keys=output_keys, fn=fn)
+    """Create an aggregate transform on the previous transform."""
+    fn = tree_fns.TreeAggregateFn.new(
+        output_keys=output_keys,
+        fn=fn,
+        input_keys=input_keys,
+    )
+    return self._maybe_new_agg_transform(fn)
 
   def agg(self, **kwargs) -> AggregateTransform:
     """Alias for aggregate."""
@@ -850,27 +852,57 @@ class TreeTransform(Generic[TreeFnT]):
     )
     return self._maybe_new_transform(fn)
 
-  def flatten_transform(self):
+  def flatten_transform(
+      self, remove_input_transform: bool = False
+  ) -> list[TreeTransform]:
     """Flatten all the chain of transforms into a list."""
-    if not self.input_transform:
+    if self.input_transform is None:
       return [self]
-    return self.input_transform.flatten_transform() + [
-        dataclasses.replace(self, input_transform=None)
+    current_transform = self
+    if remove_input_transform:
+      current_transform = current_transform.maybe_replace(input_transform=None)
+    return self.input_transform.flatten_transform(remove_input_transform) + [
+        current_transform
     ]
 
-  def _maybe_new_transform(self, fn):
+  def _maybe_new_agg_transform(self, fn) -> AggregateTransform:
+    """Breaks apart the transform when this is an aggregate or source."""
+    if self.is_noop:
+      assert self.input_transform is None
+      return AggregateTransform(
+          fns=(fn,),
+          name=self.name,
+          use_cache=self.use_cache,
+      )
+    else:
+      if self.name:
+        raise ValueError(
+            f'Cannot add aggregate to a named transform {self.name}. Separate '
+            'the transforms into two and connect theme with `chain()`.'
+        )
+      return AggregateTransform(
+          input_transform=self,
+          fns=(fn,),
+          use_cache=self.use_cache,
+      )
+
+  def _maybe_new_transform(self, fn) -> TreeTransform:
     """Breaks apart the transform when this is an aggregate or source."""
     if isinstance(self, AggregateTransform):
+      if self.name:
+        raise ValueError(
+            f'Cannot add assign/apply to a named transform {self.name}.'
+            'Separate the transforms and connect theme with `chain()`.'
+        )
       return TreeTransform(
           input_transform=self,
           fns=(fn,),
           use_cache=self.use_cache,
-          name=self.name,
       )
     return dataclasses.replace(self, fns=self.fns + (fn,))
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
+@dataclasses.dataclass(frozen=True, kw_only=True, eq=False)
 class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
   """An AggregateTransform reduce rows.
 
