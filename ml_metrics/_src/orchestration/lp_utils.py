@@ -85,11 +85,11 @@ def lp_run_master(
       iterate_batch_size=iterate_batch_size,
   )
   result_queue = queue.SimpleQueue()
-  for _ in orchestrate.workerpool_generator(
+  for _ in orchestrate.run_sharded_pipelines_as_iterator(
       worker_pool,
       define_pipeline,
       *pipeline_args,
-      with_result=False,
+      with_batch_output=False,
       result_queue=result_queue,
       **pipeline_kwargs,
   ):

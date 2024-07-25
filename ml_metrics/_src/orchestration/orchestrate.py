@@ -24,16 +24,19 @@ from typing import Any
 from absl import logging
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
-from ml_metrics._src.chainables import transform
+from ml_metrics._src.chainables import transform as transform_lib
 
 
-def workerpool_generator(
+def run_sharded_pipelines_as_iterator(
     worker_pool: courier_worker.WorkerPool,
     /,
-    define_pipeline: Callable[..., transform.TreeTransform],
+    define_pipeline: Callable[..., transform_lib.TreeTransform],
     *pipeline_args,
-    with_result: bool = True,
-    result_queue: queue.SimpleQueue[transform.AggregateResult] | None = None,
+    with_batch_output: bool = True,
+    result_queue: (
+        queue.SimpleQueue[transform_lib.AggregateResult] | None
+    ) = None,
+    retry_failures: bool = True,
     **pipeline_kwargs,
 ) -> Iterator[Any]:
   """The orchestration for the remote distributed chainable workers.
@@ -42,8 +45,9 @@ def workerpool_generator(
     worker_pool: The worker pool to run the pipeline.
     define_pipeline: The pipeline definition.
     *pipeline_args: The pipeline args.
-    with_result: Whether to return the result.
+    with_batch_output: Whether to return the batch output.
     result_queue: The queue to output the result.
+    retry_failures: Whether to retry when seeing failures.
     **pipeline_kwargs: The pipeline kwargs.
 
   Yields:
@@ -62,7 +66,7 @@ def workerpool_generator(
           )
           .make()
           .iterate(
-              with_result=with_result,
+              with_result=with_batch_output,
               with_agg_state=calculate_agg_result,
               # In the distributed fashion, the result for each shard is not
               # meaningful, thus is always disabled.
@@ -77,15 +81,15 @@ def workerpool_generator(
   if calculate_agg_result:
 
     def compute_result(
-        states_queue: queue.SimpleQueue[transform.AggregateResult],
-        result_queue: queue.SimpleQueue[transform.AggregateResult],
+        states_queue: queue.SimpleQueue[transform_lib.AggregateResult],
+        result_queue: queue.SimpleQueue[transform_lib.AggregateResult],
     ):
       agg_fn = define_pipeline(
           *pipeline_args,
           shard_index=0,
           num_shards=num_shards,
           **pipeline_kwargs,
-      ).make(mode=transform.RunnerMode.AGGREGATE)
+      ).make(mode=transform_lib.RunnerMode.AGGREGATE)
       if not agg_fn.has_agg:
         raise ValueError('chainables: no aggregations found in the pipeline.')
 
@@ -103,7 +107,7 @@ def workerpool_generator(
       merged_state = agg_fn.merge_states(iterate_agg_state())
       # At most only one item in the output_q.
       result_queue.put(
-          transform.AggregateResult(
+          transform_lib.AggregateResult(
               agg_state=merged_state,
               agg_result=agg_fn.get_result(merged_state),
           ),
@@ -115,10 +119,11 @@ def workerpool_generator(
     thread.start()
 
   # Does not allow 50% of total number of tasks failed.
+  faiure_threshold = int(len(sharded_tasks) * 0.5) + 1 if retry_failures else 0
   iterator = worker_pool.iterate(
       sharded_tasks,
       generator_result_queue=states_queue,
-      num_total_failures_threshold=int(len(sharded_tasks) * 0.5) + 1,
+      num_total_failures_threshold=faiure_threshold,
   )
   logging.info('chainables: iterator: %s', iterator)
   yield from iterator

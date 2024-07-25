@@ -75,11 +75,12 @@ class OrchestrateTest(absltest.TestCase):
       )
 
     results_queue = queue.SimpleQueue()
-    for elem in orchestrate.workerpool_generator(
+    for elem in orchestrate.run_sharded_pipelines_as_iterator(
         self.worker_pool,
         define_pipeline,
         total_numbers=1000,
         result_queue=results_queue,
+        retry_failures=False,
     ):
       self.assertEqual(elem.size, 100)
 

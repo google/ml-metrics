@@ -66,6 +66,7 @@ class LaunchTest(parameterized.TestCase):
         sharded_pipeline,
         num_workers=num_workers,
         total_numbers=int(6 * 1e6),
+        retry_failures=False,
     )
 
     # Launch all workers declared by the program. Remember to set the launch
