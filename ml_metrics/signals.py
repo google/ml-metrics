@@ -11,16 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""ml_metrics interfaces."""
 
-# # pylint: disable=g-importing-member
+"""All signals."""
+# pylint: disable=g-importing-member
 # pylint: disable=unused-import
-from ml_metrics import aggregates
-from ml_metrics import pipeline
-from ml_metrics import signals
-from ml_metrics import types
-from ml_metrics.metrics import classification
-from ml_metrics.metrics import retrieval
-from ml_metrics.metrics import rolling_stats
+from ml_metrics._src.signals import cross_entropy
+from ml_metrics._src.signals import flip_masks
+from ml_metrics._src.signals import image
+from ml_metrics._src.signals import text
 # pylint: enable=g-importing-member
 # pylint: enable=unused-import
