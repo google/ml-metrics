@@ -49,7 +49,7 @@ class _FutureLike(Protocol[_T]):
     """Returns the result of the future."""
 
   @abc.abstractmethod
-  def exception(self) -> BaseException | None:
+  def exception(self) -> Exception | None:
     """Returns the exception of the future."""
 
 
