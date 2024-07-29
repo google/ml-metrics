@@ -12,31 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Pipeline interfaces."""
+from absl import logging
+from ml_metrics.chainable import *  # pylint: disable=wildcard-import
 
-# pylint: disable=g-importing-member
-# pylint: disable=unused-import
-from ml_metrics._src.chainables import courier_server
-from ml_metrics._src.chainables import courier_worker
-from ml_metrics._src.chainables.lazy_fns import cache_info
-from ml_metrics._src.chainables.lazy_fns import clear_cache
-from ml_metrics._src.chainables.lazy_fns import iterate_fn
-from ml_metrics._src.chainables.lazy_fns import LazyFn
-from ml_metrics._src.chainables.lazy_fns import makeables
-from ml_metrics._src.chainables.lazy_fns import maybe_make
-from ml_metrics._src.chainables.lazy_fns import picklers
-from ml_metrics._src.chainables.lazy_fns import trace
-from ml_metrics._src.chainables.lazy_fns import trace_object
-from ml_metrics._src.chainables.transform import AggregateResult
-from ml_metrics._src.chainables.transform import AggregateTransform
-from ml_metrics._src.chainables.transform import dequeue_as_generator
-from ml_metrics._src.chainables.transform import enqueue_from_generator
-from ml_metrics._src.chainables.transform import iterate_with_returned
-from ml_metrics._src.chainables.transform import PrefetchedIterator
-from ml_metrics._src.chainables.transform import RunnerMode
-from ml_metrics._src.chainables.transform import TreeTransform as Pipeline
-from ml_metrics._src.chainables.tree import Key
-from ml_metrics._src.chainables.tree import tree_shape
-from ml_metrics._src.chainables.tree import TreeMapView
-from ml_metrics._src.orchestration import orchestrate
-# pylint: enable=g-importing-member
-# pylint: enable=unused-import
+logging.warning(
+    'ml_metrics.pipeline is deprecated, uses ml_metrics.chainable instead.'
+)

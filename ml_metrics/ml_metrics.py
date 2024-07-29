@@ -16,6 +16,7 @@
 # # pylint: disable=g-importing-member
 # pylint: disable=unused-import
 from ml_metrics import aggregates
+from ml_metrics import chainable
 from ml_metrics import pipeline
 from ml_metrics import signals
 from ml_metrics import types
