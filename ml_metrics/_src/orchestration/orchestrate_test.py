@@ -17,12 +17,27 @@ import queue
 
 from absl.testing import absltest
 from ml_metrics import aggregates
-from ml_metrics import pipeline
+from ml_metrics import pipeline as plib
 from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.orchestration import orchestrate
 import numpy as np
+
+
+def random_numbers_iterator(
+    total_numbers: int,
+    batch_size: int,
+    *,
+    shard_index: int = 0,
+    num_shards: int = 1,
+):
+  num_batches, residual = divmod(total_numbers, batch_size)
+  for i in range(num_batches):
+    if i % num_shards == shard_index:
+      yield np.random.randint(100, size=batch_size)
+  if residual:
+    yield np.random.randint(100, size=residual)
 
 
 class OrchestrateTest(absltest.TestCase):
@@ -39,31 +54,21 @@ class OrchestrateTest(absltest.TestCase):
     self.worker_pool.wait_until_alive(deadline_secs=12)
 
   def tearDown(self):
+    self.worker_pool.shutdown()
     _ = [t.join() for t in self.threads]
     super().tearDown()
 
-  def test_coordinate_call(self):
+  def test_sharded_pipelines_as_iterator(self):
 
-    def random_numbers_iterator(
-        shard_index: int,
-        num_shards: int,
-        total_numbers: int,
-        batch_size: int,
-    ):
-      num_batches = max(total_numbers // batch_size, 1)
-      for i in range(num_batches):
-        if i % num_shards == shard_index:
-          yield np.random.randint(100, size=batch_size)
-
-    def define_pipeline(total_numbers: int, shard_index: int, num_shards: int):
+    def define_pipeline(shard_index: int, num_shards: int):
       return (
-          pipeline.Pipeline.new()
+          plib.Pipeline.new()
           .data_source(
               random_numbers_iterator(
-                  shard_index,
-                  num_shards,
-                  total_numbers=total_numbers,
+                  total_numbers=1000,
                   batch_size=100,
+                  shard_index=shard_index,
+                  num_shards=num_shards,
               )
           )
           .aggregate(
@@ -75,10 +80,9 @@ class OrchestrateTest(absltest.TestCase):
       )
 
     results_queue = queue.SimpleQueue()
-    for elem in orchestrate.run_sharded_pipelines_as_iterator(
+    for elem in orchestrate.sharded_pipelines_as_iterator(
         self.worker_pool,
         define_pipeline,
-        total_numbers=1000,
         result_queue=results_queue,
         retry_failures=False,
     ):
@@ -86,11 +90,57 @@ class OrchestrateTest(absltest.TestCase):
 
     results = results_queue.get().agg_result
 
-    self.worker_pool.shutdown()
     self.assertIsNotNone(results)
     self.assertIn('stats', results)
     self.assertIsInstance(results['stats'], rolling_stats.MeanAndVariance)
     self.assertEqual(results['stats'].count, 1000)
+
+  def test_run_pipelines_interleaved(self):
+    pipeline = (
+        plib.Pipeline.new()
+        .data_source(
+            random_numbers_iterator(
+                total_numbers=1001,
+                batch_size=32,
+            )
+        )
+        .chain(
+            plib.Pipeline.new(name='apply')
+            .apply(fn=lambda x: x + 1, output_keys='inputs')
+            .assign('feature1', fn=lambda x: x + 1, input_keys='inputs')
+        )
+        .chain(
+            plib.Pipeline.new(name='agg').aggregate(
+                output_keys='stats',
+                fn=aggregates.MergeableMetricAggFn(
+                    rolling_stats.MeanAndVariance()
+                ),
+                input_keys='feature1',
+            )
+        )
+    )
+    runner_state = orchestrate.run_pipeline_interleaved(
+        pipeline,
+        resources={
+            'apply': orchestrate.RunnerResource(
+                worker_pool=self.worker_pool,
+                buffer_size=1,
+            ),
+        },
+    )
+    runner_state.wait()
+    self.assertTrue(runner_state.done() and not runner_state.exception())
+    cnt = 0
+    batch_or_result = None
+    for batch_or_result in plib.iterate_with_returned(runner_state.iterate()):
+      cnt += 1
+    assert isinstance(batch_or_result, plib.AggregateResult)
+    results = batch_or_result.agg_result
+    self.assertIn('stats', results)
+    self.assertIsInstance(results['stats'], rolling_stats.MeanAndVariance)
+    self.assertEqual(results['stats'].count, 1001)
+    # ceil(1001/32) batches with one aggregateion result: ceil(1001/32)+1
+    self.assertEqual(cnt, 33)
 
 
 if __name__ == '__main__':

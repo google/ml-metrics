@@ -16,6 +16,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from concurrent import futures
+import dataclasses
 import queue
 import threading
 import time
@@ -27,7 +29,7 @@ from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform as transform_lib
 
 
-def run_sharded_pipelines_as_iterator(
+def sharded_pipelines_as_iterator(
     worker_pool: courier_worker.WorkerPool,
     /,
     define_pipeline: Callable[..., transform_lib.TreeTransform],
@@ -127,3 +129,136 @@ def run_sharded_pipelines_as_iterator(
   )
   logging.info('chainables: iterator: %s', iterator)
   yield from iterator
+
+
+@dataclasses.dataclass(kw_only=True)
+class StageState:
+  state: futures.Future[Any]
+  result_queue: queue.Queue[Any]
+  name: str = ''
+  _progress: list[int]
+
+  @property
+  def progress(self) -> int:
+    return self._progress[0] if self._progress else -1
+
+
+@dataclasses.dataclass(kw_only=True)
+class RunnerState:
+  """The overall runner state."""
+
+  stages: list[StageState]
+
+  @property
+  def progress(self) -> int:
+    return self.stages[-1].progress if self.stages else -1
+
+  def wait(self, mode=futures.FIRST_EXCEPTION):
+    return futures.wait(
+        (s.state for s in self.stages),
+        return_when=mode,
+    )
+
+  def iterate(self) -> Iterator[Any]:
+    return transform_lib.dequeue_as_generator(self.stages[-1].result_queue)
+
+  def stage_progress(self) -> list[int]:
+    return [s.progress for s in self.stages]
+
+  def done(self):
+    return all(s.state.done() for s in self.stages)
+
+  def exception(self):
+    results = []
+    for i, s in enumerate(self.stages):
+      if s.state.done() and (exc := s.state.exception()):
+        results.append((i, exc))
+    return results
+
+
+@dataclasses.dataclass(kw_only=True)
+class RunnerResource:
+  """The resource for the runner."""
+
+  worker_pool: courier_worker.WorkerPool | None = None
+  buffer_size: int = 0
+
+
+def _async_run_single_stage(
+    transform: transform_lib.TreeTransform,
+    *,
+    thread_pool: futures.ThreadPoolExecutor,
+    resource: RunnerResource,
+    input_queue: queue.Queue[Any] | None = None,
+) -> StageState:
+  """Asyncronously runs a single stage."""
+  worker_pool = resource.worker_pool
+  if worker_pool and transform.input_iterator is not None:
+    raise ValueError(
+        'chainables: input_iterator is not supported with worker_pool.'
+    )
+  if worker_pool and isinstance(transform, transform_lib.AggregateTransform):
+    raise ValueError(
+        'chainables: AggregateTransform is not supported with worker_pool.'
+    )
+  result_q = queue.Queue(maxsize=resource.buffer_size)
+  input_iterator = None
+  if input_queue is not None:
+    input_iterator = transform_lib.dequeue_as_generator(input_queue)
+  progress = [0]
+
+  def _iterate_with_worker_pool():
+    assert worker_pool is not None
+    completed_tasks = worker_pool.as_completed(
+        (
+            lazy_fns.trace_object(transform).make(recursive=False)(batch)
+            for batch in input_iterator
+        ),
+        ignore_failures=True,
+    )
+    for i, _ in enumerate(
+        transform_lib.enqueue_from_generator(
+            (task.result() for task in completed_tasks), result_q
+        )
+    ):
+      progress[0] = i + 1
+
+  def _iterate_in_process():
+    for i, _ in enumerate(
+        transform_lib.enqueue_from_generator(
+            transform.make(recursive=False).iterate(
+                input_iterator=input_iterator
+            ),
+            result_q,
+        )
+    ):
+      progress[0] = i
+
+  iterate_fn = _iterate_with_worker_pool if worker_pool else _iterate_in_process
+  return StageState(
+      state=thread_pool.submit(iterate_fn),
+      result_queue=result_q,
+      name=transform.name,
+      _progress=progress,
+  )
+
+
+def run_pipeline_interleaved(
+    pipeline: transform_lib.TreeTransform,
+    resources: dict[str, RunnerResource] | None = None,
+) -> RunnerState:
+  """Run a pipeline with stages running interleaved."""
+  input_queue = None
+  resources = resources or {}
+  thread_pool = futures.ThreadPoolExecutor()
+  stages = []
+  for k, p in pipeline.named_transforms().items():
+    runner = _async_run_single_stage(
+        p,
+        thread_pool=thread_pool,
+        input_queue=input_queue,
+        resource=resources.get(k, RunnerResource()),
+    )
+    stages.append(runner)
+    input_queue = runner.result_queue
+  return RunnerState(stages=stages)
