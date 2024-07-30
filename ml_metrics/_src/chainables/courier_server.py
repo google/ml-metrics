@@ -17,6 +17,7 @@ import dataclasses
 import inspect
 import threading
 import time
+from typing import Any
 
 from absl import logging
 import courier
@@ -64,6 +65,11 @@ class CourierServerWrapper:
         raise TypeError(
             f'The {result} is not a generator, but a {type(result)}.'
         )
+      if self._generator is not None and not self._generator.exhausted:
+        logging.warning(
+            'Chainables: A new generator is initialized while the previous one'
+            ' is not exhausted.'
+        )
       self._generator = transform.PrefetchedIterator(
           result,
           prefetch_size=self.prefetch_size,
@@ -72,7 +78,7 @@ class CourierServerWrapper:
     def pickled_cache_info():
       return pickler.dumps(lazy_fns.cache_info())
 
-    def _next_batch_from_generator(batch_size: int = 0):
+    def _next_batch_from_generator(batch_size: int = 0) -> list[Any]:
       assert self._generator is not None, (
           'Generator is not set, the worker might crashed unexpectedly'
           ' previously.'
@@ -87,7 +93,7 @@ class CourierServerWrapper:
           result.append(StopIteration(self._generator.returned))
       return result
 
-    def next_batch_from_generator(batch_size: int | bytes = 0):
+    def next_batch_from_generator(batch_size: int | bytes = 0) -> list[Any]:
       batch_size = lazy_fns.maybe_make(batch_size)
       return pickler.dumps(_next_batch_from_generator(batch_size))
 
