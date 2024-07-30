@@ -20,7 +20,9 @@ import asyncio
 from collections.abc import AsyncIterator, Iterable, Iterator
 from concurrent import futures
 import dataclasses
+import itertools
 import queue
+import random
 import threading
 import time
 import typing
@@ -328,6 +330,13 @@ class Worker:
   def worker_pool(self):
     return self._worker_pool
 
+  def __hash__(self):
+    assert self.server_name, 'server_name must be set for hashing.'
+    return hash(self.server_name)
+
+  def __eq__(self, other):
+    return self.server_name == other.server_name
+
   @call_timeout.setter
   def call_timeout(self, call_timeout: int):
     self.set_timeout(call_timeout)
@@ -476,6 +485,7 @@ class Worker:
     # Artificially insert a pending state to block other tasks.
     generator_state = futures.Future()
     self._pendings.append(generator_state)
+    batch_cnt = 0
     try:
       init_state = self.call(
           *task.args, courier_method='init_generator', **task.kwargs
@@ -484,16 +494,11 @@ class Worker:
       exhausted = False
       while not exhausted:
         output_state = self.next_batch_from_generator(self.iterate_batch_size)
-        output_batch = lazy_fns.maybe_make(
+        output_batch: list[Any] = lazy_fns.maybe_make(
             await asyncio.wrap_future(output_state)
         )
         if output_batch:
           if transform.is_stop_iteration(stop_iteration := output_batch[-1]):
-            logging.info(
-                'chainables: worker %s generator exhausted with retruned: %s',
-                self.server_name,
-                stop_iteration.value is not None,
-            )
             exhausted = True
             generator_result_queue.put(stop_iteration.value)
             output_batch = output_batch[:-1]
@@ -502,6 +507,12 @@ class Worker:
               raise output_batch[-1]
         for elem in output_batch:
           yield elem
+          batch_cnt += 1
+      logging.info(
+          'chainables: worker %s generator exhausted after %d batches',
+          self.server_name,
+          batch_cnt,
+      )
     except Exception as e:  # pylint: disable=broad-exception-caught
       logging.exception(
           'chainables: exception when iterating task: %s',
@@ -523,6 +534,11 @@ class Worker:
     self._shutdown_requested = True
     self.state = self._client.futures.shutdown()
     return self.state
+
+
+def _is_courier_timeout(exc: Exception | None) -> bool:
+  # absl::status::kDeadlineExceeded
+  return hasattr(exc, 'code') and exc.code == 4
 
 
 class WorkerPool:
@@ -656,8 +672,7 @@ class WorkerPool:
       maybe_acquire: bool = True,
   ) -> Worker | None:
     """Non-blocking acquire and yields alive workers that have capacity."""
-    if workers is None:
-      workers = self._workers
+    workers = self._workers if workers is None else workers
     unacquired_workers: list[Worker] = []
     # Find the worker from acquired worker first.
     for worker in workers:
@@ -705,62 +720,79 @@ class WorkerPool:
     task_iterator = iter(task_iterator)
     running_tasks: list[Task] = []
     tasks: list[Task] = []
+    preferred_workers = set()
     exhausted = False
     while not exhausted or tasks or running_tasks:
+      # Submitting the next batch of tasks.
       if not self.workers:
-        raise ValueError(
-            'No worker is alive, remaining'
-            f' {len(tasks)+len(running_tasks)} tasks.'
-        )
-      while tasks or not exhausted:
-        worker = self.next_idle_worker()
-        if worker is None:
-          break
-        # Only append new task when existing queue is empty, this is to ensure
-        # failed tasks are retried before new tasks are submitted.
+        raise TimeoutError('All workers timeout, check worker status.')
+      workers = itertools.chain(
+          preferred_workers, set(self.workers) - preferred_workers
+      )
+      while (tasks or not exhausted) and (
+          worker := self.next_idle_worker(workers)
+      ):
+        # Ensure failed tasks are retried before new tasks are submitted.
         if not tasks and not exhausted:
           try:
             tasks.append(_as_task(next(task_iterator)))
           except StopIteration:
             exhausted = True
-            break
-        running_tasks.append(worker.submit(tasks.pop()))
+        if tasks:
+          running_tasks.append(worker.submit(tasks.pop()))
+
+      # Check the results of the running tasks and retry timeout tasks.
       still_running: list[Task] = []
       for task in running_tasks:
         if task.done():
-          # TODO: b/311207032 - distinguish timeout exception and categorize
-          # it as discconnected.
-          if task.exception():
-            logging.exception(
-                'chainables: task failed with exception: %s, task: %s',
-                task.exception(),
-                task.set(parent_task=None),
-            )
-            if not ignore_failures:
+          if exc := task.exception():
+            preferred_workers.discard(task.worker)
+            if _is_courier_timeout(exc):
+              logging.warning(
+                  'chainables: deadline exceeded at %s.',
+                  task.server_name,
+              )
               tasks.append(task)
+            elif ignore_failures:
+              logging.exception(
+                  'chainables: task failed withexception: %s, task: %s',
+                  exc,
+                  task.set(parent_task=None),
+              )
+            else:
+              raise exc
           else:
+            preferred_workers.add(task.worker)
             yield task
         elif not task.is_alive:
           logging.warning(
-              'chainables: Worker %s is not alive, re-appending task %s',
+              'chainables: Worker %s disconnected.',
               task.server_name,
-              dataclasses.replace(task, parent_task=None),
           )
           assert task.state is not None
-          task.state.set_exception(
-              TimeoutError(f'Worker {task.server_name} is not alive')
-          )
+          task.state.set_exception(TimeoutError(f'{task.server_name} timeout.'))
           tasks.append(task)
-
         else:
           still_running.append(task)
       running_tasks = still_running
+
+      # Releasing unused workers.
       if exhausted and not tasks:
-        running_workers = set(task.server_name for task in running_tasks)
-        unused_workers = filter(
-            lambda worker: worker.server_name not in running_workers,
-            self.workers,
-        )
+        running_workers = set(task.worker for task in running_tasks)
+        # Reserve same amount of workers as the number of unproven workers.
+        num_reserved_workers = len(running_workers - preferred_workers)
+        acquired_workers = set(self.acquired_workers)
+        reserved_workers = set()
+        # Reserve some workers from the preferred workers first.
+        if candidate_workers := list(preferred_workers - running_workers):
+          reserved_workers.update(
+              random.sample(candidate_workers, k=num_reserved_workers)
+          )
+        elif candidate_workers := list(acquired_workers - running_workers):
+          reserved_workers.update(
+              random.sample(candidate_workers, k=num_reserved_workers)
+          )
+        unused_workers = acquired_workers - running_workers - reserved_workers
         self._release_all(unused_workers)
       time.sleep(0.0)
     self._release_all()
@@ -798,16 +830,14 @@ class WorkerPool:
     loop_thread.start()
     running_tasks: list[GeneratorTask] = []
     tasks: list[GeneratorTask] = []
-    iterating_servers: set[str] = set()
+    running_workers: set[Worker] = set()
     total_tasks, finished_tasks_cnt, total_failures_cnt = 0, 0, 0
     batch_cnt, prev_batch_cnt = 0, 0
     exhausted = False
     while not exhausted or tasks or running_tasks:
-      workers = [
-          worker
-          for worker in self.idle_workers()
-          if worker.server_name not in iterating_servers
-      ]
+      workers = list(set(self.idle_workers()) - running_workers)
+      # TODO: b/311207032 - Prefer proven workers before shuffling.
+      random.shuffle(workers)
       for worker in workers:
         # Only append new task when existing queue is empty, this is to ensure
         # failed tasks are retried before new tasks are submitted.
@@ -843,15 +873,16 @@ class WorkerPool:
       failed_tasks, disconnected_tasks, still_running_tasks = [], [], []
       for task in running_tasks:
         if task.done():
-          if task.exception():
-            # TODO: b/311207032 - distinguish timeout exception and categorize
-            # it as discconnected.
-            logging.exception(
-                'chainables: task failed with exception: %s, task: %s',
-                task.exception(),
-                task.set(parent_task=None),
-            )
-            failed_tasks.append(task)
+          if exc := task.exception():
+            if _is_courier_timeout(exc):
+              disconnected_tasks.append(task)
+            else:
+              logging.exception(
+                  'chainables: task failed with exception: %s, task: %s',
+                  task.exception(),
+                  task.set(parent_task=None),
+              )
+              failed_tasks.append(task)
           else:
             finished_tasks_cnt += 1
         else:
@@ -871,22 +902,25 @@ class WorkerPool:
             len(failed_tasks),
             len(disconnected_tasks),
         )
-        tasks.extend(failed_tasks + disconnected_tasks)
+        tasks.extend(disconnected_tasks)
         total_failures_cnt += len(failed_tasks)
         if total_failures_cnt > num_total_failures_threshold:
           logging.exception(
-              'chainables: too many failures: %d > %d, stopping the iteration.',
+              'chainables: too many failures: %d > %d, stopping, '
+              'last exception:\n %s.',
               total_failures_cnt,
               num_total_failures_threshold,
+              failed_tasks[-1].exception(),
           )
-          raise failed_tasks[-1].exception
-
-        logging.info(
-            'chainables: %d tasks failed, re-trying: %s.',
-            len(failed_tasks),
-            failed_tasks,
-        )
-      iterating_servers = {task.server_name for task in running_tasks}
+          raise failed_tasks[-1].exception()
+        else:
+          tasks.extend(failed_tasks)
+          logging.info(
+              'chainables: %d tasks failed, re-trying: %s.',
+              len(failed_tasks),
+              failed_tasks,
+          )
+      running_workers = {task.worker for task in running_tasks if task.worker}
 
       if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SEC:
         logging.info(

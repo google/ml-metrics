@@ -39,6 +39,27 @@ def mock_generator(n, sleep_interval=0.0):
   return n
 
 
+class TimeoutServer(courier_server.CourierServerWrapper):
+  """Test server for CourierServerWrapper."""
+
+  def set_up(self):
+    super().set_up()
+
+    def timeout(x):
+      time.sleep(60)
+      result = lazy_fns.maybe_make(x)
+      return lazy_fns.picklers.default.dumps(result)
+
+    def timeout_init_generator(x):
+      del x
+      time.sleep(60)
+
+    self._server.Unbind('maybe_make')
+    self._server.Bind('maybe_make', timeout)
+    self._server.Unbind('init_generator')
+    self._server.Bind('init_generator', timeout_init_generator)
+
+
 class CourierWorkerTest(absltest.TestCase):
 
   def setUp(self):
@@ -198,7 +219,11 @@ class CourierWorkerGroupTest(absltest.TestCase):
     self.server = courier_server.CourierServerWrapper()
     self.server.build_server()
     self.server_thread = self.server.start(daemon=True)
+    self.always_timeout_server = TimeoutServer()
+    self.always_timeout_server.build_server()
+    self.invalid_server_thread = self.always_timeout_server.start(daemon=True)
     self.worker_pool = courier_worker.WorkerPool([self.server.address])
+    self.unreachable_address = f'localhost:{portpicker.pick_unused_port()}'
     self.worker_pool.wait_until_alive(deadline_secs=12)
 
   def tearDown(self):
@@ -225,25 +250,37 @@ class CourierWorkerGroupTest(absltest.TestCase):
     thread.join()
 
   def test_worker_group_iterate_lazy_generator(self):
-    lazy_generators = (lazy_fns.trace(mock_generator)(3) for _ in range(5))
+    lazy_generators = (lazy_fns.trace(mock_generator)(3) for _ in range(30))
     courier_worker._LOGGING_INTERVAL_SEC = 0.01
     generator_result_queue = queue.SimpleQueue()
+    # Adds a worker that is not reachable.
+    worker_pool = courier_worker.WorkerPool(
+        [
+            self.always_timeout_server.address,
+            self.unreachable_address,
+            self.server.address,
+        ],
+        max_parallelism=1,
+        call_timeout=0.5,
+    )
+    worker_pool.wait_until_alive(deadline_secs=12)
+    self.assertLen(worker_pool.workers, 2)
     with self.assertLogs(level='INFO') as cm:
       results = list(
-          self.worker_pool.iterate(
+          worker_pool.iterate(
               lazy_generators,
               generator_result_queue=generator_result_queue,
               num_total_failures_threshold=0,
           )
       )
-    self.assertEmpty(self.worker_pool.acquired_workers)
-    self.assertLen(results, 3 * 5)
-    self.assertCountEqual(list(range(3)) * 5, results)
-    self.assertEqual(6, generator_result_queue.qsize())
+    self.assertEmpty(worker_pool.acquired_workers)
+    self.assertLen(results, 3 * 30)
+    self.assertCountEqual(list(range(3)) * 30, results)
+    self.assertEqual(31, generator_result_queue.qsize())
     actual_agg = []
     while not generator_result_queue.empty():
       actual_agg.append(generator_result_queue.get())
-    self.assertEqual([3] * 5, actual_agg[:-1])
+    self.assertEqual([3] * 30, actual_agg[:-1])
     self.assertNotEmpty([l for l in cm.output if 'progress' in l])
 
   def test_worker_group_iterate_by_task(self):
@@ -274,14 +311,14 @@ class CourierWorkerGroupTest(absltest.TestCase):
   # TODO: b/349174267 - re-neable the test when this test does not hang when
   # exiting.
   # def test_worker_group_iterate_invalid_iterator(self):
-  #   invalid_iterators = [lazy_fns.trace(len)([3])] * 3
+  #   invalid_iterators = [lazy_fns.trace(len)([3])]
   #   generator_result_queue = queue.SimpleQueue()
   #   iterator = self.worker_pool.iterate(
   #       invalid_iterators,
   #       num_total_failures_threshold=0,
   #       generator_result_queue=generator_result_queue,
   #   )
-  #   with self.assertRaises(TypeError):
+  #   with self.assertRaises(Exception):
   #     next(iterator)
 
   def test_shared_worker_pool_run(self):
@@ -316,14 +353,51 @@ class CourierWorkerGroupTest(absltest.TestCase):
     new_hits = self.worker_pool.idle_workers()[0].cache_info().hits
     self.assertEqual(new_hits - hits, 1)
 
-  def test_worker_group_as_completed(self):
-    tasks = [
-        Task.new('echo', blocking=False).add_task(lazy_fns.trace(len)([1, 2]))
-    ] * 3
-    states = list(self.worker_pool.as_completed(tasks))
-    self.assertLen(states, 3)
+  def test_worker_group_as_completed_with_retry(self):
+    tasks = [lazy_fns.trace(len)([1, 2]) for _ in range(30)]
+    addrs = [
+        self.always_timeout_server.address,
+        self.unreachable_address,
+        self.server.address,
+    ]
+    worker_pool = courier_worker.WorkerPool(
+        addrs,
+        max_parallelism=1,
+        call_timeout=1,
+    )
+    # Add a worker with invalid address to test the retry logic.
+    worker_pool.wait_until_alive(deadline_secs=12)
+    # Only one worker is alive.
+    self.assertLen(worker_pool.workers, 2)
+    states = list(worker_pool.as_completed(tasks))
+    self.assertLen(states, 30)
     actual = courier_worker.get_results(states)
-    self.assertEqual([2] * 3, actual)
+    self.assertEqual([2] * 30, actual)
+
+  def test_worker_group_as_completed_with_exception(self):
+    def foo():
+      raise ValueError('foo')
+
+    tasks = [lazy_fns.trace(foo)() for _ in range(3)]
+    addrs = [
+        self.always_timeout_server.address,
+        self.unreachable_address,
+        self.server.address,
+    ]
+    worker_pool = courier_worker.WorkerPool(
+        addrs,
+        max_parallelism=1,
+        call_timeout=1,
+    )
+    # Add a worker with invalid address to test the retry logic.
+    worker_pool.wait_until_alive(deadline_secs=12)
+    # Only one worker is alive.
+    self.assertLen(worker_pool.workers, 2)
+    with self.assertRaisesRegex(Exception, 'foo'):
+      next(worker_pool.as_completed(tasks))
+    self.assertEmpty(
+        list(worker_pool.as_completed(tasks, ignore_failures=True))
+    )
 
   def test_worker_group_idle_workers(self):
     worker_pool = courier_worker.WorkerPool([self.server.address])
