@@ -394,7 +394,7 @@ class R2TjurTest(parameterized.TestCase):
           expected_result=0,
       ),
   )
-  def test_r2_tjurn_many_batches_inverse_correlation(
+  def test_r2_tjur_many_batches_inverse_correlation(
       self, r2_metric, expected_result
   ):
     y = np.round(np.random.uniform(size=(10000, 10000)))
