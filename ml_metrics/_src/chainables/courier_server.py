@@ -35,7 +35,9 @@ class CourierServerWrapper:
   server_name: str | None = None
   port: int | None = None
   prefetch_size: int = 2
+  timeout_secs: int = 10200
   _server: courier.Server | None = None
+  _stats: dict[str, float] = dataclasses.field(default_factory=dict)
   _shutdown_requested: dict[str, bool] = dataclasses.field(
       default_factory=lambda: {_DEFAULT: False}, init=False
   )
@@ -101,7 +103,7 @@ class CourierServerWrapper:
       return pickler.dumps(_next_batch_from_generator(batch_size=1)[0])
 
     def heartbeat() -> None:
-      pass
+      self._stats['last_heartbeat'] = time.time()
 
     assert self._server is not None, 'Server is not built.'
     self._server.Bind('maybe_make', pickled_maybe_make)
@@ -127,7 +129,11 @@ class CourierServerWrapper:
     assert self._server is not None, 'Server is not built.'
     if not self._server.has_started:
       self._server.Start()
+    self._stats['last_heartbeat'] = time.time()
     while not self._shutdown_requested[_DEFAULT]:
+      if time.time() - self._stats['last_heartbeat'] > self.timeout_secs:
+        logging.info('Chainables: no ping after %ds.', self.timeout_secs)
+        self._shutdown_requested[_DEFAULT] = True
       if self._generator:
         self._generator.prefetch()
       time.sleep(0)
