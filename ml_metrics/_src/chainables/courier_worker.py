@@ -755,7 +755,7 @@ class WorkerPool:
               tasks.append(task)
             elif ignore_failures:
               logging.exception(
-                  'chainables: task failed withexception: %s, task: %s',
+                  'chainables: task failed with exception: %s, task: %s',
                   exc,
                   task.set(parent_task=None),
               )

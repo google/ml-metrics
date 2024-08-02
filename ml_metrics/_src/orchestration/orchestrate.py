@@ -175,6 +175,18 @@ class RunnerState:
         results.append((i, exc))
     return results
 
+  def wait_and_maybe_raise(self):
+    result = self.wait()
+    for i, s in enumerate(self.stages):
+      if s.state.done() and s.state.exception():
+        try:
+          _ = s.state.result()
+        except Exception as e:  # pylint: disable=broad-exception-caught
+          raise ValueError(
+              f'chainables: stage {i} failed, stage: {s.name}'
+          ) from e
+    return result
+
 
 @dataclasses.dataclass(kw_only=True)
 class RunnerResource:
@@ -190,6 +202,7 @@ def _async_run_single_stage(
     thread_pool: futures.ThreadPoolExecutor,
     resource: RunnerResource,
     input_queue: queue.Queue[Any] | None = None,
+    ignore_failures: bool = False,
 ) -> StageState:
   """Asyncronously runs a single stage."""
   worker_pool = resource.worker_pool
@@ -214,7 +227,7 @@ def _async_run_single_stage(
             lazy_fns.trace_object(transform).make(recursive=False)(batch)
             for batch in input_iterator
         ),
-        ignore_failures=True,
+        ignore_failures=ignore_failures,
     )
     for i, _ in enumerate(
         transform_lib.enqueue_from_generator(
@@ -246,6 +259,7 @@ def _async_run_single_stage(
 def run_pipeline_interleaved(
     pipeline: transform_lib.TreeTransform,
     resources: dict[str, RunnerResource] | None = None,
+    ignore_failures: bool = False,
 ) -> RunnerState:
   """Run a pipeline with stages running interleaved."""
   input_queue = None
@@ -258,6 +272,7 @@ def run_pipeline_interleaved(
         thread_pool=thread_pool,
         input_queue=input_queue,
         resource=resources.get(k, RunnerResource()),
+        ignore_failures=ignore_failures,
     )
     stages.append(runner)
     input_queue = runner.result_queue

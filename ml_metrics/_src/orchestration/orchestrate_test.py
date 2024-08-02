@@ -17,11 +17,12 @@ import queue
 
 from absl.testing import absltest
 from ml_metrics import aggregates
-from ml_metrics import pipeline as plib
+from ml_metrics import chainable
 from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.orchestration import orchestrate
+import more_itertools
 import numpy as np
 
 
@@ -62,7 +63,7 @@ class OrchestrateTest(absltest.TestCase):
 
     def define_pipeline(shard_index: int, num_shards: int):
       return (
-          plib.Pipeline.new()
+          chainable.Pipeline.new()
           .data_source(
               random_numbers_iterator(
                   total_numbers=1000,
@@ -95,22 +96,19 @@ class OrchestrateTest(absltest.TestCase):
     self.assertIsInstance(results['stats'], rolling_stats.MeanAndVariance)
     self.assertEqual(results['stats'].count, 1000)
 
-  def test_run_pipelines_interleaved(self):
+  def test_run_pipelines_interleaved_default(self):
     pipeline = (
-        plib.Pipeline.new()
+        chainable.Pipeline.new()
         .data_source(
-            random_numbers_iterator(
-                total_numbers=1001,
-                batch_size=32,
-            )
+            more_itertools.batched(range(1001), 32),
         )
         .chain(
-            plib.Pipeline.new(name='apply')
-            .apply(fn=lambda x: x + 1, output_keys='inputs')
+            chainable.Pipeline.new(name='apply')
+            .apply(fn=np.asarray, output_keys='inputs')
             .assign('feature1', fn=lambda x: x + 1, input_keys='inputs')
         )
         .chain(
-            plib.Pipeline.new(name='agg').aggregate(
+            chainable.Pipeline.new(name='agg').aggregate(
                 output_keys='stats',
                 fn=aggregates.MergeableMetricAggFn(
                     rolling_stats.MeanAndVariance()
@@ -121,6 +119,7 @@ class OrchestrateTest(absltest.TestCase):
     )
     runner_state = orchestrate.run_pipeline_interleaved(
         pipeline,
+        ignore_failures=False,
         resources={
             'apply': orchestrate.RunnerResource(
                 worker_pool=self.worker_pool,
@@ -132,15 +131,42 @@ class OrchestrateTest(absltest.TestCase):
     self.assertTrue(runner_state.done() and not runner_state.exception())
     cnt = 0
     batch_or_result = None
-    for batch_or_result in plib.iterate_with_returned(runner_state.iterate()):
+    for batch_or_result in chainable.iterate_with_returned(
+        runner_state.iterate()
+    ):
       cnt += 1
-    assert isinstance(batch_or_result, plib.AggregateResult)
+    assert isinstance(batch_or_result, chainable.AggregateResult)
     results = batch_or_result.agg_result
     self.assertIn('stats', results)
     self.assertIsInstance(results['stats'], rolling_stats.MeanAndVariance)
     self.assertEqual(results['stats'].count, 1001)
     # ceil(1001/32) batches with one aggregateion result: ceil(1001/32)+1
     self.assertEqual(cnt, 33)
+
+  def test_run_pipelines_interleaved_raises(self):
+    pipeline = (
+        chainable.Pipeline.new()
+        .data_source(
+            more_itertools.batched(range(5), 2),
+        )
+        .chain(
+            chainable.Pipeline.new(name='apply')
+            # Cannot directly assign the items to a non-dict inputs.
+            .assign('feature1', fn=lambda x: x + 1)
+        )
+    )
+    with self.assertRaises(ValueError):
+      runner_state = orchestrate.run_pipeline_interleaved(
+          pipeline,
+          ignore_failures=False,
+          resources={
+              'apply': orchestrate.RunnerResource(
+                  worker_pool=self.worker_pool,
+                  buffer_size=1,
+              ),
+          },
+      )
+      runner_state.wait_and_maybe_raise()
 
 
 if __name__ == '__main__':
