@@ -263,7 +263,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
         max_parallelism=1,
         call_timeout=0.5,
     )
-    worker_pool.wait_until_alive(deadline_secs=12)
+    worker_pool.wait_until_alive(deadline_secs=12, minimum_num_workers=2)
     self.assertLen(worker_pool.workers, 2)
     with self.assertLogs(level='INFO') as cm:
       results = list(
@@ -323,14 +323,23 @@ class CourierWorkerGroupTest(absltest.TestCase):
 
   def test_shared_worker_pool_run(self):
     shared_worker_pool = courier_worker.WorkerPool(self.worker_pool.all_workers)
+    shared_worker_pool.wait_until_alive(deadline_secs=12)
     self.assertNotEmpty(shared_worker_pool.workers)
-    tasks = [lazy_fns.trace(time.sleep)(0.01)] * 6
+    blocked = [True]
+
+    def blocking_event(n):
+      cnt = 0
+      while blocked[0] and cnt < n:
+        time.sleep(0.01)
+        cnt += 1
+
+    tasks = [lazy_fns.trace(blocking_event)(10)] * 2
     t = threading.Thread(target=shared_worker_pool.run, args=(tasks,))
     t.start()
-    # The worker is not immediately acquirable while locked by the
-    # shared_worker_pool.
+    # The worker is not acquirable while blocked.
     self.assertSameElements([False], self.worker_pool._acquire_all())
-    self.assertEqual([None] * 6, self.worker_pool.run(tasks))
+    blocked[0] = False
+    self.assertEqual(2, self.worker_pool.run(lazy_fns.trace(len)([1, 2])))
     self.assertEmpty(shared_worker_pool.acquired_workers)
 
   def test_worker_group_run(self):
