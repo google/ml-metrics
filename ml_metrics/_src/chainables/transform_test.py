@@ -857,15 +857,15 @@ class TransformTest(parameterized.TestCase):
 
     result = transform.get_generator_returned(
         actual_fn.iterate(with_agg_result=True)
-    ).agg_result
-    self.assertEqual([13.5], result)
+    )
+    self.assertEqual([13.5], result.agg_result)
 
     result = transform.get_generator_returned(
         actual_fn.iterate(
             input_iterator=MockGenerator(input_iterator), with_agg_result=True
         )
-    ).agg_result
-    self.assertEqual([13.5], result)
+    )
+    self.assertEqual([13.5], result.agg_result)
 
   def test_input_iterator_aggregate_incorrect_states_count_raises_error(self):
     input_iterator = [[1, 2, 3], [2, 3, 4]]

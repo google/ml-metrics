@@ -61,6 +61,7 @@ from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
 from ml_metrics._src.chainables import tree_fns
+import more_itertools
 
 
 TreeMapKey = tree.TreeMapKey
@@ -95,10 +96,7 @@ def get_generator_returned(
     generator: Generator[Any, None, _ValueT],
 ) -> _ValueT | None:
   """Returns the aggregate result by from a TreeTransform based generator."""
-  result = None
-  for result in iterate_with_returned(generator):
-    pass
-  return result
+  return more_itertools.last(iterate_with_returned(generator), None)
 
 
 def enqueue_from_generator(
