@@ -322,23 +322,27 @@ class CourierWorkerGroupTest(absltest.TestCase):
   #     next(iterator)
 
   def test_shared_worker_pool_run(self):
-    shared_worker_pool = courier_worker.WorkerPool(self.worker_pool.all_workers)
+    shared_worker_pool = courier_worker.WorkerPool(
+        self.worker_pool.all_workers, call_timeout=6
+    )
     shared_worker_pool.wait_until_alive(deadline_secs=12)
     self.assertNotEmpty(shared_worker_pool.workers)
     blocked = [True]
 
-    def blocking_event(n):
+    def blocking_fn(n):
       cnt = 0
       while blocked[0] and cnt < n:
         time.sleep(0.01)
         cnt += 1
 
-    tasks = [lazy_fns.trace(blocking_event)(10)] * 2
+    tasks = [lazy_fns.trace(blocking_fn)(3)] * 3
     t = threading.Thread(target=shared_worker_pool.run, args=(tasks,))
     t.start()
+    time.sleep(0)
     # The worker is not acquirable while blocked.
     self.assertSameElements([False], self.worker_pool._acquire_all())
     blocked[0] = False
+    time.sleep(0)
     self.assertEqual(2, self.worker_pool.run(lazy_fns.trace(len)([1, 2])))
     self.assertEmpty(shared_worker_pool.acquired_workers)
 
@@ -375,7 +379,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
         call_timeout=1,
     )
     # Add a worker with invalid address to test the retry logic.
-    worker_pool.wait_until_alive(deadline_secs=12)
+    worker_pool.wait_until_alive(deadline_secs=12, minimum_num_workers=2)
     # Only one worker is alive.
     self.assertLen(worker_pool.workers, 2)
     states = list(worker_pool.as_completed(tasks))
@@ -399,7 +403,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
         call_timeout=1,
     )
     # Add a worker with invalid address to test the retry logic.
-    worker_pool.wait_until_alive(deadline_secs=12)
+    worker_pool.wait_until_alive(deadline_secs=12, minimum_num_workers=2)
     # Only one worker is alive.
     self.assertLen(worker_pool.workers, 2)
     with self.assertRaisesRegex(Exception, 'foo'):
