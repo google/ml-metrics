@@ -204,6 +204,12 @@ class TreeFnTest(parameterized.TestCase):
     }
     self.assertEqual(expected, tree_fn(data))
 
+  def test_tree_aggfn_iterate_not_implemented(self):
+    data = [1, 2, 3]
+    tree_fn = tree_fns.TreeAggregateFn.new(fn=TestAverageFn())
+    with self.assertRaises(NotImplementedError):
+      list(tree_fn.iterate(data))
+
   def test_tree_aggregate_fn(self):
     data = [1, 2, 3]
     agg_fn = tree_fns.TreeAggregateFn.new(fn=TestAverageFn())

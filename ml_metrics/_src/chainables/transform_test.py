@@ -36,6 +36,16 @@ MetricKey = transform.MetricKey
 SliceKey = tree_fns.SliceKey
 
 
+def infinite_generator(n):
+  yield from range(n)
+  raise ValueError(
+      'This is to test the runner does not iterate and copy everything into'
+      ' memory, it should never be exhausted.',
+      'This is to test the runner does not iterate and copy everything into'
+      ' memory, it should never be exhausted.',
+  )
+
+
 class MockGenerator(Iterable):
 
   def __init__(self, iterable):
@@ -75,6 +85,8 @@ class MockAverageFn:
 
   def update_state(self, state, inputs):
     inputs = inputs[self.input_key] if self.input_key else inputs
+    if isinstance(inputs, (int, float)):
+      return state[0] + inputs, state[1] + 1
     return state[0] + sum(inputs), state[1] + len(inputs)
 
   def merge_states(self, states):
@@ -270,6 +282,16 @@ class TransformTest(parameterized.TestCase):
         lazy_fns.maybe_make(pickled_t),
         lazy_fns.maybe_make(pickled_t),
     )
+
+  def test_transform_iterate_is_not_copy(self):
+    t = (
+        transform.TreeTransform.new()
+        .data_source(infinite_generator(2))
+        .apply(fn=lambda x: x + 1, output_keys='a')
+        .assign('b', fn=lambda x: x + 1, input_keys='a')
+    )
+    actual = list(itertools.islice(t.make().iterate(), 2))
+    self.assertEqual(actual, [{'a': 1, 'b': 2}, {'a': 2, 'b': 3}])
 
   @parameterized.named_parameters([
       dict(

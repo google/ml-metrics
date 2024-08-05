@@ -22,7 +22,6 @@ import dataclasses
 import functools
 from typing import Any, Protocol, Self, TypeVar, Union
 
-import immutabledict
 from ml_metrics._src import base_types
 import numpy as np
 
@@ -254,9 +253,8 @@ TreeMapKeys = tuple[TreeMapKey, ...] | Mapping[str, TreeMapKey]
 
 
 def normalize_keys(keys: TreeMapKey | TreeMapKeys) -> TreeMapKeys:
-  if isinstance(keys, Mapping):
-    return immutabledict.immutabledict(keys)
-  elif isinstance(keys, Key) or not isinstance(keys, (tuple, list)):
+  """Normalizes the keys into a tuple of keys."""
+  if isinstance(keys, Key) or not isinstance(keys, (tuple, list)):
     # Note: this has to be before tuple since Key is a subclass of tuple.
     return (keys,)
   elif isinstance(keys, (list, tuple)):

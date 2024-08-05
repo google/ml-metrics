@@ -114,17 +114,19 @@ def enqueue_from_generator(
       value = e
       exhausted = True
     ticker = time.time()
-    while True:
+    enqueued = False
+    while not enqueued:
       try:
         output_queue.put_nowait(value)
-        if isinstance(value, StopIteration):
-          return value.value
-        yield value
-        break
       except queue.Full as e:
         time.sleep(0)
         if timeout is not None and time.time() - ticker > timeout:
           raise TimeoutError(f'Enqueue timeout after {timeout} seconds.') from e
+        continue
+      enqueued = True
+      if isinstance(value, StopIteration):
+        return value.value
+      yield value
 
 
 def dequeue_as_generator(
@@ -138,8 +140,8 @@ def dequeue_as_generator(
   ticker = None
   run_until_exhausted = num_steps < 0
   while run_until_exhausted or i < num_steps:
+    ticker = ticker or time.time()
     try:
-      ticker = ticker or time.time()
       value = input_queue.get_nowait()
     except queue.Empty as e:
       if timeout is not None and ticker and time.time() - ticker > timeout:
@@ -253,21 +255,15 @@ class PrefetchedIterator:
         time.sleep(0)
 
 
-def _call_fns(
-    fns: Sequence[tree.MapLikeTreeCallable | tree_fns.TreeAggregateFn],
-    inputs: tree.MapLikeTree | None = None,
-) -> tree.MapLikeTree | None:
+def _call_fns_iterate(
+    fns: Sequence[tree_fns.TreeFn],
+    input_iterator: Iterable[tree.MapLikeTree | None] = (),
+) -> Iterator[tree.MapLikeTree | None]:
   """Call a chain of functions in sequence."""
-  result = inputs
+  result = input_iterator
   for fn in fns:
-    try:
-      result = fn(result)
-    except Exception as e:  # pylint: disable=too-broad-exception
-      raise ValueError(
-          f'Falied to execute {fn} with inputs: {tree.tree_shape(result)}'
-      ) from e
-
-  return result
+    result = fn.iterate(result)
+  yield from result
 
 
 class RunnerMode(base_types.StrEnum):
@@ -404,12 +400,12 @@ class CombinedTreeFn:
       converted to a callable and translated as `output_fns`.
   """
 
-  input_fns: Sequence[tree.MapLikeTreeCallable] = ()
+  input_fns: Sequence[tree_fns.TreeFn] = ()
   agg_fns: dict[TreeMapKeys | TreeMapKey, tree_fns.TreeAggregateFn] = (
       dataclasses.field(default_factory=dict)
   )
   slicers: list[tree_fns.Slicer] = dataclasses.field(default_factory=list)
-  output_fns: Sequence[tree.MapLikeTreeCallable] = ()
+  output_fns: Sequence[tree_fns.TreeFn] = ()
   input_iterator: Iterable[Any] | None = None
 
   @classmethod
@@ -515,8 +511,9 @@ class CombinedTreeFn:
             MetricKey(metric, key.slice) for metric in key.metrics
         )
       result = result.copy_and_set(flattened_keys, outputs)
-    result = result.data
-    return _call_fns(self.output_fns, result)
+    return functools.reduce(
+        lambda inputs, fn: fn(inputs), self.output_fns, result.data
+    )
 
   def _actual_inputs(self, inputs, input_iterator):
     """Selects the inputs when user provided one."""
@@ -567,11 +564,12 @@ class CombinedTreeFn:
     with_agg_state = with_agg_state or with_agg_result
     prev_ticker = time.time()
     batch_index = -1
-    for batch_index, batch in enumerate(input_iterator):
+    for batch_index, batch_output in enumerate(
+        _call_fns_iterate(self.input_fns, input_iterator)
+    ):
       if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SECS:
         logging.info('chainables: calculating for batch %d.', batch_index)
         prev_ticker = ticker
-      batch_output = _call_fns(self.input_fns, batch)
       yield batch_output if with_result else None
       if with_agg_state:
         state = self._update_state(state, batch_output)
@@ -804,8 +802,8 @@ class TreeTransform(Generic[TreeFnT]):
       )
     if tree.Key.SELF in fn_by_output_keys:
       raise ValueError(
-          f'Cannot add new key {fn.output_keys} when other output key has'
-          f' SELF: {fn_by_output_keys[tree.Key.SELF]}'
+          f'Cannot assign values to {fn.output_keys} when output key of another'
+          f'fn is SELF, the function is: {fn_by_output_keys[tree.Key.SELF]}.'
       )
     return self._maybe_new_transform(fn)
 
