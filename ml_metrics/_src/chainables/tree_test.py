@@ -89,11 +89,32 @@ class TreeMapViewTest(parameterized.TestCase):
     self.assertIsNot(data, view)
     self.assertEqual(view, TreeMapView.as_view(view))
 
-  def test_get_by_reserved_key(self):
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='SELF',
+          keys=Key.SELF,
+          expected={'a': [1, 2], 'b': [3, 4]},
+      ),
+      dict(
+          testcase_name='SELF_tuple',
+          keys=(Key.SELF,),
+          expected=({'a': [1, 2], 'b': [3, 4]},),
+      ),
+      dict(
+          testcase_name='SELF_a',
+          keys=(Key.SELF, 'a'),
+          expected=({'a': [1, 2], 'b': [3, 4]}, [1, 2]),
+      ),
+      dict(
+          testcase_name='Path_with_SELF',
+          keys=Key.new('a', Key.SELF),
+          expected=([1, 2]),
+      ),
+  ])
+  def test_get_by_reserved_key(self, keys, expected):
     data = {'a': [1, 2], 'b': [3, 4]}
     view = TreeMapView.as_view(data)
-    self.assertEqual(data, view[Key.SELF])
-    self.assertEqual([1, 2], view[Key.new('a', Key.SELF)])
+    self.assertEqual(expected, view[keys])
 
   def test_get_by_skip_raise_error(self):
     with self.assertRaises(KeyError):
@@ -290,17 +311,31 @@ class TreeMapViewTest(parameterized.TestCase):
     expected = dict(a=dict(b=2, c=4), e=6)
     self.assertEqual(expected, mapped.data)
 
-  def test_copy_and_set_with_reserved_keys(self):
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='SELF',
+          input_key=Key.SELF,
+          expected=({'x': {'y': 1}},),
+      ),
+      dict(
+          testcase_name='SELF_tuple',
+          input_key=(Key.SELF,),
+          expected={'x': {'y': 1}},
+      ),
+  )
+  def test_copy_and_set_with_reserved_keys(self, input_key, expected):
     result = (
-        TreeMapView({})
-        .copy_and_set(Key.SELF, values={'x': {'y': 1}})
-        .copy_and_set((Key.SKIP, 'b'), values=(7, 8))
+        TreeMapView({}).copy_and_set(input_key, values=({'x': {'y': 1}},))
     ).data
-    expected = types.MappingProxyType({
-        'x': {'y': 1},
-        'b': 8,
-    })
     self.assertEqual(expected, result)
+
+  def test_copy_and_set_raise_with_multiple_keys_with_self(self):
+    with self.assertRaises(ValueError):
+      _ = (
+          TreeMapView({}).copy_and_set(
+              (Key.SELF, 'other_key'), values={'x': {'y': 1}}
+          )
+      ).data
 
   def test_copy_and_update_empty(self):
     data = TreeMapView({}).copy_and_set(Key().model1.pred, (1, 2, 3))
