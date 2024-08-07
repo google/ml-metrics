@@ -164,7 +164,7 @@ class TreeFnTest(parameterized.TestCase):
     }
     tree_fn = tree_fns.TreeFn.new(
         fn=lambda x, y: (x + 1, y + 1),
-        input_keys=[Key().a, Key().c.b.at(Key.Index(0))],
+        input_keys=['a', Key.new('c', 'b', Key.Index(0))],
     )
     self.assertEqual((8, 8), tree_fn(data))
 
@@ -260,13 +260,13 @@ class TreeFnTest(parameterized.TestCase):
       dict(
           testcase_name='default',
           inputs=[1, 2, np.array([5, 6]), 4, 5],
-          expected=([1, [5], 5],),
+          expected=[1, [5], 5],
       ),
       dict(
           testcase_name='keyed_input',
           input_keys='a',
           inputs={'a': [1, 2, np.array([5, 6]), 4, 5]},
-          expected=([1, [5], 5],),
+          expected=[1, [5], 5],
       ),
       dict(
           testcase_name='indexed_inputs',
@@ -278,7 +278,7 @@ class TreeFnTest(parameterized.TestCase):
           testcase_name='replace_false',
           replace_mask_false_with=-1,
           inputs=[1, 2, np.array([5, 6]), 4, 5],
-          expected=([1, -1, [5, -1], -1, 5],),
+          expected=[1, -1, [5, -1], -1, 5],
       ),
       dict(
           testcase_name='replace_false_multi_inputs',
