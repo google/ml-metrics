@@ -13,12 +13,52 @@
 # limitations under the License.
 """Internal batching utils, not meant to be used by users."""
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator
 import functools
-from typing import Any
+import queue
+from typing import Any, TypeVar
 
 import more_itertools as mit
 import numpy as np
+
+_ValueT = TypeVar('_ValueT')
+
+
+def _dequeue_as_generator(
+    input_queue: queue.SimpleQueue[_ValueT | StopIteration],
+) -> Iterator[_ValueT]:
+  """Converts a queue to an iterator, stops when meeting StopIteration."""
+  while not isinstance(value := input_queue.get(), StopIteration):
+    yield value
+  return value.value
+
+
+class RecitableIterator(Iterator[_ValueT]):
+  """An iterator that recite its inputs."""
+
+  def __init__(self, iterator: Iterable[_ValueT], *, max_buffer_size: int = 0):
+    self._iterator = iter(iterator)
+    self._max_buffer_size = max_buffer_size
+    self.buffer = queue.SimpleQueue()
+
+  def __next__(self):
+    try:
+      value = next(self._iterator)
+    except StopIteration as e:
+      self.buffer.put(e)
+      raise e
+    self.buffer.put(value)
+    if self._max_buffer_size and self.buffer.qsize() > self._max_buffer_size:
+      raise ValueError(
+          f'Buffer overflow: {self.buffer.qsize()} > {self._max_buffer_size=}.'
+      )
+    return value
+
+  def __iter__(self):
+    return self
+
+  def recite_iterator(self) -> Iterator[_ValueT]:
+    return _dequeue_as_generator(self.buffer)
 
 
 def _concat(data: list[Any]):
@@ -39,7 +79,7 @@ def _concat(data: list[Any]):
     )
 
 
-def _batch_size(data: Sequence[Any]):
+def _batch_size(data: Any):
   if hasattr(data, '__array__'):
     return data.shape[0]
   else:
@@ -71,7 +111,7 @@ def rebatched(
     else:
       if len(batch) != num_columns:
         raise ValueError(
-            f'Incorrect number of columns, got {len(batch)=} != {num_columns=}.'
+            f'Incorrect number of columns, got {len(batch)} != {num_columns=}.'
         )
       for i, column in enumerate(batch):
         column_buffer[i].append(column)
