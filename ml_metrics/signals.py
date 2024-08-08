@@ -15,6 +15,7 @@
 """All signals."""
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
+from ml_metrics._src.signals import cg_score
 from ml_metrics._src.signals import cross_entropy
 from ml_metrics._src.signals import flip_masks
 from ml_metrics._src.signals import image
