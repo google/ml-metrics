@@ -117,7 +117,9 @@ def rebatched_tuples(
   """Merges and concatenates n batches while iterating."""
   if not batch_size:
     yield from tuples
+    return
 
+  assert num_columns > 0
   column_buffer = [[] for _ in range(num_columns)]
   batch_sizes = np.zeros(num_columns, dtype=int)
   exhausted = False
@@ -138,8 +140,9 @@ def rebatched_tuples(
             f'Hetroegeneous columns number, got {batch_sizes=} does not equal'
             f' {batch_size=}.'
         )
-    # Flush the buffer.
-    if batch_sizes[0] and (batch_sizes[0] >= batch_size or exhausted):
+    # Flush the buffer when the batch size is reached.
+    has_batch_sizes = batch_sizes.size and batch_sizes[0]
+    if has_batch_sizes and (batch_sizes[0] >= batch_size or exhausted):
       concated = map(_concat, column_buffer)
       sliced_by_batch_size = functools.partial(mit.sliced, n=batch_size)
       for columns in mit.zip_equal(*map(sliced_by_batch_size, concated)):
