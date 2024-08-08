@@ -786,12 +786,16 @@ class TreeTransform(Generic[TreeFnT]):
       *,
       fn: lazy_fns.LazyFn | Callable[..., Any] | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+      fn_batch_size: int = 0,
+      batch_size: int = 0,
   ) -> TreeTransform:
     """Assign some key value pairs back to the input mapping."""
     fn = tree_fns.Assign.new(
         output_keys=output_keys,
         fn=fn,
         input_keys=input_keys,
+        fn_batch_size=fn_batch_size,
+        batch_size=batch_size,
     )
     fn_by_output_keys = {}
     for fn_ in self.fns:

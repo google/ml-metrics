@@ -501,6 +501,88 @@ class TransformTest(parameterized.TestCase):
     actual = t.make()(input_iterator=inputs)
     self.assert_nested_sequence_equal(expected, actual)
 
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='call',
+          inputs=[{'a': [0, 1, 2], 'b': [1, 2, 3]}, {'a': [4, 5], 'b': [5, 6]}],
+          fn_batch_size=2,
+          batch_size=3,
+          fn=lambda x, y: (
+              BatchedCall(2)(x).tolist(),
+              BatchedCall(2)(y).tolist(),
+          ),
+          input_keys=('a', 'b'),
+          output_keys=('c', 'd'),
+          expected=[
+              {'a': [0, 1, 2], 'b': [1, 2, 3], 'c': [1, 2, 3], 'd': [2, 3, 4]},
+              {'a': [4, 5], 'b': [5, 6], 'c': [5, 6], 'd': [6, 7]},
+          ],
+      ),
+      dict(
+          testcase_name='call_single_input_single_output',
+          inputs=({'a': batch} for batch in mit.batched(range(5), 3)),
+          fn_batch_size=2,
+          batch_size=3,
+          input_keys='a',
+          output_keys='b',
+          fn=BatchedCall(batch_size=2),
+          expected=[
+              {'a': [0, 1, 2], 'b': np.array([1, 2, 3])},
+              {'a': [3, 4], 'b': np.array([4, 5])},
+          ],
+      ),
+      dict(
+          testcase_name='without_keys',
+          inputs=mit.batched(range(5), 3),
+          fn_batch_size=2,
+          batch_size=3,
+          fn=BatchedCall(batch_size=2),
+          expected=[np.array([1, 2, 3]), np.array([4, 5])],
+      ),
+      dict(
+          testcase_name='rebatch_only',
+          inputs=mit.batched(range(5), 2),
+          batch_size=3,
+          expected=[[0, 1, 2], [3, 4]],
+      ),
+      dict(
+          testcase_name='with_lazy_fns',
+          inputs=mit.batched(range(5), 3),
+          fn_batch_size=2,
+          batch_size=3,
+          fn=lazy_fns.trace(BatchedCall)(batch_size=2),
+          expected=[np.array([1, 2, 3]), np.array([4, 5])],
+      ),
+      dict(
+          testcase_name='input_keys_only',
+          inputs=[{'a': [0, 1, 2], 'b': [1]}, {'a': [4, 5], 'b': [5]}],
+          fn_batch_size=2,
+          batch_size=3,
+          input_keys='a',
+          fn=BatchedCall(batch_size=2),
+          expected=[np.array([1, 2, 3]), np.array([5, 6])],
+      ),
+  ])
+  def test_assign_transform_rebatched(
+      self,
+      inputs,
+      expected,
+      fn=None,
+      fn_batch_size=0,
+      batch_size=0,
+      input_keys=tree.Key.SELF,
+      output_keys=tree.Key.SELF,
+  ):
+    t = transform.TreeTransform.new().assign(
+        output_keys=output_keys,
+        fn=fn,
+        input_keys=input_keys,
+        fn_batch_size=fn_batch_size,
+        batch_size=batch_size,
+    )
+    actual = t.make()(input_iterator=inputs)
+    self.assert_nested_sequence_equal(expected, actual)
+
   def test_assign_invalid_keys(self):
     with self.assertRaises(ValueError):
       transform.TreeTransform.new().assign(fn=len).assign('a', fn=len)

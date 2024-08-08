@@ -15,7 +15,7 @@
 import itertools as it
 from absl.testing import absltest
 from absl.testing import parameterized
-from ml_metrics._src.utils import batch_utils
+from ml_metrics._src.utils import iter_utils
 import numpy as np
 
 
@@ -91,23 +91,29 @@ class UtilsTest(parameterized.TestCase):
   ])
   def test_rebatched(self, expected, batch_size=0, batch_fn=lambda x: x):
     inputs = it.islice(mock_range(2, batch_size=2, batch_fn=batch_fn), 5)
-    actual = batch_utils.rebatched(inputs, batch_size=batch_size, num_columns=2)
+    actual = iter_utils.rebatched_tuples(
+        inputs, batch_size=batch_size, num_columns=2
+    )
     for a, b in zip(expected, actual, strict=True):
       np.testing.assert_array_almost_equal(a, b)
 
   def test_batch_non_sequence_type(self):
     inputs = [(1, 2), (3, 4)]
     with self.assertRaisesRegex(TypeError, 'Non sequence type'):
-      next(batch_utils.rebatched(iter(inputs), batch_size=4, num_columns=2))
+      next(
+          iter_utils.rebatched_tuples(iter(inputs), batch_size=4, num_columns=2)
+      )
 
   def test_batch_unsupported_type(self):
     inputs = [('aaa', 'bbb'), ('aaa', 'bbb')]
     with self.assertRaisesRegex(TypeError, 'Unsupported container type'):
-      next(batch_utils.rebatched(iter(inputs), batch_size=4, num_columns=2))
+      next(
+          iter_utils.rebatched_tuples(iter(inputs), batch_size=4, num_columns=2)
+      )
 
   def test_recitable_iterator_normal(self):
     inputs = range(3)
-    it_inputs = batch_utils.RecitableIterator(inputs)
+    it_inputs = iter_utils._RecitableIterator(inputs)
     it_outputs = map(lambda x: x + 1, it_inputs)
     actual = list(zip(it_outputs, it_inputs.recite_iterator(), strict=True))
     self.assertEqual([(1, 0), (2, 1), (3, 2)], actual)
@@ -157,29 +163,27 @@ class UtilsTest(parameterized.TestCase):
       num_batches=5,
   ):
 
+    inputs = it.islice(
+        mock_range(num_columns, batch_size=input_batch_size), num_batches
+    )
+
     def foo(columns):
       assert len(columns[0]) <= fn_batch_size, f'got {columns=}.'
       return tuple(np.array(column) + 1 for column in columns)
 
-    inputs = it.islice(
-        mock_range(num_columns, batch_size=input_batch_size), num_batches
-    )
+    def process_generator(it_inputs):
+      it_fn_inputs = iter_utils.rebatched_tuples(
+          it_inputs, batch_size=fn_batch_size, num_columns=num_columns
+      )
+      yield from iter_utils.rebatched_tuples(
+          map(foo, it_fn_inputs),
+          batch_size=input_batch_size,
+          num_columns=num_columns,
+      )
+
     # Setting a max buffer size to make sure the buffer is flushed while
     # iterating.
-    it_inputs = batch_utils.RecitableIterator(
-        inputs, max_buffer_size=max(fn_batch_size, input_batch_size)
-    )
-    it_fn_inputs = batch_utils.rebatched(
-        it_inputs, batch_size=fn_batch_size, num_columns=num_columns
-    )
-    it_outputs = batch_utils.rebatched(
-        map(foo, it_fn_inputs),
-        batch_size=input_batch_size,
-        num_columns=num_columns,
-    )
-    # Note that recital iterator has to be put after the original one so that
-    # there are values to be recited.
-    actual = zip(it_outputs, it_inputs.recite_iterator(), strict=True)
+    actual = iter_utils.processed_with_inputs(process_generator, inputs)
     outputs, original = zip(*actual)
 
     expected_orignal = list(

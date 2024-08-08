@@ -13,7 +13,7 @@
 # limitations under the License.
 """Internal batching utils, not meant to be used by users."""
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 import functools
 import queue
 from typing import Any, TypeVar
@@ -22,6 +22,7 @@ import more_itertools as mit
 import numpy as np
 
 _ValueT = TypeVar('_ValueT')
+_InputT = TypeVar('_InputT')
 
 
 def _dequeue_as_generator(
@@ -33,7 +34,7 @@ def _dequeue_as_generator(
   return value.value
 
 
-class RecitableIterator(Iterator[_ValueT]):
+class _RecitableIterator(Iterator[_ValueT]):
   """An iterator that recite its inputs."""
 
   def __init__(self, iterator: Iterable[_ValueT], *, max_buffer_size: int = 0):
@@ -59,6 +60,22 @@ class RecitableIterator(Iterator[_ValueT]):
 
   def recite_iterator(self) -> Iterator[_ValueT]:
     return _dequeue_as_generator(self.buffer)
+
+
+def processed_with_inputs(
+    process_fn: Callable[[Iterable[_InputT]], Iterable[_ValueT]],
+    input_iterator: Iterable[_InputT],
+    *,
+    max_buffer_size: int = 0,
+) -> Iterator[tuple[_InputT, _ValueT]]:
+  """Zips the processed outputs with its inputs."""
+  iter_input = _RecitableIterator(
+      input_iterator, max_buffer_size=max_buffer_size
+  )
+  iter_output = process_fn(iter_input)
+  # Note that recital iterator has to be put after the input iterator so that
+  # there are values to be recited.
+  return zip(iter_output, iter_input.recite_iterator())
 
 
 def _concat(data: list[Any]):
@@ -91,22 +108,22 @@ def _batch_size(data: Any):
       ) from e
 
 
-def rebatched(
-    data: Iterator[tuple[Any, ...]],
+def rebatched_tuples(
+    tuples: Iterator[tuple[_ValueT, ...]],
     batch_size: int = 0,
     *,
     num_columns: int,
-):
+) -> Iterator[tuple[_ValueT, ...]]:
   """Merges and concatenates n batches while iterating."""
   if not batch_size:
-    yield from data
+    yield from tuples
 
   column_buffer = [[] for _ in range(num_columns)]
   batch_sizes = np.zeros(num_columns, dtype=int)
   exhausted = False
   last_columns = None
   while not exhausted:
-    if (batch := next(data, None)) is None:
+    if (batch := next(tuples, None)) is None:
       exhausted = True
     else:
       if len(batch) != num_columns:

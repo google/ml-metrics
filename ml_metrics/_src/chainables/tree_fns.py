@@ -25,7 +25,7 @@ from typing import Any, Callable, Generic, Hashable, Iterable, Iterator, Mapping
 from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
-from ml_metrics._src.utils import batch_utils
+from ml_metrics._src.utils import iter_utils
 import more_itertools as mit
 import numpy as np
 
@@ -237,8 +237,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
     else:
       # If the function is None, this serves as a select operation.
       outputs = fn_inputs
-    outputs = self._normalize_outputs(outputs)
-    return outputs
+    return self._normalize_outputs(outputs)
 
   def _get_outputs(
       self, outputs: Any, inputs: Any = tree.NullMap()
@@ -250,21 +249,25 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
   ) -> tree.MapLikeTree[ValueT] | None:
     return mit.first(self.iterate([inputs]))
 
-  def iterate(
+  def _iterate(
       self, input_iterator: Iterable[tree.MapLikeTree[ValueT] | None]
   ) -> Iterable[tree.MapLikeTree[ValueT] | None]:
     input_iterator = iter(input_iterator)
-    fn_inputs = batch_utils.rebatched(
+    fn_inputs = iter_utils.rebatched_tuples(
         map(self.get_inputs, input_iterator),
         batch_size=self.fn_batch_size,
         num_columns=self.num_inputs,
     )
-    fn_outputs = batch_utils.rebatched(
+    yield from iter_utils.rebatched_tuples(
         map(self._maybe_call_fn, fn_inputs),
         batch_size=self.batch_size,
         num_columns=self.num_outputs,
     )
-    yield from map(self._get_outputs, fn_outputs)
+
+  def iterate(
+      self, input_iterator: Iterable[tree.MapLikeTree[ValueT] | None]
+  ) -> Iterable[tree.MapLikeTree[ValueT] | None]:
+    yield from map(self._get_outputs, self._iterate(input_iterator))
 
   def __getstate__(self):
     state = self.__dict__.copy()
@@ -288,10 +291,10 @@ class Assign(TreeFn):
   def iterate(
       self, input_iterator: Iterable[tree.MapLikeTree[ValueT] | None]
   ) -> Iterable[tree.MapLikeTree[ValueT] | None]:
-    # TODO: b/356633410 - support rebatching.
-    fn_inputs = map(lambda x: (self.get_inputs(x), x), iter(input_iterator))
-    fn_outputs = it.starmap(lambda x, y: (self._maybe_call_fn(x), y), fn_inputs)
-    yield from it.starmap(self._get_outputs, fn_outputs)
+    yield from it.starmap(
+        self._get_outputs,
+        iter_utils.processed_with_inputs(self._iterate, input_iterator),
+    )
 
 
 class Select(TreeFn):
