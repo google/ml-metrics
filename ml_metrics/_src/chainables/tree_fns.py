@@ -25,6 +25,7 @@ from typing import Any, Callable, Generic, Hashable, Iterable, Iterator, Mapping
 from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
+from ml_metrics._src.utils import batch_utils
 import more_itertools as mit
 import numpy as np
 
@@ -57,6 +58,9 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       corresponding input in sequence of the keys in `input_keys`.
     replace_mask_false_with: If provided, replace False in the mask with this
       value.
+    fn_batch_size: Overrides the input batch size of the function call.
+    batch_size: Overrides the output batch size, has to be set when
+      fn_batch_size is set.
     lazy: If True, the underlying function is lazy, normally, this means it
       needs to be constructed at runtime.
     id: A string that serves as an identifier for the TreeFn instance.
@@ -70,12 +74,24 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
   replace_mask_false_with: Any = dataclasses.field(
       default=tree.DEFAULT_FILTER, repr=False
   )
+  fn_batch_size: int = 0
+  batch_size: int = 0
   _default_constructor: bool = dataclasses.field(default=True, repr=False)
 
   def __post_init__(self):
     if self._default_constructor:
       raise ValueError(
           f'Do not use the constructor, use {self.__class__.__name__}.new().'
+      )
+    if self.fn_batch_size and not self.batch_size:
+      raise ValueError(
+          'fn_batch_size should be used with batch_size, got'
+          f' {self.fn_batch_size=} and {self.batch_size=}.'
+      )
+    if self.fn_batch_size < 0 or self.batch_size < 0:
+      raise ValueError(
+          'batch sizes have to be non-negative, got'
+          f' {self.fn_batch_size=} and {self.batch_size=}'
       )
 
   @classmethod
@@ -87,6 +103,8 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       input_keys: tree.TreeMapKey | tree.TreeMapKeys = tree.Key.SELF,
       masks: tuple[MaskTree, ...] | MaskTree = (),
       replace_mask_false_with: Any = tree.DEFAULT_FILTER,
+      fn_batch_size: int = 0,
+      batch_size: int = 0,
   ) -> TreeFn[FnT, ValueT]:
     """Normalizes the arguments before constructing a TreeFn."""
     input_argkeys = ()
@@ -116,6 +134,8 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
         fn=fn,
         masks=masks,
         replace_mask_false_with=replace_mask_false_with,
+        fn_batch_size=fn_batch_size,
+        batch_size=batch_size,
         _default_constructor=False,
     )
 
@@ -129,6 +149,18 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       # self.fn is always LazyFn if self.lazy is True.
       return lazy_fns.maybe_make(typing.cast(lazy_fns.LazyFn, self.fn))
     return self.fn
+
+  @functools.cached_property
+  def num_inputs(self):
+    if isinstance(self.input_keys, tuple):
+      return len(self.input_keys)
+    return 1 if self.input_keys else 0
+
+  @functools.cached_property
+  def num_outputs(self):
+    if isinstance(self.output_keys, tuple):
+      return len(self.output_keys)
+    return 1 if self.output_keys else 0
 
   def maybe_make(self: TreeFn) -> TreeFn:
     """Explicitly instantiate the lazy_fn of a tree_fn."""
@@ -190,7 +222,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       fn_inputs = self._apply_masks(fn_inputs)
     return fn_inputs
 
-  def _call_fn(self, fn_inputs: tuple[ValueT, ...]) -> Any:
+  def _maybe_call_fn(self, fn_inputs: tuple[ValueT, ...]) -> Any:
     if self.actual_fn is not None:
       try:
         if self.input_argkeys:
@@ -205,12 +237,12 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
     else:
       # If the function is None, this serves as a select operation.
       outputs = fn_inputs
+    outputs = self._normalize_outputs(outputs)
     return outputs
 
   def _get_outputs(
       self, outputs: Any, inputs: Any = tree.NullMap()
   ) -> tree.MapLikeTree[ValueT]:
-    outputs = self._normalize_outputs(outputs)
     return tree.TreeMapView(inputs).copy_and_set(self.output_keys, outputs).data
 
   def __call__(
@@ -221,8 +253,17 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
   def iterate(
       self, input_iterator: Iterable[tree.MapLikeTree[ValueT] | None]
   ) -> Iterable[tree.MapLikeTree[ValueT] | None]:
-    fn_inputs = map(self.get_inputs, iter(input_iterator))
-    fn_outputs = map(self._call_fn, fn_inputs)
+    input_iterator = iter(input_iterator)
+    fn_inputs = batch_utils.rebatched(
+        map(self.get_inputs, input_iterator),
+        batch_size=self.fn_batch_size,
+        num_columns=self.num_inputs,
+    )
+    fn_outputs = batch_utils.rebatched(
+        map(self._maybe_call_fn, fn_inputs),
+        batch_size=self.batch_size,
+        num_columns=self.num_outputs,
+    )
     yield from map(self._get_outputs, fn_outputs)
 
   def __getstate__(self):
@@ -249,7 +290,7 @@ class Assign(TreeFn):
   ) -> Iterable[tree.MapLikeTree[ValueT] | None]:
     # TODO: b/356633410 - support rebatching.
     fn_inputs = map(lambda x: (self.get_inputs(x), x), iter(input_iterator))
-    fn_outputs = it.starmap(lambda x, y: (self._call_fn(x), y), fn_inputs)
+    fn_outputs = it.starmap(lambda x, y: (self._maybe_call_fn(x), y), fn_inputs)
     yield from it.starmap(self._get_outputs, fn_outputs)
 
 
@@ -434,7 +475,7 @@ class TreeAggregateFn(
 
   def get_result(self, state: StateT) -> tree.MapLikeTree[ValueT] | None:
     outputs = self.actual_fn.get_result(state)
-    return self._get_outputs(outputs)
+    return self._get_outputs(self._normalize_outputs(outputs))
 
   def __call__(
       self, inputs: tree.MapLikeTree[ValueT] | None = None

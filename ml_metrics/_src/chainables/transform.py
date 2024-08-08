@@ -779,6 +779,7 @@ class TreeTransform(Generic[TreeFnT]):
         input_iterator=iterator, name=self.name, use_cache=self.use_cache
     )
 
+  # TODO: b/356633410 - support rebatching.
   def assign(
       self,
       output_keys: TreeMapKey | TreeMapKeys = (),
@@ -814,6 +815,7 @@ class TreeTransform(Generic[TreeFnT]):
     fn = tree_fns.Select.new(input_keys=input_keys, output_keys=output_keys)
     return self._maybe_new_transform(fn)
 
+  # TODO: b/356633410 - support rebatching.
   def aggregate(
       self,
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
@@ -839,12 +841,16 @@ class TreeTransform(Generic[TreeFnT]):
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       fn: lazy_fns.LazyFn | Callable[..., Any] | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+      fn_batch_size: int = 0,
+      batch_size: int = 0,
   ) -> TreeTransform:
     """Applys a TreeFn on the selected inputs and directly outputs the result."""
     fn = tree_fns.TreeFn.new(
         output_keys=output_keys,
         fn=fn,
         input_keys=input_keys,
+        fn_batch_size=fn_batch_size,
+        batch_size=batch_size,
     )
     return self._maybe_new_transform(fn)
 
