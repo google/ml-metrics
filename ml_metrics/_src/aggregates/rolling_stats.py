@@ -22,6 +22,7 @@ from typing import Self
 from ml_metrics._src import base_types
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
+from ml_metrics._src.utils import math_utils
 import numpy as np
 
 
@@ -339,3 +340,56 @@ class RRegression(base.MergeableMetric):
       denominator = np.sqrt(self.sum_xx * self.sum_yy)
 
     return numerator / denominator
+
+
+@dataclasses.dataclass(slots=True)
+class SymmetricPredictionDifference(base.MergeableMetric):
+  """Computes the Symmetric Prediction Difference.
+
+  Creates a summary model by taking the pointwise symmetric relative prediction
+  difference between two input values. For two input values x and y, the
+  pointwise symmetric relative prediction difference is defined as
+  2 * |x - y| / |x + y|.
+
+  This metric comes from tf-model-analysis.
+  """
+
+  num_samples: int = 0
+  sum_half_pointwise_rel_diff: float = 0
+  # TODO: b/356933410 - Add k_epsilon.
+
+  def add(
+      self, x: types.NumbersT, y: types.NumbersT
+  ) -> 'SymmetricPredictionDifference':
+    x = np.asarray(x).astype('float64')
+    y = np.asarray(y).astype('float64')
+
+    if x.shape != y.shape:
+      raise ValueError(
+          'SymmetricPredictionDifference.add() requires x and y to have the'
+          f' same shape, but recieved x={x} and y={y} with x.shape={x.shape}'
+          f' and y.shape={y.shape}'
+      )
+
+    self.num_samples += x.size
+
+    # TODO: b/356933410 - Add logic for k_epsilon.
+    self.sum_half_pointwise_rel_diff += np.sum(
+        math_utils.safe_divide(np.abs(x - y), np.abs(x + y))
+    )
+
+    return self
+
+  def merge(
+      self, other: 'SymmetricPredictionDifference'
+  ) -> 'SymmetricPredictionDifference':
+    self.num_samples += other.num_samples
+    self.sum_half_pointwise_rel_diff += other.sum_half_pointwise_rel_diff
+
+    return self
+
+  def result(self) -> float:
+    if self.num_samples == 0:
+      return float('nan')
+
+    return 2 * self.sum_half_pointwise_rel_diff / self.num_samples

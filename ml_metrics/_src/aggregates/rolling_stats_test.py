@@ -607,5 +607,140 @@ class RRegressionTest(parameterized.TestCase):
     np.testing.assert_almost_equal(actual_result, expected_result)
 
 
+class SymmetricPredictionDifferenceTest(absltest.TestCase):
+
+  def test_symmetric_prediction_difference_merge(self):
+    x_1 = (0, 1)
+    y_1 = (0.8, 0.3)
+
+    x_2 = 1
+    y_2 = 0.9
+
+    state_1 = rolling_stats.SymmetricPredictionDifference().add(x_1, y_1)
+    state_2 = rolling_stats.SymmetricPredictionDifference().add(x_2, y_2)
+    result = state_1.merge(state_2)
+
+    # sum_half_pointwise_rel_diff =
+    # (|0 - 0.8| / |0 + 0.8|
+    # + |1 - 0.3| / |1 + 0.3|
+    # + |1 - 0.9| / |1 + 0.9|)
+    # = 1.59109311741
+
+    self.assertEqual(result.num_samples, 3)
+    self.assertAlmostEqual(
+        result.sum_half_pointwise_rel_diff, 1.59109311741, places=11
+    )
+
+  def test_symmetric_prediction_difference_simple(self):
+    x = (0, 1, 1)
+    y = (0.8, 0.3, 0.9)
+
+    expected_result = 1.06072874494  # 2 * 1.59109311741 / 3 = 1.06072874494
+
+    actual_result = (
+        rolling_stats.SymmetricPredictionDifference().add(x, y).result()
+    )
+
+    self.assertAlmostEqual(actual_result, expected_result, places=11)
+
+  def test_symmetric_prediction_difference_one_large_batch(self):
+    np.random.seed(seed=0)
+
+    x = np.random.uniform(low=-1e6, high=1e6, size=1000000)
+    y = np.random.uniform(low=-1e6, high=1e6, size=1000000)
+
+    actual_result = (
+        rolling_stats.SymmetricPredictionDifference().add(x, y).result()
+    )
+
+    expected_result = 32.611545081600894
+
+    self.assertAlmostEqual(actual_result, expected_result, places=10)
+
+  def test_symmetric_prediction_difference_many_batches_little_correlation(
+      self,
+  ):
+    np.random.seed(seed=0)
+
+    x = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
+    y = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
+
+    expected_result = 36.23844148369455
+
+    state = rolling_stats.SymmetricPredictionDifference()
+    for x_i, y_i in zip(x, y):
+      state.add(x_i, y_i)
+
+    self.assertAlmostEqual(state.result(), expected_result, places=10)
+
+  def test_symmetric_prediction_difference_many_batches_much_correlation(self):
+    np.random.seed(seed=0)
+
+    x = np.random.uniform(low=1e-5, high=1 - 1e-5, size=(10000, 10000))
+
+    # y is a noisy version of x.
+    y = x + np.random.uniform(low=-1e-5, high=1e-5, size=(10000, 10000))
+
+    expected_result = 5.8079104443249064e-05
+
+    state = rolling_stats.SymmetricPredictionDifference()
+    for x_i, y_i in zip(x, y):
+      state.add(x_i, y_i)
+
+    self.assertAlmostEqual(state.result(), expected_result, places=16)
+
+  def test_symmetric_prediction_difference_many_identical_batches(self):
+    x = np.random.uniform(size=(10000, 10000))
+
+    state = rolling_stats.SymmetricPredictionDifference()
+    for x_i in x:
+      # sum_half_pointwise_rel_diff should be 0 for every point.
+      state.add(x_i, x_i)
+
+    expected_result = 0
+
+    self.assertAlmostEqual(state.result(), expected_result, places=11)
+
+  def test_symmetric_prediction_difference_many_batches_opposite(self):
+    x = np.random.uniform(size=(10000, 10000))
+
+    state = rolling_stats.SymmetricPredictionDifference()
+    for x_i in x:
+      # sum_half_pointwise_rel_diff should remain 0 because all of the pointwise
+      # average relative differences are undefined.
+      state.add(x_i, -x_i)
+
+    expected_result = 0
+
+    self.assertAlmostEqual(state.result(), expected_result, places=11)
+
+  def test_symmetric_prediction_difference_absolute_returns_nan(self):
+    x_empty = ()
+
+    self.assertTrue(
+        math.isnan(
+            rolling_stats.SymmetricPredictionDifference()
+            .add(x_empty, x_empty)
+            .result()
+        )
+    )
+
+  def test_symmetric_prediction_difference_asserts_with_invalid_input(self):
+    # x.shape != y.shape
+    x = (1, 2, 3)
+    y = (4, 5)
+
+    expected_error_message = (
+        r'SymmetricPredictionDifference\.add\(\) requires x and y to have the'
+        r' same shape, but recieved x=\[1\. 2\. 3\.\] and y=\[4\. 5\.\] with'
+        r' x.shape=\(3\,\) and y.shape=\(2\,\)'
+    )
+
+    metric = rolling_stats.SymmetricPredictionDifference()
+
+    with self.assertRaisesRegex(ValueError, expected_error_message):
+      metric.add(x, y)
+
+
 if __name__ == '__main__':
   absltest.main()
