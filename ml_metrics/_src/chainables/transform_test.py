@@ -442,7 +442,7 @@ class TransformTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='output_keys_only',
-          inputs=mit.batched(range(5), 3),
+          inputs=map(list, mit.batched(range(5), 3)),
           fn_batch_size=2,
           batch_size=3,
           output_keys='a',
@@ -460,7 +460,7 @@ class TransformTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='without_keys',
-          inputs=mit.batched(range(5), 3),
+          inputs=map(list, mit.batched(range(5), 3)),
           fn_batch_size=2,
           batch_size=3,
           fn=BatchedCall(batch_size=2),
@@ -468,7 +468,7 @@ class TransformTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='with_lazy_fns',
-          inputs=mit.batched(range(5), 3),
+          inputs=map(list, mit.batched(range(5), 3)),
           fn_batch_size=2,
           batch_size=3,
           fn=lazy_fns.trace(BatchedCall)(batch_size=2),
@@ -476,7 +476,7 @@ class TransformTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='rebatch_only',
-          inputs=mit.batched(range(5), 2),
+          inputs=map(list, mit.batched(range(5), 2)),
           batch_size=3,
           expected=[[0, 1, 2], [3, 4]],
       ),
@@ -520,7 +520,7 @@ class TransformTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='call_single_input_single_output',
-          inputs=({'a': batch} for batch in mit.batched(range(5), 3)),
+          inputs=({'a': list(batch)} for batch in mit.batched(range(5), 3)),
           fn_batch_size=2,
           batch_size=3,
           input_keys='a',
@@ -533,7 +533,7 @@ class TransformTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='without_keys',
-          inputs=mit.batched(range(5), 3),
+          inputs=map(list, mit.batched(range(5), 3)),
           fn_batch_size=2,
           batch_size=3,
           fn=BatchedCall(batch_size=2),
@@ -541,13 +541,13 @@ class TransformTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='rebatch_only',
-          inputs=mit.batched(range(5), 2),
+          inputs=map(list, mit.batched(range(5), 2)),
           batch_size=3,
           expected=[[0, 1, 2], [3, 4]],
       ),
       dict(
           testcase_name='with_lazy_fns',
-          inputs=mit.batched(range(5), 3),
+          inputs=map(list, mit.batched(range(5), 3)),
           fn_batch_size=2,
           batch_size=3,
           fn=lazy_fns.trace(BatchedCall)(batch_size=2),
