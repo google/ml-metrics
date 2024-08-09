@@ -356,7 +356,7 @@ class SymmetricPredictionDifference(base.MergeableMetric):
 
   num_samples: int = 0
   sum_half_pointwise_rel_diff: float = 0
-  # TODO: b/356933410 - Add k_epsilon.
+  k_epsilon: float = 1e-7  # Minimum value to divide by.
 
   def add(
       self, x: types.NumbersT, y: types.NumbersT
@@ -373,9 +373,8 @@ class SymmetricPredictionDifference(base.MergeableMetric):
 
     self.num_samples += x.size
 
-    # TODO: b/356933410 - Add logic for k_epsilon.
     self.sum_half_pointwise_rel_diff += np.sum(
-        math_utils.safe_divide(np.abs(x - y), np.abs(x + y))
+        np.abs(math_utils.safe_divide(x - y, x + y, k_epsilon=self.k_epsilon))
     )
 
     return self

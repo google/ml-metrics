@@ -607,7 +607,7 @@ class RRegressionTest(parameterized.TestCase):
     np.testing.assert_almost_equal(actual_result, expected_result)
 
 
-class SymmetricPredictionDifferenceTest(absltest.TestCase):
+class SymmetricPredictionDifferenceTest(parameterized.TestCase):
 
   def test_symmetric_prediction_difference_merge(self):
     x_1 = (0, 1)
@@ -724,6 +724,65 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
             .result()
         )
     )
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='k_epsilon_1e-7',
+          k_epsilon=1e-7,
+          # 2e-8 + 1e-8 = 3e-8 < k_epsilon = 1e-7.
+          # 2 * (1 - 0.3) / (1 + 0.3) / 3 = 0.358974358974
+          expected_result=0.358974358974,
+      ),
+      dict(
+          testcase_name='k_epsilon_3e-8',
+          k_epsilon=3e-8,
+          # 1e-8 + 2e-8 = 3e-8 = k_epsilon = 1e-8.
+          # 2 * ((1 - 0.3) / (1 + 0.3) + (2e-8 - 1e-8) / (2e-8 + 1e-8)) / 3
+          # 2 * (0.7 / 1.3 + 1 / 3) / 3 = 0.581196581197
+          expected_result=0.581196581197,
+      ),
+      dict(
+          testcase_name='k_epsilon_1e-9',
+          k_epsilon=1e-9,
+          # 2e-8 + 1e-8 = 3e-8 > k_epsilon = 1e-9.
+          expected_result=0.581196581197,
+      ),
+  )
+  def test_symmetric_prediction_difference_k_epsilon_single_small_batch(
+      self, k_epsilon, expected_result
+  ):
+    x = (0, 1, 1e-8)
+    y = (0, 0.3, 2e-8)
+
+    actual_result = (
+        rolling_stats.SymmetricPredictionDifference(k_epsilon=k_epsilon)
+        .add(x, y)
+        .result()
+    )
+
+    self.assertAlmostEqual(actual_result, expected_result, places=12)
+
+  @parameterized.named_parameters(
+      dict(testcase_name='within_k_epsilon', data_max=1e-8, expected_result=0),
+      dict(
+          testcase_name='partially_outside_k_epsilon',
+          data_max=1e-6,
+          expected_result=3.190964660292838,
+      ),
+  )
+  def test_symmetric_prediction_difference_k_epsilon_many_large_batches(
+      self, data_max, expected_result
+  ):
+    np.random.seed(seed=0)
+
+    x = np.random.uniform(low=-data_max, high=data_max, size=(1000, 1000))
+    y = np.random.uniform(low=-data_max, high=data_max, size=(1000, 1000))
+
+    state = rolling_stats.SymmetricPredictionDifference()
+    for x_i, y_i in zip(x, y):
+      state.add(x_i, y_i)
+
+    self.assertAlmostEqual(state.result(), expected_result, places=11)
 
   def test_symmetric_prediction_difference_asserts_with_invalid_input(self):
     # x.shape != y.shape
