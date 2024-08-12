@@ -31,6 +31,7 @@ from ml_metrics._src.chainables.transform import AggregateTransform
 from ml_metrics._src.chainables.transform import dequeue_as_generator
 from ml_metrics._src.chainables.transform import enqueue_from_generator
 from ml_metrics._src.chainables.transform import iterate_with_returned
+from ml_metrics._src.chainables.transform import MetricKey
 from ml_metrics._src.chainables.transform import PrefetchedIterator
 from ml_metrics._src.chainables.transform import RunnerMode
 from ml_metrics._src.chainables.transform import TreeTransform as Pipeline
