@@ -35,6 +35,7 @@ from ml_metrics._src.chainables.transform import PrefetchedIterator
 from ml_metrics._src.chainables.transform import RunnerMode
 from ml_metrics._src.chainables.transform import TreeTransform as Pipeline
 from ml_metrics._src.chainables.tree import Key
+from ml_metrics._src.chainables.tree import MapLikeTree
 from ml_metrics._src.chainables.tree import tree_shape
 from ml_metrics._src.chainables.tree import TreeMapView
 from ml_metrics._src.orchestration import orchestrate
