@@ -13,6 +13,7 @@
 # limitations under the License.
 """Tests for courier_server."""
 
+import queue
 import time
 
 from absl.testing import absltest
@@ -57,6 +58,45 @@ class CourierServerTest(absltest.TestCase):
     self.client.shutdown()
     self.thread.join()
     super().tearDown()
+
+  def test_remote_object_self(self):
+    remote_value = self.client.submit(
+        lazy_fns.trace(len, remote=True)([1, 2, 3])
+    ).result()
+    self.assertIsInstance(remote_value, courier_server.RemoteObject)
+    self.assertEqual(3, remote_value.value_())
+
+  def test_remote_object_with_index(self):
+    remote_value = self.client.submit(
+        lazy_fns.trace(tuple, remote=True)([1, 2, 3])
+    ).result()
+    self.assertIsInstance(remote_value, courier_server.RemoteObject)
+    self.assertIsInstance(remote_value[1], courier_server.RemoteObject)
+    self.assertEqual(2, remote_value[1].value_())
+
+  def test_remote_object_with_attr(self):
+    remote_value = self.client.submit(
+        lazy_fns.trace(list, remote=True)([1, 2, 3])
+    ).result()
+    self.assertIsInstance(remote_value, courier_server.RemoteObject)
+    self.assertIsInstance(remote_value.pop(), courier_server.RemoteObject)
+    self.assertEqual(3, remote_value.pop().value_())
+
+  def test_remote_queue(self):
+    def foo_q(n):
+      q = queue.SimpleQueue()
+      for i in range(n):
+        q.put(i)
+      q.put(None)
+      return q
+
+    remote_queue = self.client.submit(
+        lazy_fns.trace(foo_q, remote=True)(3)
+    ).result()
+    actual = []
+    while (value := remote_queue.get_nowait().value_()) is not None:
+      actual.append(value)
+    self.assertEqual(actual, [0, 1, 2])
 
   def test_courier_server_maybe_make(self):
     client = courier.Client(self.server.address, call_timeout=1)

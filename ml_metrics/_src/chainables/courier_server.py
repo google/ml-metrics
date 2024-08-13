@@ -13,11 +13,13 @@
 # limitations under the License.
 """Courier server that can run a chainable."""
 
+from concurrent import futures
 import dataclasses
+import functools
 import inspect
 import threading
 import time
-from typing import Any
+from typing import Any, Generic, Self, TypeVar
 
 from absl import logging
 import courier
@@ -25,7 +27,57 @@ from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
 
 _DEFAULT = 'default'
+_T = TypeVar('_T')
 pickler = lazy_fns.picklers.default
+
+
+@dataclasses.dataclass(frozen=True)
+class RemoteObject(Generic[_T]):
+  """Remote object holds remote reference that behaves like a local object."""
+
+  worker_address: str
+  lazy_object: lazy_fns.LazyObject[_T] | lazy_fns.LazyFn[_T]
+  _state: futures.Future[Any] | None = None
+
+  @functools.cached_property
+  def _client(self) -> courier.Client:
+    client = courier.Client(self.worker_address)
+    assert client.heartbeat() is None
+    return client
+
+  def deref_(self) -> futures.Future[_T]:
+    return self._client.futures.maybe_make(pickler.dumps(self.lazy_object))
+
+  def value_(self) -> _T:
+    return pickler.loads(self.deref_().result())
+
+  def __hash__(self):
+    return hash(self.lazy_object.id)
+
+  def __eq__(self, other):
+    return self.lazy_object.id == other.lazy_object.id
+
+  def __call__(self, *args, **kwargs) -> Self:
+    """Calling a LazyFn records a lazy result of the call."""
+    return dataclasses.replace(
+        self, lazy_object=self.lazy_object(*args, **kwargs)
+    )
+
+  def __getattr__(self, name) -> Self:
+    return dataclasses.replace(
+        self, lazy_object=getattr(self.lazy_object, name)
+    )
+
+  def __getitem__(self, key) -> Self:
+    return dataclasses.replace(self, lazy_object=self.lazy_object[key])
+
+  # Overrides to support pickling when getattr is overridden.
+  def __getstate__(self):
+    return dict(self.__dict__)
+
+  # Overrides to support pickling when getattr is overridden.
+  def __setstate__(self, state):
+    self.__dict__.update(state)
 
 
 @dataclasses.dataclass
@@ -59,6 +111,8 @@ class CourierServerWrapper:
 
     def pickled_maybe_make(maybe_lazy):
       result = lazy_fns.maybe_make(maybe_lazy)
+      if isinstance(result, lazy_fns.LazyObject):
+        result = RemoteObject(self.address, result)
       return pickler.dumps(result)
 
     def pickled_init_generator(maybe_lazy):
