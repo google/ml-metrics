@@ -73,9 +73,7 @@ class _Makers(collections.UserDict):
 makeables = _Makers()
 
 
-def maybe_make(
-    maybe_lazy: LazyFn[_ValueT] | bytes,
-) -> _ValueT | LazyObject[_ValueT]:
+def maybe_make(maybe_lazy: LazyFn[_ValueT] | bytes) -> _ValueT:
   if isinstance(maybe_lazy, bytes):
     maybe_lazy = picklers.default.loads(maybe_lazy)
   # User defined maker as an escape path for custom lazy instances.
