@@ -49,6 +49,18 @@ class MathUtilsTest(parameterized.TestCase):
     else:
       self.assertAlmostEqual(result, expected_result)
 
+  @parameterized.named_parameters(
+      ('denominator_greater_than_k_epsilon', 1e-6, 1 / 1e-6),
+      ('denominator_less_than_neg_k_epsilon', -1e-6, -1 / 1e-6),
+      ('denominator_less_than_k_epsilon', 1e-8, 0),
+      ('denominator_greater_than_neg_k_epsilon', -1e-8, 0),
+      ('denominator_equal_to_k_epsilon', 1e-7, 0),
+  )
+  def test_safe_divide_k_epsilon(self, denominator, expected_result):
+    self.assertEqual(
+        math_utils.safe_divide(1, denominator, k_epsilon=1e-7), expected_result
+    )
+
   # Original Tests safe_to_scalar tests from:
   # tensorflow_model_analysis/metrics/metric_util_test.py
   @parameterized.named_parameters(
