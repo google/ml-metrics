@@ -13,11 +13,13 @@
 # limitations under the License.
 import asyncio
 import pickle
+import queue
 from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
 from ml_metrics._src.chainables import lazy_fns
+import numpy as np
 
 trace = lazy_fns.trace
 maybe_make = lazy_fns.maybe_make
@@ -74,6 +76,69 @@ class LazyFnsTest(parameterized.TestCase):
     self.assertEqual(3, lazy_fns.maybe_make(lazy_fns.trace(len)([1, 2, 3])))
     pickled = self.pickler.dumps(lazy_fns.trace(len)([1, 2, 3]))
     self.assertEqual(3, lazy_fns.maybe_make(pickled))
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='callable',
+          fn=lambda x: x(2),
+          expected=np.array([3, 4]),
+      ),
+      dict(
+          testcase_name='member_fn',
+          fn=lambda x: x.a,
+          expected=np.array([1, 2]),
+      ),
+      dict(
+          testcase_name='member_fn_with_index',
+          fn=lambda x: x.a[1],
+          expected=2,
+      ),
+  ])
+  def test_lazy_object(self, fn, expected):
+    x = trace(Foo, remote=True)(np.array([1, 2]))
+    x = lazy_fns.maybe_make(x)
+    self.assertIsInstance(x, lazy_fns.LazyObject)
+    x = fn(x)
+    self.assertIsInstance(x, lazy_fns.LazyFn)
+    np.testing.assert_array_equal(expected, lazy_fns.maybe_make(x))
+
+  def test_lazy_object_iterator(self):
+
+    def foo_genrator(n):
+      yield from range(n)
+
+    x = trace(foo_genrator, remote=True)(3)
+    x = lazy_fns.maybe_make(x)
+    actual = []
+    while (value := lazy_fns.maybe_make(trace(next)(x, None))) is not None:
+      actual.append(value)
+    self.assertEqual(actual, [0, 1, 2])
+
+  def test_lazy_object_queue(self):
+
+    def foo_q(n):
+      q = queue.SimpleQueue()
+      for i in range(n):
+        q.put(i)
+      q.put(None)
+      return q
+
+    x = trace(foo_q, remote=True)(3)
+    x = lazy_fns.maybe_make(x)
+    actual = []
+    while (value := lazy_fns.maybe_make(x.get())) is not None:
+      actual.append(value)
+    self.assertEqual(actual, [0, 1, 2])
+    lazy_fns.maybe_make(x.collect_())
+    self.assertIsNone(lazy_fns.maybe_make(x))
+
+  def test_lazy_object_collect(self):
+    x = trace(len, remote=True)([1, 2, 3])
+    x = lazy_fns.maybe_make(x)
+    self.assertIsInstance(x, lazy_fns.LazyObject)
+    self.assertEqual(3, lazy_fns.maybe_make(x.collect_()))
+    # Can only deference at most once.
+    self.assertIsNone(lazy_fns.maybe_make(x))
 
   @parameterized.named_parameters(
       dict(

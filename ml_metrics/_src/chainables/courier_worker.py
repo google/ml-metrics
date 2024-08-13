@@ -494,9 +494,10 @@ class Worker:
       exhausted = False
       while not exhausted:
         output_state = self.next_batch_from_generator(self.iterate_batch_size)
-        output_batch: list[Any] = lazy_fns.maybe_make(
+        output_batch = lazy_fns.maybe_make(
             await asyncio.wrap_future(output_state)
         )
+        assert isinstance(output_batch, list)
         if output_batch:
           if transform.is_stop_iteration(stop_iteration := output_batch[-1]):
             exhausted = True

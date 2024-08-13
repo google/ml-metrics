@@ -25,6 +25,7 @@ import inspect
 import json
 import operator
 from typing import Any, Generic, TypeVar
+import uuid
 
 from absl import logging
 import cloudpickle as pickle
@@ -32,6 +33,7 @@ from ml_metrics._src import base_types
 
 _ValueT = TypeVar('_ValueT')
 Fn = Callable[..., _ValueT]
+_objects = {}
 
 
 def is_stop_iteration(inputs) -> bool:
@@ -71,7 +73,9 @@ class _Makers(collections.UserDict):
 makeables = _Makers()
 
 
-def maybe_make(maybe_lazy: LazyFn[_ValueT] | bytes) -> _ValueT:
+def maybe_make(
+    maybe_lazy: LazyFn[_ValueT] | bytes,
+) -> _ValueT | LazyObject[_ValueT]:
   if isinstance(maybe_lazy, bytes):
     maybe_lazy = picklers.default.loads(maybe_lazy)
   # User defined maker as an escape path for custom lazy instances.
@@ -190,12 +194,14 @@ class LazyFn(Generic[_ValueT], Callable[..., 'LazyFn']):
     args: The positional arguments later used to pass in the fn.
     kwargs: The named arguments later used to pass in the fn.
     cache_result: If True, cache the result of the make LazyFn.
+    remote: If True, return a LazyObject instead of the actual result.
   """
 
   fn: Callable[..., _ValueT] | LazyFn | None = None
   args: tuple[Hashable | LazyFn, ...] = ()
   kwargs: tuple[tuple[str, Hashable | LazyFn], ...] = ()
   cache_result: bool = False
+  remote: bool = False
 
   @classmethod
   def new(
@@ -205,11 +211,16 @@ class LazyFn(Generic[_ValueT], Callable[..., 'LazyFn']):
       args: Sequence[Hashable] = (),
       kwargs: Mapping[str, Hashable] | None = None,
       cache_result: bool = False,
+      remote: bool = False,
   ) -> LazyFn[_ValueT]:
     """Normalizes the arguments before constructing a LazyFn."""
     kwargs = (kwargs or {}).items()
     return cls(
-        fn=fn, args=tuple(args), kwargs=tuple(kwargs), cache_result=cache_result
+        fn=fn,
+        args=tuple(args),
+        kwargs=tuple(kwargs),
+        cache_result=cache_result,
+        remote=remote,
     )
 
   def __call__(self, *args, **kwargs) -> LazyFn[LazyFn]:
@@ -280,7 +291,18 @@ def _cached_make(fn: LazyFn | bytes) -> Any:
   return maybe_make(result)
 
 
-def _make(fn: LazyFn) -> Any:
+def _maybe_lazy_object(make_fn: Callable[..., _ValueT]):
+
+  @functools.wraps(make_fn)
+  def wrapped_fn(fn: LazyFn[_ValueT]) -> _ValueT | LazyObject[_ValueT]:
+    result = make_fn(fn)
+    return LazyObject.new(result) if fn.remote else result
+
+  return wrapped_fn
+
+
+@_maybe_lazy_object
+def _make(fn: LazyFn[_ValueT]) -> _ValueT:
   """Instantiate a lazy fn to a actual fn when applicable."""
   if not fn.fn:
     return None
@@ -314,6 +336,71 @@ def _make(fn: LazyFn) -> Any:
 makeables.register(LazyFn, _make)
 
 
+@dataclasses.dataclass(frozen=True)
+class LazyObject(Generic[_ValueT]):
+  """A remote object that can be pickled."""
+
+  id: uuid.UUID | None = None
+  value: _ValueT | None = None
+  gc_collect: bool = False
+
+  @classmethod
+  def new(cls, value: _ValueT, *, ref_only: bool = True):
+    if ref_only:
+      object_id = uuid.uuid4()
+      _objects[object_id] = value
+      return cls(id=object_id)
+
+    return cls(value=value)
+
+  def collect_(self):
+    """Indicates the object should be collected when made."""
+    return dataclasses.replace(self, gc_collect=True)
+
+  def __call__(self, *args, **kwargs) -> LazyFn[LazyFn]:
+    """Calling a LazyFn records a lazy result of the call."""
+    return LazyFn(
+        fn=_make,
+        args=(self,) + args,
+        kwargs=normalize_kwargs(kwargs),
+    )
+
+  def __getattr__(self, name):
+    if name.startswith('__') and name.endswith('__'):
+      raise AttributeError
+    return LazyFn(
+        fn=getattr,
+        args=(self, name),
+    )
+
+  def __getitem__(self, key):
+    return LazyFn(
+        fn=operator.getitem,
+        args=(self, key),
+    )
+
+  # Overrides to support pickling when getattr is overridden.
+  def __getstate__(self):
+    return dict(self.__dict__)
+
+  # Overrides to support pickling when getattr is overridden.
+  def __setstate__(self, state):
+    self.__dict__.update(state)
+
+
+def _dereference(lazy_object: LazyObject[_ValueT]) -> _ValueT | None:
+  """Dereference the lazy object."""
+  if lazy_object.value:
+    return lazy_object.value
+
+  if lazy_object.gc_collect:
+    return _objects.pop(lazy_object.id, None)
+  return _objects.get(lazy_object.id, None)
+
+
+makeables.register(LazyObject, _dereference)
+
+
 def clear_cache():
   """Clear the cache for maybe_make."""
   _cached_make.cache_clear()
@@ -325,7 +412,9 @@ def cache_info():
 
 
 def trace(
-    fn: Callable[..., _ValueT], use_cache: bool = False
+    fn: Callable[..., _ValueT],
+    use_cache: bool = False,
+    remote: bool = False,
 ) -> Callable[..., LazyFn[_ValueT]]:
   """Traces a callable to record the function and its arguments.
 
@@ -365,22 +454,25 @@ def trace(
   Args:
     fn: The fn to be called lazily.
     use_cache: If True, uses cache for the result of the make LazyFn.
+    remote: If True, returns a LazyObject instead of the actual result.
 
   Returns:
     A function that records the fn and its arguments to be called later.
   """
 
   def wrapped(*args, **kwargs):
-    return LazyFn.new(fn=fn, args=args, kwargs=kwargs, cache_result=use_cache)
+    return LazyFn.new(
+        fn,
+        args=args,
+        kwargs=kwargs,
+        cache_result=use_cache,
+        remote=remote,
+    )
 
   return wrapped
 
 
-def _identity_fn(elem: Any) -> Any:
-  return elem
-
-
-def trace_object(elem) -> Any:
+def trace_object(elem: _ValueT, ref_only: bool = False) -> LazyObject[_ValueT]:
   """Converts an object to a LazyFn by wrapping it in an identify function.
 
   This is useful when the object itself is not a function, and thus cannot be
@@ -394,11 +486,13 @@ def trace_object(elem) -> Any:
 
   Args:
     elem: The object to be wrapped as a LazyFn.
+    ref_only: True when the object is only a reference that can be dereferenced
+      later.
 
   Returns:
     A LazyFn that wraps the object.
   """
-  return trace(_identity_fn)(elem)
+  return LazyObject.new(elem, ref_only=ref_only)
 
 
 @dataclasses.dataclass(frozen=True)
