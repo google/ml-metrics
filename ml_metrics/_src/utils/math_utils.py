@@ -26,10 +26,25 @@ def pos_sqrt(value):
   return np.sqrt(value)
 
 
-def safe_divide(a, b):
-  """Divide arguments element-wise (a / b), but returns zero(s) if b is 0."""
+def safe_divide(x1, x2, k_epsilon=0):
+  """Divide arguments element-wise (x1 / x2).
+
+  Returns zero(s) if abs(x2) <= k_epsilon.
+
+  Args:
+    x1: Divident array.
+    x2: Divisor array.
+    k_epsilon: The minimum value of abs(x2) to divide by.
+
+  Returns:
+    The quotient x1 / x2, element-wise. This is a scalar if both x1 and x2 are
+    scalars.
+  """
   result = np.divide(
-      a, b, out=np.zeros_like(a, dtype=types.DefaultDType), where=(b != 0)
+      x1,
+      x2,
+      out=np.zeros_like(x1, dtype=types.DefaultDType),
+      where=(np.abs(x2) > k_epsilon),
   )
 
   return result.item() if result.ndim == 0 else result
