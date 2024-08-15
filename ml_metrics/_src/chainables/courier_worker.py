@@ -32,6 +32,7 @@ from absl import logging
 import courier
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
+from ml_metrics._src.utils import iter_utils
 
 
 _LOGGING_INTERVAL_SEC = 30
@@ -499,7 +500,7 @@ class Worker:
         )
         assert isinstance(output_batch, list)
         if output_batch:
-          if transform.is_stop_iteration(stop_iteration := output_batch[-1]):
+          if iter_utils.is_stop_iteration(stop_iteration := output_batch[-1]):
             exhausted = True
             generator_result_queue.put(stop_iteration.value)
             output_batch = output_batch[:-1]
@@ -954,4 +955,4 @@ class WorkerPool:
         batch_cnt / (time.time() - start_time),
     )
     if generator_result_queue:
-      generator_result_queue.put(StopIteration())
+      generator_result_queue.put(iter_utils.STOP_ITERATION)

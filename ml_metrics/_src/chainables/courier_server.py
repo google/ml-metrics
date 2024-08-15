@@ -25,6 +25,8 @@ from absl import logging
 import courier
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
+from ml_metrics._src.utils import iter_utils
+
 
 _DEFAULT = 'default'
 _T = TypeVar('_T')
@@ -93,7 +95,7 @@ class CourierServerWrapper:
   _shutdown_requested: dict[str, bool] = dataclasses.field(
       default_factory=lambda: {_DEFAULT: False}, init=False
   )
-  _generator: transform.PrefetchedIterator | None = dataclasses.field(
+  _generator: iter_utils.PrefetchedIterator | None = dataclasses.field(
       default=None, init=False
   )
 
@@ -126,7 +128,7 @@ class CourierServerWrapper:
             'Chainables: A new generator is initialized while the previous one'
             ' is not exhausted.'
         )
-      self._generator = transform.PrefetchedIterator(
+      self._generator = iter_utils.PrefetchedIterator(
           result,
           prefetch_size=self.prefetch_size,
       )

@@ -17,6 +17,7 @@
 # pylint: disable=unused-import
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
+from ml_metrics._src.chainables import orchestrate
 from ml_metrics._src.chainables.lazy_fns import cache_info
 from ml_metrics._src.chainables.lazy_fns import clear_cache
 from ml_metrics._src.chainables.lazy_fns import iterate_fn
@@ -28,17 +29,14 @@ from ml_metrics._src.chainables.lazy_fns import trace
 from ml_metrics._src.chainables.lazy_fns import trace_object
 from ml_metrics._src.chainables.transform import AggregateResult
 from ml_metrics._src.chainables.transform import AggregateTransform
-from ml_metrics._src.chainables.transform import dequeue_as_generator
-from ml_metrics._src.chainables.transform import enqueue_from_generator
 from ml_metrics._src.chainables.transform import iterate_with_returned
 from ml_metrics._src.chainables.transform import MetricKey
-from ml_metrics._src.chainables.transform import PrefetchedIterator
 from ml_metrics._src.chainables.transform import RunnerMode
 from ml_metrics._src.chainables.transform import TreeTransform as Pipeline
 from ml_metrics._src.chainables.tree import Key
 from ml_metrics._src.chainables.tree import MapLikeTree
 from ml_metrics._src.chainables.tree import tree_shape
 from ml_metrics._src.chainables.tree import TreeMapView
-from ml_metrics._src.orchestration import orchestrate
+from ml_metrics._src.utils import iter_utils
 # pylint: enable=g-importing-member
 # pylint: enable=unused-import

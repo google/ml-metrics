@@ -17,7 +17,6 @@ from collections.abc import Callable, Iterable
 import dataclasses
 import functools
 import itertools
-import queue
 from typing import Any
 from unittest import mock
 
@@ -28,6 +27,7 @@ from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
 from ml_metrics._src.chainables import tree
 from ml_metrics._src.chainables import tree_fns
+from ml_metrics._src.utils import iter_utils
 import more_itertools as mit
 import numpy as np
 
@@ -195,23 +195,6 @@ class TransformTest(parameterized.TestCase):
         self.assert_nested_sequence_equal(a_elem, b_elem)
     else:
       self.assertEqual(a, b)
-
-  def test_enqueue_dequeue_from_generator(self):
-    q = queue.Queue()
-    expected = list(transform.enqueue_from_generator(range(10), q))
-    actual = list(transform.dequeue_as_generator(q))
-    self.assertSequenceEqual(expected, actual)
-
-  def test_enqueue_from_generator_timeout(self):
-    q = queue.Queue(maxsize=1)
-    with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout after'):
-      list(transform.enqueue_from_generator(range(2), q, timeout=0.1))
-
-  def test_dequeue_from_generator_timeout(self):
-    q = queue.Queue(maxsize=1)
-    q.put(1)
-    with self.assertRaisesRegex(TimeoutError, 'Dequeue timeout after'):
-      list(transform.dequeue_as_generator(q, timeout=0.1))
 
   def test_transform_unique_ids_with_each_op(self):
     seen_ids = set()
@@ -1157,7 +1140,7 @@ class TransformTest(parameterized.TestCase):
         .data_source(iterator=MockGenerator(inputs))
         .aggregate(fn=MockAverageFn())
     )
-    iterator = transform.PrefetchedIterator(
+    iterator = iter_utils.PrefetchedIterator(
         p.make().iterate(with_agg_result=True), prefetch_size=2
     )
     iterator.prefetch()

@@ -21,12 +21,13 @@ import dataclasses
 import queue
 import threading
 import time
-from typing import Any
+from typing import Any, cast
 
 from absl import logging
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform as transform_lib
+from ml_metrics._src.utils import iter_utils
 
 
 def sharded_pipelines_as_iterator(
@@ -83,7 +84,9 @@ def sharded_pipelines_as_iterator(
   if calculate_agg_result:
 
     def compute_result(
-        states_queue: queue.SimpleQueue[transform_lib.AggregateResult],
+        states_queue: queue.SimpleQueue[
+            transform_lib.AggregateResult | StopIteration
+        ],
         result_queue: queue.SimpleQueue[transform_lib.AggregateResult],
     ):
       agg_fn = define_pipeline(
@@ -102,9 +105,9 @@ def sharded_pipelines_as_iterator(
           except queue.Empty:
             time.sleep(0)
             continue
-          if isinstance(state, StopIteration):
+          if iter_utils.is_stop_iteration(state):
             return
-          yield state.agg_state
+          yield cast(transform_lib.AggregateResult, state).agg_state
 
       merged_state = agg_fn.merge_states(iterate_agg_state())
       # At most only one item in the output_q.
@@ -160,7 +163,7 @@ class RunnerState:
     )
 
   def iterate(self) -> Iterator[Any]:
-    return transform_lib.dequeue_as_generator(self.stages[-1].result_queue)
+    return iter_utils.dequeue_as_generator(self.stages[-1].result_queue)
 
   def stage_progress(self) -> list[int]:
     return [s.progress for s in self.stages]
@@ -217,7 +220,7 @@ def _async_run_single_stage(
   result_q = queue.Queue(maxsize=resource.buffer_size)
   input_iterator = None
   if input_queue is not None:
-    input_iterator = transform_lib.dequeue_as_generator(input_queue)
+    input_iterator = iter_utils.dequeue_as_generator(input_queue)
   progress = [0]
 
   def _iterate_with_worker_pool():
@@ -230,7 +233,7 @@ def _async_run_single_stage(
         ignore_failures=ignore_failures,
     )
     for i, _ in enumerate(
-        transform_lib.enqueue_from_generator(
+        iter_utils.enqueue_from_generator(
             (task.result() for task in completed_tasks), result_q
         )
     ):
@@ -238,7 +241,7 @@ def _async_run_single_stage(
 
   def _iterate_in_process():
     for i, _ in enumerate(
-        transform_lib.enqueue_from_generator(
+        iter_utils.enqueue_from_generator(
             transform.make(recursive=False).iterate(
                 input_iterator=input_iterator
             ),

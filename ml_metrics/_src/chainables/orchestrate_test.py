@@ -21,7 +21,7 @@ from ml_metrics import chainable
 from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
-from ml_metrics._src.orchestration import orchestrate
+from ml_metrics._src.chainables import orchestrate
 import more_itertools
 import numpy as np
 

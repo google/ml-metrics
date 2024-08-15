@@ -22,7 +22,7 @@ from courier.python import testutil
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
-from ml_metrics._src.chainables import transform
+from ml_metrics._src.utils import iter_utils
 
 
 pickler = lazy_fns.picklers.default
@@ -101,9 +101,8 @@ class CourierServerTest(absltest.TestCase):
   def test_courier_server_maybe_make(self):
     client = courier.Client(self.server.address, call_timeout=1)
     self.assertEqual('hello', pickler.loads(client.maybe_make('hello')))
-    self.assertEqual(
-        2, pickler.loads(client.maybe_make(lazy_fns.trace(len)([1, 2])))
-    )
+    result = client.maybe_make(pickler.dumps(lazy_fns.trace(len)([1, 2])))
+    self.assertEqual(2, pickler.loads(result))
 
   def test_courier_server_custom_setup(self):
     server = TestServer()
@@ -128,7 +127,7 @@ class CourierServerTest(absltest.TestCase):
 
     client.init_generator(pickler.dumps(lazy_fns.trace(test_generator)(10)))
     actual = []
-    while not transform.is_stop_iteration(
+    while not iter_utils.is_stop_iteration(
         t := pickler.loads(client.next_from_generator())
     ):
       actual.append(t)
@@ -145,7 +144,7 @@ class CourierServerTest(absltest.TestCase):
     actual = []
     while True:
       states = pickler.loads(client.next_batch_from_generator())
-      if states and transform.is_stop_iteration(states[-1]):
+      if states and iter_utils.is_stop_iteration(states[-1]):
         actual.extend(states[:-1])
         returned = states[-1].value
         break

@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import itertools as it
+import queue
+
 from absl.testing import absltest
 from absl.testing import parameterized
 from ml_metrics._src.utils import iter_utils
@@ -29,7 +31,43 @@ def mock_range(n, batch_size, batch_fn=lambda x: x):
   )
 
 
+class MockGenerator:
+
+  def __init__(self, iterable):
+    self._iteratable = iterable
+
+  def __len__(self):
+    raise NotImplementedError()
+
+  def __iter__(self):
+    return iter(self._iteratable)
+
+
 class UtilsTest(parameterized.TestCase):
+
+  def test_enqueue_dequeue_from_generator(self):
+    q = queue.Queue()
+    expected = list(iter_utils.enqueue_from_generator(range(10), q))
+    actual = list(iter_utils.dequeue_as_generator(q))
+    self.assertSequenceEqual(expected, actual)
+
+  def test_enqueue_from_generator_timeout(self):
+    q = queue.Queue(maxsize=1)
+    with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout after'):
+      list(iter_utils.enqueue_from_generator(range(2), q, timeout=0.1))
+
+  def test_dequeue_from_generator_timeout(self):
+    q = queue.Queue(maxsize=1)
+    q.put(1)
+    with self.assertRaisesRegex(TimeoutError, 'Dequeue timeout after'):
+      list(iter_utils.dequeue_as_generator(q, timeout=0.1))
+
+  def test_prefetched_iterator(self):
+    iterator = iter_utils.PrefetchedIterator(range(10), prefetch_size=2)
+    iterator.prefetch()
+    self.assertEqual(2, iterator.cnt)
+    self.assertEqual([0, 1], iterator.flush_prefetched())
+    self.assertEqual(list(range(2, 10)), list(iterator))
 
   @parameterized.named_parameters([
       dict(
