@@ -20,7 +20,7 @@ from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping
 import copy
 import dataclasses
 import functools
-from typing import Any, Protocol, Self, TypeVar, Union
+from typing import Any, Protocol, Self, TypeVar, Union, overload
 
 from ml_metrics._src import base_types
 import numpy as np
@@ -357,9 +357,16 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
         )
     return self._maybe_map(data)
 
-  def __getitem__(
-      self, keys: TreeMapKey | TreeMapKeys
-  ) -> tuple[LeafValueT, ...] | LeafValueT:
+  @overload
+  def __getitem__(self, keys: TreeMapKey) -> LeafValueT:
+    """Returns value for a single key, returns a tuple for multi-key."""
+    ...
+
+  @overload
+  def __getitem__(self, keys: tuple[TreeMapKey, ...]) -> tuple[LeafValueT, ...]:
+    ...
+
+  def __getitem__(self, keys):
     """Returns value for a single key, returns a tuple for multi-key."""
     match keys:
       # Check key Path first to distinguish it from multi-key case below.
