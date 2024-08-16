@@ -16,6 +16,7 @@ dependencies = [
     'dm-launchpad',
     'immutabledict',
     'numpy',
+    'more-itertools',
 ]
 readme = "README.md"
 license = { file = "LICENSE" }
