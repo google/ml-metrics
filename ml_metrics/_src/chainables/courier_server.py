@@ -30,7 +30,7 @@ from ml_metrics._src.utils import iter_utils
 
 _DEFAULT = 'default'
 _T = TypeVar('_T')
-pickler = lazy_fns.picklers.default
+pickler = lazy_fns.pickler
 
 
 @dataclasses.dataclass(frozen=True)
@@ -151,7 +151,7 @@ class CourierServerWrapper:
           result.append(StopIteration(self._generator.returned))
       return result
 
-    def next_batch_from_generator(batch_size: int | bytes = 0) -> list[Any]:
+    def next_batch_from_generator(batch_size: int | bytes = 0) -> bytes:
       batch_size = lazy_fns.maybe_make(batch_size)
       return pickler.dumps(_next_batch_from_generator(batch_size))
 

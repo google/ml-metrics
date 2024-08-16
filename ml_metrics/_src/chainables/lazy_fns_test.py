@@ -69,8 +69,8 @@ class LazyFnsTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     custom_pickler = CustomPickler()
-    lazy_fns.picklers.register(custom_pickler)
-    self.pickler = lazy_fns.picklers.default
+    lazy_fns.pickler.register(custom_pickler)
+    self.pickler = lazy_fns.pickler
 
   def test_maybe_make(self):
     self.assertEqual(3, lazy_fns.maybe_make(lazy_fns.trace(len)([1, 2, 3])))
@@ -172,7 +172,7 @@ class LazyFnsTest(parameterized.TestCase):
 
   def test_pickler_register_assertion(self):
     with self.assertRaises(TypeError):
-      lazy_fns.picklers.register(len)
+      lazy_fns.pickler.register(len)
 
   def test_maybe_make_cached(self):
     lazy_foo = trace(Foo, use_cache=True)(a=1)

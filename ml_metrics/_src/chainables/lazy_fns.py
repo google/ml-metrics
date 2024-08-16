@@ -42,22 +42,28 @@ def is_stop_iteration(inputs) -> bool:
 
 # TODO: b/318463291 - support heterogeneous (de)serializations methods.
 @dataclasses.dataclass
-class Picklers:
-  """Picklers that can be registered."""
+class _Pickler:
+  """Pickler that can be registered at run time.."""
 
   default = pickle
 
-  def register(self, pickler):
-    if hasattr(pickler, 'dumps') and hasattr(pickler, 'loads'):
-      self.default = pickler
+  def register(self, pickler_, /):
+    if hasattr(pickler_, 'dumps') and hasattr(pickler_, 'loads'):
+      self.default = pickler_
     else:
       raise TypeError(
-          f'Pickler {pickler} of type {type(pickler)} has to have `loads` and'
+          f'Pickler {pickler_} of type {type(pickler_)} has to have `loads` and'
           ' `dumps` methods.'
       )
 
+  def dumps(self, value: Any) -> bytes:
+    return self.default.dumps(value)
 
-picklers = Picklers()
+  def loads(self, value: bytes) -> Any:
+    return self.default.loads(value)
+
+
+pickler = _Pickler()
 
 
 class _Makers(collections.UserDict):
@@ -75,7 +81,7 @@ makeables = _Makers()
 
 def maybe_make(maybe_lazy: LazyFn[_ValueT] | bytes) -> _ValueT:
   if isinstance(maybe_lazy, bytes):
-    maybe_lazy = picklers.default.loads(maybe_lazy)
+    maybe_lazy = pickler.loads(maybe_lazy)
   # User defined maker as an escape path for custom lazy instances.
   if maker := makeables[type(maybe_lazy)]:
     return maker(maybe_lazy)
@@ -274,7 +280,7 @@ def _cached_make(fn: LazyFn | bytes) -> Any:
   """Instantiate a lazy fn to a actual fn when applicable."""
   logging.info('chainables: cache miss, making %s', fn)
   if isinstance(fn, bytes):
-    fn = picklers.default.loads(fn)
+    fn = pickler.loads(fn)
   if not fn.fn:
     return None
   args = tuple(maybe_make(arg) for arg in fn.args)
@@ -315,7 +321,7 @@ def _make(fn: LazyFn[_ValueT]) -> _ValueT:
         logging.info(
             'chainables: %s caching failed, use pickled as signature.', fn
         )
-        return _cached_make(picklers.default.dumps(fn))
+        return _cached_make(pickler.dumps(fn))
       except TypeError as e:
         raise TypeError(f'fn is not picklable: {fn}.') from e
 

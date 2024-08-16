@@ -25,7 +25,7 @@ from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import iter_utils
 
 
-pickler = lazy_fns.picklers.default
+pickler = lazy_fns.pickler
 
 
 def setUpModule():

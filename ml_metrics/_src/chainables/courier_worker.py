@@ -37,7 +37,6 @@ from ml_metrics._src.utils import iter_utils
 
 _LOGGING_INTERVAL_SEC = 30
 _NUM_TOTAL_FAILURES_THRESHOLD = 60
-picklers = lazy_fns.picklers
 _T = TypeVar('_T')
 
 
@@ -118,7 +117,7 @@ class Task(_FutureLike[_T]):
 
   def result(self) -> _T:
     if self.state is not None:
-      return picklers.default.loads(self.state.result())
+      return lazy_fns.pickler.loads(self.state.result())
 
   def exception(self) -> BaseException | None:
     if (state := self.state) is not None:
@@ -208,7 +207,7 @@ MaybeDoneTasks = NamedTuple(
 
 def _maybe_unpickle(value: Any) -> Any:
   if isinstance(value, bytes):
-    return picklers.default.loads(value)
+    return lazy_fns.pickler.loads(value)
   return value
 
 
@@ -266,13 +265,13 @@ def _normalize_args(args, kwargs):
   result_args = []
   for arg in args:
     try:
-      result_args.append(picklers.default.dumps(arg))
+      result_args.append(lazy_fns.pickler.dumps(arg))
     except Exception as e:
       raise ValueError(f'Having issue pickling arg: {arg}') from e
   result_kwargs = {}
   for k, v in kwargs.items():
     try:
-      result_kwargs[k] = picklers.default.dumps(v)
+      result_kwargs[k] = lazy_fns.pickler.dumps(v)
     except Exception as e:
       raise ValueError(f'Having issue pickling {k}: {v}') from e
   return result_args, result_kwargs
@@ -528,7 +527,7 @@ class Worker:
     return self.call(courier_method='clear_cache')
 
   def cache_info(self):
-    return picklers.default.loads(
+    return lazy_fns.pickler.loads(
         self.call(courier_method='cache_info').result()
     )
 

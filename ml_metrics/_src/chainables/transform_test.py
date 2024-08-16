@@ -232,7 +232,7 @@ class TransformTest(parameterized.TestCase):
         .aggregate(fn=lazy_fns.trace(MockAverageFn)())
         .apply(fn=lambda x: x + 1)
     )
-    pickled_t = lazy_fns.picklers.default.dumps(lazy_fns.trace_object(t).make())
+    pickled_t = lazy_fns.pickler.dumps(lazy_fns.trace_object(t).make())
     self.assertIsInstance(
         lazy_fns.maybe_make(pickled_t), transform.CombinedTreeFn
     )
@@ -287,7 +287,7 @@ class TransformTest(parameterized.TestCase):
 
   def test_transform_equal(self):
     t = transform.TreeTransform.new()
-    pickled_t = lazy_fns.picklers.default.dumps(lazy_fns.trace_object(t))
+    pickled_t = lazy_fns.pickler.dumps(lazy_fns.trace_object(t))
     self.assertEqual(
         lazy_fns.maybe_make(pickled_t),
         lazy_fns.maybe_make(pickled_t),

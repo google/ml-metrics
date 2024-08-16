@@ -48,7 +48,7 @@ class TimeoutServer(courier_server.CourierServerWrapper):
     def timeout(x):
       time.sleep(60)
       result = lazy_fns.maybe_make(x)
-      return lazy_fns.picklers.default.dumps(result)
+      return lazy_fns.pickler.dumps(result)
 
     def timeout_init_generator(x):
       del x
@@ -206,8 +206,8 @@ class TestServer(courier_server.CourierServerWrapper):
 
     def plus_one(x: int | bytes):
       if isinstance(x, bytes):
-        x = lazy_fns.picklers.default.loads(x)
-      return lazy_fns.picklers.default.dumps(x + 1)
+        x = lazy_fns.pickler.loads(x)
+      return lazy_fns.pickler.dumps(x + 1)
 
     self._server.Bind('plus_one', plus_one)
 
