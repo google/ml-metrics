@@ -17,6 +17,7 @@ import queue
 import time
 
 from absl.testing import absltest
+from absl.testing import parameterized
 import courier
 from courier.python import testutil
 from ml_metrics._src.chainables import courier_server
@@ -26,6 +27,15 @@ from ml_metrics._src.utils import iter_utils
 
 
 pickler = lazy_fns.pickler
+
+
+def lazy_q_fn(n, stop=True):
+  q = queue.SimpleQueue()
+  for i in range(n):
+    q.put(i)
+  if stop:
+    q.put(iter_utils.STOP_ITERATION)
+  return q
 
 
 def setUpModule():
@@ -44,7 +54,7 @@ class TestServer(courier_server.CourierServerWrapper):
     self._server.Bind('plus_one', plus_one)
 
 
-class CourierServerTest(absltest.TestCase):
+class CourierServerTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -82,21 +92,75 @@ class CourierServerTest(absltest.TestCase):
     self.assertIsInstance(remote_value.pop(), courier_server.RemoteObject)
     self.assertEqual(3, remote_value.pop().value_())
 
-  def test_remote_queue(self):
-    def foo_q(n):
-      q = queue.SimpleQueue()
-      for i in range(n):
-        q.put(i)
-      q.put(None)
-      return q
-
+  def test_remote_object_queue(self):
     remote_queue = self.client.submit(
-        lazy_fns.trace(foo_q, remote=True)(3)
+        lazy_fns.trace(lazy_q_fn, remote=True)(3)
     ).result()
     actual = []
-    while (value := remote_queue.get_nowait().value_()) is not None:
+    while not iter_utils.is_stop_iteration(
+        value := remote_queue.get_nowait().value_()
+    ):
       actual.append(value)
     self.assertEqual(actual, [0, 1, 2])
+
+  def test_remote_queue_dequeue_normal(self):
+    fns = [lazy_fns.trace(lazy_q_fn, remote=True)(2) for _ in range(3)]
+    remote_qs = courier_server.RemoteQueues(
+        self.client.submit(fn).result() for fn in fns
+    )
+    actual = list(remote_qs.dequeue())
+    self.assertCountEqual(actual, [0, 0, 0, 1, 1, 1])
+
+  def test_remote_queue_dequeue_timeout(self):
+    fns = [
+        lazy_fns.trace(lazy_q_fn, remote=True)(2, stop=False) for _ in range(3)
+    ]
+    remote_qs = courier_server.RemoteQueues(
+        (self.client.submit(fn).result() for fn in fns), timeout_secs=1
+    )
+    with self.assertRaisesRegex(TimeoutError, 'Dequeue timeout'):
+      list(remote_qs.dequeue())
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='normal',
+          queue_total_size=12,
+          input_size=3,
+      ),
+      dict(
+          testcase_name='timeout_at_stop',
+          queue_total_size=5,  # needs 3 (num_queues) stop + input_size = 6
+          input_size=3,
+      ),
+      dict(
+          testcase_name='timeout',
+          queue_total_size=2,  # needs 3 (num_queues) stop + input_size = 6
+          input_size=3,
+      ),
+  ])
+  def test_remote_queue_enqueue(
+      self,
+      queue_total_size,
+      input_size,
+      num_queues=3,
+  ):
+    base_qsize, residual = divmod(queue_total_size, num_queues)
+    q_sizes = [
+        base_qsize + (1 if i < residual else 0) for i in range(num_queues)
+    ]
+    fns = [
+        lazy_fns.trace(queue.Queue, remote=True)(maxsize=q_size)
+        for q_size in q_sizes
+    ]
+    remote_qs = courier_server.RemoteQueues(
+        (self.client.submit(fn).result() for fn in fns), timeout_secs=1
+    )
+    if queue_total_size >= input_size + num_queues:
+      actual = list(remote_qs.enqueue(range(input_size)))
+      self.assertCountEqual(actual, list(range(input_size)))
+    else:
+      with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout'):
+        list(remote_qs.enqueue(range(input_size)))
 
   def test_courier_server_maybe_make(self):
     client = courier.Client(self.server.address, call_timeout=1)
