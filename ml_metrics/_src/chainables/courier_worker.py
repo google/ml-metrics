@@ -700,15 +700,23 @@ class WorkerPool:
   def num_workers(self):
     return len(self.server_names)
 
-  def shutdown(self):
-    remaining_workers = self.workers
+  def shutdown(self, blocking: bool = False):
+    """Attemping to shut down workers."""
+    while blocking and len(self.workers) < self.num_workers:
+      logging.info(
+          'chainables: shutting down %d workers, remaining %d workers are not'
+          ' connected, retrying.',
+          self.num_workers,
+          self.num_workers - len(self.workers),
+      )
+      time.sleep(6)
     logging.info(
         'chainables: shutting down %d workers, remaining %d workers are not'
         ' connected, needs to be manually shutdown.',
-        len(remaining_workers),
-        len(self.workers) - len(remaining_workers),
+        len(self.workers),
+        len(self.all_workers) - len(self.workers),
     )
-    states = [worker.shutdown() for worker in remaining_workers]
+    states = [worker.shutdown() for worker in self.all_workers]
     time.sleep(0.1)
     return states
 
