@@ -50,14 +50,14 @@ class TimeoutServer(courier_server.CourierServerWrapper):
       result = lazy_fns.maybe_make(x)
       return lazy_fns.pickler.dumps(result)
 
-    def timeout_init_generator(x):
+    def timeout_init_iterator(x):
       del x
       time.sleep(60)
 
     self._server.Unbind('maybe_make')
     self._server.Bind('maybe_make', timeout)
-    self._server.Unbind('init_generator')
-    self._server.Bind('init_generator', timeout_init_generator)
+    self._server.Unbind('init_iterator')
+    self._server.Bind('init_iterator', timeout_init_iterator)
 
 
 class CourierWorkerTest(absltest.TestCase):
@@ -360,9 +360,18 @@ class CourierWorkerGroupTest(absltest.TestCase):
     self.assertEqual([2] * 3, actual)
 
   def test_worker_cache_info(self):
-    self.worker_pool.run(lazy_fns.trace(len, use_cache=True)([1, 2]))
+    self.worker_pool.run(lazy_fns.trace(len, use_cache=True)((1, 2)))
     hits = self.worker_pool.idle_workers()[0].cache_info().hits
-    self.worker_pool.run(lazy_fns.trace(len, use_cache=True)([1, 2]))
+    self.worker_pool.run(lazy_fns.trace(len, use_cache=True)((1, 2)))
+    new_hits = self.worker_pool.idle_workers()[0].cache_info().hits
+    self.assertEqual(new_hits - hits, 1)
+
+  def test_worker_cache_by_id(self):
+    # The list is not hashable, this will fall back to hashing by id.
+    fn = lazy_fns.trace(len, use_cache=True)([1, 2])
+    self.worker_pool.run(fn)
+    hits = self.worker_pool.idle_workers()[0].cache_info().hits
+    self.worker_pool.run(fn)
     new_hits = self.worker_pool.idle_workers()[0].cache_info().hits
     self.assertEqual(new_hits - hits, 1)
 

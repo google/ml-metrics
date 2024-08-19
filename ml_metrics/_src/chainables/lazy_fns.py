@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import asyncio
 import collections
-from collections.abc import Callable, Hashable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
 import dataclasses
 import functools
 import importlib
 import inspect
+import itertools as it
 import json
 import operator
 from typing import Any, Generic, TypeVar
@@ -36,8 +37,51 @@ Fn = Callable[..., _ValueT]
 _objects = {}
 
 
-def is_stop_iteration(inputs) -> bool:
-  return isinstance(inputs, StopIteration)
+def _shortened_uuid(b: bytes, length: int) -> int:
+  if len(b) == length:
+    return int.from_bytes(b, 'big') << (length * 8)
+
+  new_len = len(b) // 2
+  b = int.from_bytes(b[:new_len], 'big') ^ int.from_bytes(b[new_len:], 'big')
+  b = b.to_bytes(new_len, 'big')
+  return _shortened_uuid(b, length=length)
+
+
+@dataclasses.dataclass(slots=True)
+class IncrementId(Iterator[int]):
+  """An ID that increments everytime. Used to track local object."""
+
+  id_len: dataclasses.InitVar[int]
+  _inc_iter: Iterator[int] = dataclasses.field(
+      default_factory=it.count, init=False
+  )
+  _max_id: int = dataclasses.field(init=False, default=0)
+  _half_id_len: int = dataclasses.field(
+      default=0,
+      init=False,
+  )
+  _base: int = dataclasses.field(default=0, init=False)
+
+  def __post_init__(self, id_len: int):
+    self._half_id_len, residual = divmod(id_len, 2)
+    if residual:
+      raise ValueError(f'ID length has to be divisible by 2, got {id_len}.')
+    self._max_id = (1 << self._half_id_len * 8) - 1
+    self._base = _shortened_uuid(uuid.uuid4().bytes, self._half_id_len)
+
+  def __next__(self) -> int:
+    next_id = next(self._inc_iter)
+    # Reset the id to mimic fixed length int.
+    if next_id > self._max_id:
+      self._inc_iter = it.count()
+      next_id = next(self._inc_iter)
+    return self._base + next_id
+
+  def __iter__(self):
+    return self
+
+
+_increment_id = IncrementId(id_len=8)
 
 
 # TODO: b/318463291 - support heterogeneous (de)serializations methods.
@@ -199,6 +243,7 @@ class LazyFn(Generic[_ValueT], Callable[..., 'LazyFn']):
     kwargs: The named arguments later used to pass in the fn.
     cache_result: If True, cache the result of the make LazyFn.
     remote: If True, return a LazyObject instead of the actual result.
+    id: The id of the LazyFn that persists across processes.
   """
 
   fn: Callable[..., _ValueT] | LazyFn | None = None
@@ -206,6 +251,9 @@ class LazyFn(Generic[_ValueT], Callable[..., 'LazyFn']):
   kwargs: tuple[tuple[str, Hashable | LazyFn], ...] = ()
   cache_result: bool = False
   remote: bool = False
+  id: int = dataclasses.field(
+      default_factory=lambda: next(_increment_id), compare=False
+  )
 
   @classmethod
   def new(
@@ -251,6 +299,15 @@ class LazyFn(Generic[_ValueT], Callable[..., 'LazyFn']):
         args=(self,) + args,
         kwargs=normalize_kwargs(kwargs),
     )
+
+  def __hash__(self):
+    try:
+      return hash((self.fn, self.args, self.kwargs))
+    except TypeError as e:
+      logging.exception(
+          'chainables: hashing failed back up to id, original exception: %s.', e
+      )
+      return hash(self.id)
 
   def __getattr__(self, name):
     if name.startswith('__') and name.endswith('__'):
@@ -316,14 +373,8 @@ def _make(fn: LazyFn[_ValueT]) -> _ValueT:
     try:
       logging.info('chainables: attempt to fetch from cache %s', fn)
       return _cached_make(fn)
-    except TypeError:
-      try:
-        logging.info(
-            'chainables: %s caching failed, use pickled as signature.', fn
-        )
-        return _cached_make(pickler.dumps(fn))
-      except TypeError as e:
-        raise TypeError(f'fn is not picklable: {fn}.') from e
+    except TypeError as e:
+      raise TypeError(f'fn is not hashable: {fn}.') from e
 
   args = tuple(maybe_make(arg) for arg in fn.args)
   kwargs = {k: maybe_make(v) for k, v in fn.kwargs}
@@ -344,22 +395,25 @@ makeables.register(LazyFn, _make)
 class LazyObject(Generic[_ValueT]):
   """A remote object that can be pickled."""
 
-  id: uuid.UUID | None = None
   value: _ValueT | None = None
-  gc_collect: bool = False
+  id: int = dataclasses.field(
+      default_factory=lambda: next(_increment_id), compare=False
+  )
+  gc: bool = dataclasses.field(default=False, hash=False, compare=False)
 
   @classmethod
   def new(cls, value: _ValueT, *, ref_only: bool = True):
     if ref_only:
-      object_id = uuid.uuid4()
-      _objects[object_id] = value
-      return cls(id=object_id)
-
+      result = cls()
+      _objects[result.id] = value
+      return result
     return cls(value=value)
 
-  def collect_(self):
-    """Indicates the object should be collected when made."""
-    return dataclasses.replace(self, gc_collect=True)
+  def __hash__(self):
+    return hash(self.id)
+
+  def set_(self, **kwargs):
+    return dataclasses.replace(self, **kwargs)
 
   def __call__(self, *args, **kwargs) -> LazyFn[LazyFn]:
     """Calling a LazyFn records a lazy result of the call."""
@@ -397,7 +451,7 @@ def _dereference(lazy_object: LazyObject[_ValueT]) -> _ValueT | None:
   if lazy_object.value:
     return lazy_object.value
 
-  if lazy_object.gc_collect:
+  if lazy_object.gc:
     return _objects.pop(lazy_object.id, None)
   return _objects.get(lazy_object.id, None)
 

@@ -19,7 +19,9 @@ from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from ml_metrics._src.chainables import lazy_fns
+import more_itertools as mit
 import numpy as np
+
 
 trace = lazy_fns.trace
 maybe_make = lazy_fns.maybe_make
@@ -125,18 +127,19 @@ class LazyFnsTest(parameterized.TestCase):
 
     x = trace(foo_q, remote=True)(3)
     x = lazy_fns.maybe_make(x)
+    self.assertIsInstance(x, lazy_fns.LazyObject)
     actual = []
     while (value := lazy_fns.maybe_make(x.get())) is not None:
       actual.append(value)
     self.assertEqual(actual, [0, 1, 2])
-    lazy_fns.maybe_make(x.collect_())
+    lazy_fns.maybe_make(x.set_(gc=True))
     self.assertIsNone(lazy_fns.maybe_make(x))
 
   def test_lazy_object_collect(self):
     x = trace(len, remote=True)([1, 2, 3])
     x = lazy_fns.maybe_make(x)
     self.assertIsInstance(x, lazy_fns.LazyObject)
-    self.assertEqual(3, lazy_fns.maybe_make(x.collect_()))
+    self.assertEqual(3, lazy_fns.maybe_make(x.set_(gc=True)))
     # Can only deference at most once.
     self.assertIsNone(lazy_fns.maybe_make(x))
 
@@ -174,7 +177,20 @@ class LazyFnsTest(parameterized.TestCase):
     with self.assertRaises(TypeError):
       lazy_fns.pickler.register(len)
 
-  def test_maybe_make_cached(self):
+  @parameterized.named_parameters([
+      dict(testcase_name='len_2', id_len=2),
+      dict(testcase_name='len_4', id_len=4),
+  ])
+  def test_increment_id(self, id_len):
+    inc_id = lazy_fns.IncrementId(id_len)
+    x = next(inc_id) - inc_id._base
+    max_id = 1 << (id_len // 2 * 8)
+    # nth starts with 0, max_id - x is off by 1.
+    result = mit.nth(inc_id, n=max_id - x - 1)
+    self.assertEqual(0, result - inc_id._base)
+
+  def test_maybe_make_cached_normal(self):
+    lazy_fns.clear_cache()
     lazy_foo = trace(Foo, use_cache=True)(a=1)
     self.assertEqual(Foo(a=1)(x=1), maybe_make(trace(get)(lazy_foo)(x=1)))
     with mock.patch.object(Foo, '__init__', autospec=True) as mock_cached_make:
@@ -183,6 +199,16 @@ class LazyFnsTest(parameterized.TestCase):
     self.assertEqual(lazy_fns.cache_info().hits, 1)
     lazy_fns.clear_cache()
     self.assertEqual(lazy_fns.cache_info().hits, 0)
+
+  def test_maybe_make_cached_by_id(self):
+    lazy_fns.clear_cache()
+    # list is not hashable, hash should fall back by id.
+    lazy_foo = trace(Foo, use_cache=True)(np.array([1, 2, 3]))(1)
+    np.testing.assert_array_equal([2, 3, 4], maybe_make(lazy_foo))
+    with mock.patch.object(Foo, '__init__', autospec=True) as mock_cached_make:
+      maybe_make(lazy_foo)
+      mock_cached_make.assert_not_called()
+    self.assertEqual(lazy_fns.cache_info().hits, 1)
 
   def test_lazy_fn_not_makeabe_raise_typeerror(self):
     with self.assertRaises(TypeError):

@@ -75,6 +75,9 @@ class CourierServerTest(parameterized.TestCase):
     ).result()
     self.assertIsInstance(remote_value, courier_server.RemoteObject)
     self.assertEqual(3, remote_value.value_())
+    remote_value = remote_value.set_(gc=True)
+    self.assertEqual(3, remote_value.value_())
+    self.assertIsNone(remote_value.value_())
 
   def test_remote_object_with_index(self):
     remote_value = self.client.submit(
