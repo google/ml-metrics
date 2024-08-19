@@ -131,6 +131,15 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
     return self
 
 
+@dataclasses.dataclass(frozen=True, eq=False)
+class MeanAndVarianceAggFn(base.MergeableMetricAggFn):
+  """AggFn wrapper of the MeanAndVariance."""
+
+  metric_maker: base_types.Makeable[MeanAndVariance] = dataclasses.field(
+      default_factory=MeanAndVariance
+  )
+
+
 # TODO(b/345249574): Implement MinMax class.
 
 

@@ -230,6 +230,12 @@ class StatsStateTest(parameterized.TestCase):
     for property_name, value in expected_properties_dict.items():
       np.testing.assert_allclose(getattr(state.result(), property_name), value)
 
+  def test_agg_fn(self):
+    agg_fn = rolling_stats.MeanAndVarianceAggFn()
+    batches = np.arange(3)
+    actual = agg_fn(batches)
+    self.assertDataclassAlmostEqual(get_expected_stats_state(batches), actual)
+
 
 class R2TjurTest(parameterized.TestCase):
 
