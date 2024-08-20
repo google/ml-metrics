@@ -191,6 +191,7 @@ class LazyFnsTest(parameterized.TestCase):
 
   def test_maybe_make_cached_normal(self):
     lazy_fns.clear_cache()
+    self.assertEqual(lazy_fns.cache_info().hits, 0)
     lazy_foo = trace(Foo, use_cache=True)(a=1)
     self.assertEqual(Foo(a=1)(x=1), maybe_make(trace(get)(lazy_foo)(x=1)))
     with mock.patch.object(Foo, '__init__', autospec=True) as mock_cached_make:
@@ -198,7 +199,20 @@ class LazyFnsTest(parameterized.TestCase):
       mock_cached_make.assert_not_called()
     self.assertEqual(lazy_fns.cache_info().hits, 1)
     lazy_fns.clear_cache()
+
+  def test_maybe_make_cached_only_base_level(self):
+    # This is to test that the cache won't propogate beyond the outer layer of
+    # the lazy_fn. This is useful to control only part of the function to be
+    # cached, e.g., the constuctor of a callable, rather than each individual
+    # calls with their args.
+    lazy_fns.clear_cache()
     self.assertEqual(lazy_fns.cache_info().hits, 0)
+    lazy_foo = trace(Foo, use_cache=True)(a=1)
+    self.assertEqual(Foo(a=1)(x=1), maybe_make(trace(get)(lazy_foo)(x=1)))
+    with mock.patch.object(Foo, '__call__', autospec=True) as mock_cached_make:
+      maybe_make(lazy_foo)
+      mock_cached_make.assert_not_called()
+    self.assertEqual(lazy_fns.cache_info().hits, 1)
 
   def test_maybe_make_cached_by_id(self):
     lazy_fns.clear_cache()
