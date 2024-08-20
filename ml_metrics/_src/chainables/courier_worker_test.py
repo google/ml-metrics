@@ -466,9 +466,10 @@ class CourierWorkerGroupTest(absltest.TestCase):
     tasks = [lazy_fns.trace(blocking_fn)(3)] * 3
     t = threading.Thread(target=shared_worker_pool.run, args=(tasks,))
     t.start()
-    time.sleep(0)
+    while not all(w.is_locked() for w in self.worker_pool.all_workers):
+      time.sleep(0)
     # The worker is not acquirable while blocked.
-    self.assertSameElements([False], self.worker_pool._acquire_all())
+    self.assertSameElements([], self.worker_pool._acquire_all())
     blocked[0] = False
     time.sleep(0)
     self.assertEqual(2, self.worker_pool.run(lazy_fns.trace(len)([1, 2])))

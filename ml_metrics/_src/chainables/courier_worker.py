@@ -768,20 +768,18 @@ class WorkerPool:
       workers: Iterable[Worker] | None = None,
       num_workers: int = 0,
       blocking: bool = False,
-  ) -> list[bool]:
-    """Acquires all workers."""
+  ) -> list[Worker]:
+    """Attemps to acquire all workers, returns acquired workers."""
     if workers is None:
       workers = self._workers
     result = []
     for worker in workers:
       if blocking:
-        result.append(worker.acquire_by(self, blocking=True))
-      else:
-        if worker.is_available(self):
-          result.append(worker.acquire_by(self))
-        else:
-          result.append(False)
-      if sum(result) == num_workers:
+        if worker.acquire_by(self, blocking=True):
+          result.append(worker)
+      elif worker.is_available(self) and worker.acquire_by(self):
+        result.append(worker)
+      if len(result) == num_workers:
         break
     return result
 
