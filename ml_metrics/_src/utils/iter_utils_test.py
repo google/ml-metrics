@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from concurrent import futures
 import itertools as it
 import queue
 
 from absl.testing import absltest
 from absl.testing import parameterized
 from ml_metrics._src.utils import iter_utils
+import more_itertools as mit
 import numpy as np
 
 
@@ -31,7 +33,7 @@ def mock_range(n, batch_size, batch_fn=lambda x: x):
   )
 
 
-class MockGenerator:
+class MockIterable:
 
   def __init__(self, iterable):
     self._iteratable = iterable
@@ -45,22 +47,85 @@ class MockGenerator:
 
 class UtilsTest(parameterized.TestCase):
 
+  def setUp(self):
+    super().setUp()
+    self.thread_pool = futures.ThreadPoolExecutor()
+
+  def tearDown(self):
+    self.thread_pool.shutdown()
+    super().tearDown()
+
+  def test_iterator_pipe_normal(self):
+
+    def inc_(input_iter):
+      return map(lambda x: x + 1, input_iter)
+
+    iter_pipe = iter_utils.IteratorPipe.new(inc_, timeout=1)
+    self.assertIsNotNone(iter_pipe.input_queue)
+    self.assertIsNotNone(iter_pipe.output_queue)
+    iter_pipe = iter_pipe.submit_to(self.thread_pool)
+    mit.last(iter_utils.enqueue_from_iterator(range(10), iter_pipe.input_queue))
+    self.assertEqual(10, iter_pipe.state.result())
+    actual = list(iter_utils.dequeue_as_iterator(iter_pipe.output_queue))
+    self.assertEqual(list(range(1, 11)), actual)
+
+  def test_iterator_pipe_source(self):
+
+    iter_pipe = iter_utils.IteratorPipe.new(
+        range(10), input_qsize=None, timeout=1
+    ).submit_to(self.thread_pool)
+    self.assertEqual(9, iter_pipe.state.result())
+    actual = list(iter_utils.dequeue_as_iterator(iter_pipe.output_queue))
+    self.assertEqual(list(range(10)), actual)
+    self.assertIsNone(iter_pipe.input_queue)
+
+  def test_iterator_pipe_sink(self):
+
+    def consumer(iterator):
+      for x in iterator:
+        del x
+
+    iter_pipe = iter_utils.IteratorPipe.new(
+        consumer, output_qsize=None, timeout=1
+    )
+    self.assertIsNone(iter_pipe.output_queue)
+    self.assertIsNotNone(iter_pipe.input_queue)
+    iter_pipe = iter_pipe.submit_to(self.thread_pool)
+    mit.last(iter_utils.enqueue_from_iterator(range(10), iter_pipe.input_queue))
+    self.assertIsNone(iter_pipe.state.result())
+    # Nothing dequeued from output.
+    self.assertEqual(10, iter_pipe.progress.processed_cnt)
+
+  def test_iterator_pipe_timeout(self):
+
+    def inc_(input_iter):
+      return map(lambda x: x + 1, input_iter)
+
+    iter_pipe = iter_utils.IteratorPipe.new(inc_, timeout=1).submit_to(
+        self.thread_pool
+    )
+    self.assertIsNotNone(iter_pipe.output_queue)
+    self.assertIsNotNone(iter_pipe.input_queue)
+    iter_pipe.input_queue.put(0)
+    with self.assertRaisesRegex(TimeoutError, '(De|En)queue timeout after'):
+      iter_pipe._state.result()
+
   def test_enqueue_dequeue_from_generator(self):
     q = queue.Queue()
-    expected = list(iter_utils.enqueue_from_generator(range(10), q))
-    actual = list(iter_utils.dequeue_as_generator(q))
+    expected = list(iter_utils.enqueue_from_iterator(range(10), q))
+    actual = list(iter_utils.dequeue_as_iterator(q))
     self.assertSequenceEqual(expected, actual)
 
   def test_enqueue_from_generator_timeout(self):
     q = queue.Queue(maxsize=1)
     with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout after'):
-      list(iter_utils.enqueue_from_generator(range(2), q, timeout=0.1))
+      list(iter_utils.enqueue_from_iterator(range(2), q, timeout=0.1))
 
   def test_dequeue_from_generator_timeout(self):
     q = queue.Queue(maxsize=1)
     q.put(1)
     with self.assertRaisesRegex(TimeoutError, 'Dequeue timeout after'):
-      list(iter_utils.dequeue_as_generator(q, timeout=0.1))
+      list(iter_utils.dequeue_as_iterator(q, timeout=0.1))
 
   def test_prefetched_iterator(self):
     iterator = iter_utils.PrefetchedIterator(range(10), prefetch_size=2)

@@ -163,7 +163,7 @@ class RunnerState:
     )
 
   def iterate(self) -> Iterator[Any]:
-    return iter_utils.dequeue_as_generator(self.stages[-1].result_queue)
+    return iter_utils.dequeue_as_iterator(self.stages[-1].result_queue)
 
   def stage_progress(self) -> list[int]:
     return [s.progress for s in self.stages]
@@ -220,7 +220,7 @@ def _async_run_single_stage(
   result_q = queue.Queue(maxsize=resource.buffer_size)
   input_iterator = None
   if input_queue is not None:
-    input_iterator = iter_utils.dequeue_as_generator(input_queue)
+    input_iterator = iter_utils.dequeue_as_iterator(input_queue)
   progress = [0]
 
   def _iterate_with_worker_pool():
@@ -233,7 +233,7 @@ def _async_run_single_stage(
         ignore_failures=ignore_failures,
     )
     for i, _ in enumerate(
-        iter_utils.enqueue_from_generator(
+        iter_utils.enqueue_from_iterator(
             (task.result() for task in completed_tasks), result_q
         )
     ):
@@ -241,7 +241,7 @@ def _async_run_single_stage(
 
   def _iterate_in_process():
     for i, _ in enumerate(
-        iter_utils.enqueue_from_generator(
+        iter_utils.enqueue_from_iterator(
             transform.make(recursive=False).iterate(
                 input_iterator=input_iterator
             ),

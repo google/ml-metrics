@@ -14,11 +14,12 @@
 """Internal batching utils, not meant to be used by users."""
 
 from collections.abc import Callable, Iterable, Iterator
+from concurrent import futures
+import dataclasses
 import functools
-import inspect
 import queue
 import time
-from typing import Any, TypeVar, cast
+from typing import Any, Generic, Self, TypeVar, cast
 
 from absl import logging
 import more_itertools as mit
@@ -31,6 +32,152 @@ _InputT = TypeVar('_InputT')
 STOP_ITERATION = StopIteration()
 
 
+@dataclasses.dataclass(slots=True, eq=False)
+class PipeProgress:
+  processed_cnt: int = 0
+
+
+def _get_queue(qsize: int = 0) -> queue.Queue[Any] | queue.SimpleQueue[Any]:
+  return queue.Queue(maxsize=qsize) if qsize else queue.SimpleQueue()
+
+
+@dataclasses.dataclass(
+    slots=True, kw_only=True, repr=False, eq=False, frozen=True
+)
+class IteratorPipe(Generic[_InputT, _ValueT]):
+  """An async iterator with input and output queues."""
+
+  iterator: Iterator[_ValueT]
+  fn: Callable[[Iterator[_ValueT]], Any] = mit.last
+  input_queue: queue.Queue[_InputT] | None = None
+  output_queue: queue.Queue[_ValueT] | None = None
+  progress: PipeProgress
+  timeout: float | None = None
+  _state: futures.Future[Any] | None = None
+
+  def put_nowait(self, value: _InputT):
+    q = self.input_queue
+    assert q is not None
+    q.put_nowait(value)
+
+  def get_nowait(self):
+    q = self.output_queue
+    assert q is not None
+    return q.get_nowait()
+
+  def submit_to(self, thread_pool: futures.ThreadPoolExecutor) -> Self:
+    state = thread_pool.submit(self.fn, self.iterator)
+    return dataclasses.replace(self, _state=state)
+
+  @property
+  def state(self):
+    return self._state
+
+  @classmethod
+  def new(
+      cls,
+      iterator_maybe_fn: Callable[..., Any] | Iterator[_ValueT],
+      /,
+      *,
+      input_qsize: int | None = 0,
+      output_qsize: int | None = 0,
+      timeout: float | None = None,
+  ) -> Self:
+    """Creates a async pipe that runs an iterator with input and output queues.
+
+    iterator_maybe_fn works with input_qsize and output_qsize to determine which
+    pipe this is:
+      * iterator_maybe_fn is a generator function with both input and output
+        queue (input_qsize and output_qsize Not None).
+      * iterator_maybe_fn is a normal function with only an input queue, useful
+        for a sink operation.
+      * iterator with only an output queue, useful for a source iterator.
+
+    Args:
+      iterator_maybe_fn: a generator function that optionally takes an input.
+      input_qsize: default to unlimited (0), if set to None, it means the
+        generator_fn does not take an input_iterator.
+      output_qsize: default to unlimited (0), if set to None, it means the
+        generator_fn does not emit any output, e.g., write operations.
+      timeout: the duration (seconds) between two queue actions to be considered
+        as timeout.
+
+    Returns:
+      A new IteratorPipe instance.
+    """
+    progress = PipeProgress()
+    match input_qsize, output_qsize:
+      case (None, None):
+        raise ValueError('Both input and output are None.')
+      case (int(input_qsize), None):
+        input_queue = _get_queue(input_qsize)
+        iterator = dequeue_as_iterator(
+            input_queue, progress=progress, timeout=timeout
+        )
+        return cls(
+            iterator=iterator,
+            fn=iterator_maybe_fn,
+            input_queue=input_queue,
+            output_queue=None,
+            progress=progress,
+            timeout=timeout,
+        )
+      case (None, int(output_qsize)):
+        output_queue = _get_queue(output_qsize)
+        if isinstance(iterator_maybe_fn, Iterable):
+          input_iterator = iter(iterator_maybe_fn)
+        elif isinstance(iterator_maybe_fn, Callable):
+          input_iterator = iterator_maybe_fn()
+        else:
+          raise ValueError(
+              'Process operation has to be an generator or iterator, got'
+              f' {type(iterator_maybe_fn)=}.'
+          )
+        iterator = enqueue_from_iterator(
+            input_iterator,
+            output_queue=output_queue,
+            progress=progress,
+            timeout=timeout,
+        )
+        return cls(
+            iterator=iterator,
+            fn=mit.last,
+            input_queue=None,
+            output_queue=output_queue,
+            progress=progress,
+            timeout=timeout,
+        )
+      case (int(input_qsize), int(output_qsize)):
+        input_queue = _get_queue(input_qsize)
+        output_queue = _get_queue(output_qsize)
+        if not isinstance(iterator_maybe_fn, Callable):
+          raise ValueError(
+              'Process operation has to be an generator function, got'
+              f' {type(iterator_maybe_fn)=}.'
+          )
+        input_iterator = iterator_maybe_fn(
+            dequeue_as_iterator(input_queue, timeout=timeout)
+        )
+        iterator = enqueue_from_iterator(
+            input_iterator,
+            output_queue=output_queue,
+            progress=progress,
+            timeout=timeout,
+        )
+        return cls(
+            iterator=iterator,
+            fn=mit.last,
+            input_queue=input_queue,
+            output_queue=output_queue,
+            progress=progress,
+            timeout=timeout,
+        )
+      case _:
+        raise ValueError(
+            f'Unsupported input and output: {input_qsize=}, {output_qsize=}'
+        )
+
+
 def is_stop_iteration(e: Exception) -> bool:
   return e is STOP_ITERATION or isinstance(e, StopIteration)
 
@@ -38,12 +185,11 @@ def is_stop_iteration(e: Exception) -> bool:
 class PrefetchedIterator:
   """An iterator that can also prefetch before iterated."""
 
-  def __init__(self, generator, prefetch_size: int = 2):
+  def __init__(self, iterator, prefetch_size: int = 2):
     self._data = queue.SimpleQueue()
     self._returned = None
-    if not inspect.isgenerator(generator):
-      generator = iter(generator)
-    self._generator = generator
+    iterator = iter(iterator)
+    self._iterator = iterator
     self._exceptions = []
     self._prefetch_size = prefetch_size
     self._exhausted = False
@@ -103,7 +249,7 @@ class PrefetchedIterator:
     if not self._data.empty():
       return self._data.get()
     else:
-      logging.info('chainables: Generator exhausted from %s.', self._generator)
+      logging.info('chainables: Generator exhausted from %s.', self._iterator)
       raise StopIteration(self._returned)
 
   def __iter__(self):
@@ -115,7 +261,7 @@ class PrefetchedIterator:
         num_items or self._prefetch_size
     ):
       try:
-        self._data.put(next(self._generator))
+        self._data.put(next(self._iterator))
         self._cnt += 1
         self._data_size += 1
       except StopIteration as e:
@@ -135,17 +281,20 @@ class PrefetchedIterator:
         time.sleep(0)
 
 
-def enqueue_from_generator(
-    generator: Iterator[_ValueT],
+def enqueue_from_iterator(
+    iterator: Iterator[_ValueT],
     output_queue: queue.Queue[_ValueT | StopIteration],
+    *,
+    progress: PipeProgress | None = None,
     timeout: float | None = None,
 ) -> Iterator[Any]:
   """Iterates through a generator while enqueue its elements."""
-  generator = iter(generator)
+  iterator = iter(iterator)
   exhausted = False
+  i = 0
   while not exhausted:
     try:
-      value = next(generator)
+      value = next(iterator)
     except StopIteration as e:
       value = e
       exhausted = True
@@ -163,11 +312,15 @@ def enqueue_from_generator(
       if is_stop_iteration(value):
         return cast(StopIteration, value).value
       yield value
+      i += 1
+      if progress is not None:
+        progress.processed_cnt = i
 
 
-def dequeue_as_generator(
+def dequeue_as_iterator(
     input_queue: queue.Queue[_ValueT | StopIteration],
     *,
+    progress: PipeProgress | None = None,
     num_steps: int = -1,
     timeout: float | None = None,
 ) -> Iterator[_ValueT]:
@@ -189,9 +342,11 @@ def dequeue_as_generator(
       return cast(StopIteration, value).value
     yield value
     i += 1
+    if progress is not None:
+      progress.processed_cnt = i
 
 
-def _dequeue_as_generator_blocking(
+def _dequeue_as_iterator_blocking(
     input_queue: queue.SimpleQueue[_ValueT | StopIteration],
 ) -> Iterator[_ValueT]:
   """Converts a queue to an iterator, stops when meeting StopIteration."""
@@ -225,7 +380,7 @@ class _RecitableIterator(Iterator[_ValueT]):
     return self
 
   def recite_iterator(self) -> Iterator[_ValueT]:
-    return _dequeue_as_generator_blocking(self.buffer)
+    return _dequeue_as_iterator_blocking(self.buffer)
 
 
 def processed_with_inputs(
