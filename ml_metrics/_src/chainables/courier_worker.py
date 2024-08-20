@@ -670,7 +670,7 @@ class WorkerPool:
       self,
       workers: Iterable[Worker] | None = None,
       *,
-      maybe_acquire: bool = True,
+      maybe_acquire: bool = False,
   ) -> Worker | None:
     """Non-blocking acquire and yields alive workers that have capacity."""
     workers = self._workers if workers is None else workers
@@ -739,7 +739,7 @@ class WorkerPool:
           preferred_workers, set(self.workers) - preferred_workers
       )
       while (tasks or not exhausted) and (
-          worker := self.next_idle_worker(workers)
+          worker := self.next_idle_worker(workers, maybe_acquire=True)
       ):
         # Ensure failed tasks are retried before new tasks are submitted.
         if not tasks and not exhausted:
