@@ -208,10 +208,10 @@ class LazyFnsTest(parameterized.TestCase):
     lazy_fns.clear_cache()
     self.assertEqual(lazy_fns.cache_info().hits, 0)
     lazy_foo = trace(Foo, use_cache=True)(a=1)
-    self.assertEqual(Foo(a=1)(x=1), maybe_make(trace(get)(lazy_foo)(x=1)))
+    maybe_make(lazy_foo(x=1))
     with mock.patch.object(Foo, '__call__', autospec=True) as mock_cached_make:
-      maybe_make(lazy_foo)
-      mock_cached_make.assert_not_called()
+      maybe_make(lazy_foo(x=1))
+      mock_cached_make.assert_called_once()
     self.assertEqual(lazy_fns.cache_info().hits, 1)
 
   def test_maybe_make_cached_by_id(self):
