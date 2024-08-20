@@ -17,10 +17,12 @@ import threading
 import time
 
 from absl.testing import absltest
+from absl.testing import parameterized
 from courier.python import testutil
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
+from ml_metrics._src.utils import iter_utils
 import portpicker
 
 
@@ -30,6 +32,15 @@ Task = courier_worker.Task
 # Required for BNS resolution.
 def setUpModule():
   testutil.SetupMockBNS()
+
+
+def lazy_q_fn(n, stop=True):
+  q = queue.SimpleQueue()
+  for i in range(n):
+    q.put(i)
+  if stop:
+    q.put(iter_utils.STOP_ITERATION)
+  return q
 
 
 def mock_generator(n, sleep_interval=0.0):
@@ -58,6 +69,123 @@ class TimeoutServer(courier_server.CourierServerWrapper):
     self._server.Bind('maybe_make', timeout)
     self._server.Unbind('init_iterator')
     self._server.Bind('init_iterator', timeout_init_iterator)
+
+
+class RemoteObjectTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.server = courier_server.CourierServerWrapper()
+    self.server.build_server()
+    self.server_thread = self.server.start(daemon=True)
+    self.worker = courier_worker.Worker(self.server.address)
+    self.worker.wait_until_alive(deadline_secs=6, sleep_interval_secs=0.1)
+
+  def tearDown(self):
+    self.worker.shutdown()
+    self.server_thread.join()
+    super().tearDown()
+
+  def test_remote_object_self(self):
+    remote_value = self.worker.submit(
+        lazy_fns.trace(len, remote=True)([1, 2, 3])
+    ).result()
+    self.assertIsInstance(remote_value, courier_worker.RemoteObject)
+    self.assertEqual(3, remote_value.value_())
+    remote_value = remote_value.set_(gc=True)
+    self.assertEqual(3, remote_value.value_())
+    self.assertIsNone(remote_value.value_())
+
+  def test_remote_object_with_index(self):
+    remote_value = self.worker.submit(
+        lazy_fns.trace(tuple, remote=True)([1, 2, 3])
+    ).result()
+    self.assertIsInstance(remote_value, courier_worker.RemoteObject)
+    self.assertIsInstance(remote_value[1], courier_worker.RemoteObject)
+    self.assertEqual(2, remote_value[1].value_())
+
+  def test_remote_object_with_attr(self):
+    remote_value = self.worker.submit(
+        lazy_fns.trace(list, remote=True)([1, 2, 3])
+    ).result()
+    self.assertIsInstance(remote_value, courier_worker.RemoteObject)
+    self.assertIsInstance(remote_value.pop(), courier_worker.RemoteObject)
+    self.assertEqual(3, remote_value.pop().value_())
+
+  def test_remote_object_queue(self):
+    remote_queue = self.worker.submit(
+        lazy_fns.trace(lazy_q_fn, remote=True)(3)
+    ).result()
+    actual = []
+    while not iter_utils.is_stop_iteration(
+        value := remote_queue.get_nowait().value_()
+    ):
+      actual.append(value)
+    self.assertEqual(actual, [0, 1, 2])
+
+  def test_remote_queue_dequeue_normal(self):
+    fns = [lazy_fns.trace(lazy_q_fn, remote=True)(2) for _ in range(3)]
+    remote_qs = courier_worker.RemoteQueues(
+        self.worker.submit(fn).result() for fn in fns
+    )
+    actual = list(remote_qs.dequeue())
+    self.assertCountEqual(actual, [0, 0, 0, 1, 1, 1])
+
+  def test_remote_queue_dequeue_timeout(self):
+    fns = [
+        lazy_fns.trace(lazy_q_fn, remote=True)(2, stop=False) for _ in range(3)
+    ]
+    remote_qs = courier_worker.RemoteQueues(
+        (self.worker.submit(fn).result() for fn in fns), timeout_secs=1
+    )
+    with self.assertRaisesRegex(TimeoutError, 'Dequeue timeout'):
+      list(remote_qs.dequeue())
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='normal',
+          queue_total_size=12,
+          input_size=3,
+      ),
+      dict(
+          testcase_name='timeout_at_stop',
+          queue_total_size=5,  # needs 3 (num_queues) stop + input_size = 6
+          input_size=3,
+      ),
+  ])
+  def test_remote_queue_enqueue(
+      self,
+      queue_total_size,
+      input_size,
+      num_queues=3,
+  ):
+    base_qsize, residual = divmod(queue_total_size, num_queues)
+    q_sizes = [
+        base_qsize + (1 if i < residual else 0) for i in range(num_queues)
+    ]
+    fns = [
+        lazy_fns.trace(queue.Queue, remote=True)(maxsize=q_size)
+        for q_size in q_sizes
+    ]
+    remote_qs = courier_worker.RemoteQueues(
+        (self.worker.submit(fn).result() for fn in fns), timeout_secs=1
+    )
+    if queue_total_size >= input_size + num_queues:
+      remote_qs.enqueue(range(input_size))
+    else:
+      with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout'):
+        remote_qs.enqueue(range(input_size))
+
+  def test_remote_queue_enqueue_timeout(self):
+    fns = [
+        lazy_fns.trace(queue.Queue, remote=True)(maxsize=q_size)
+        for q_size in [1, 1, 1]
+    ]
+    remote_qs = courier_worker.RemoteQueues(
+        (self.worker.submit(fn).result() for fn in fns), timeout_secs=1
+    )
+    with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout'):
+      remote_qs.enqueue(range(3))
 
 
 class CourierWorkerTest(absltest.TestCase):

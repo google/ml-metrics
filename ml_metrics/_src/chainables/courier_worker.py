@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import collections
 from collections.abc import AsyncIterator, Iterable, Iterator
 from concurrent import futures
+import copy
 import dataclasses
 import itertools
 import queue
@@ -26,13 +28,14 @@ import random
 import threading
 import time
 import typing
-from typing import Any, NamedTuple, Protocol, Self, TypeVar
+from typing import Any, Generic, NamedTuple, Protocol, Self, TypeVar
 
 from absl import logging
 import courier
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
 from ml_metrics._src.utils import iter_utils
+import more_itertools as mit
 
 
 _LOGGING_INTERVAL_SEC = 30
@@ -258,6 +261,188 @@ def wait(
     if timeout is not None and time.time() - start_time > timeout:
       return MaybeDoneTasks(done_tasks, not_done_tasks)
   return MaybeDoneTasks(done_tasks, not_done_tasks)
+
+
+@dataclasses.dataclass(frozen=True)
+class RemoteObject(Generic[_T]):
+  """Remote object holds remote reference that behaves like a local object."""
+
+  worker_address: str
+  lazy_object: lazy_fns.LazyObject[_T] | lazy_fns.LazyFn[_T]
+
+  @property
+  def _worker(self) -> Worker:
+    return Worker(self.worker_address)
+
+  def deref_(self) -> futures.Future[Any]:
+    return self._worker.call(self.lazy_object)
+
+  def value_(self) -> Any:
+    return lazy_fns.pickler.loads(self.deref_().result())
+
+  def set_(self, **kwargs):
+    return dataclasses.replace(
+        self, lazy_object=self.lazy_object.set_(**kwargs)
+    )
+
+  def __hash__(self):
+    return hash(self.lazy_object.id)
+
+  def __eq__(self, other):
+    return self.lazy_object.id == other.lazy_object.id
+
+  def __call__(self, *args, **kwargs) -> Self:
+    """Calling a LazyFn records a lazy result of the call."""
+    return dataclasses.replace(
+        self, lazy_object=self.lazy_object(*args, **kwargs)
+    )
+
+  def __getattr__(self, name) -> Self:
+    return dataclasses.replace(
+        self, lazy_object=getattr(self.lazy_object, name)
+    )
+
+  def __getitem__(self, key) -> Self:
+    return dataclasses.replace(self, lazy_object=self.lazy_object[key])
+
+  # Overrides to support pickling when getattr is overridden.
+  def __getstate__(self):
+    return dict(self.__dict__)
+
+  # Overrides to support pickling when getattr is overridden.
+  def __setstate__(self, state):
+    self.__dict__.update(state)
+
+
+def _is_queue_full(e: Exception) -> bool:
+  # Courier worker returns a str reprenestation of the exception.
+  return 'queue.Full' in getattr(e, 'message', '')
+
+
+def _is_courier_timeout(exc: Exception | None) -> bool:
+  # absl::status::kDeadlineExceeded
+  return getattr(exc, 'code', 0) == 4
+
+
+_InputAndFuture = collections.namedtuple(
+    '_InputAndFuture', ['input_', 'future']
+)
+
+
+@dataclasses.dataclass(slots=True)
+class RemoteQueues:
+  """Combine multiple remote queues into one as iterators when en/dequeueing."""
+
+  remote_queues: set[RemoteObject[queue.Queue[Any]]] = dataclasses.field(
+      default_factory=set
+  )
+  timeout_secs: int | None = None
+
+  def __post_init__(self):
+    self.remote_queues = set(self.remote_queues)
+
+  def add(self, remote_queue: RemoteObject[queue.Queue[Any]]):
+    self.remote_queues.add(remote_queue)
+
+  def remove(self, remote_queue: RemoteObject[queue.Queue[Any]]):
+    self.remote_queues.remove(remote_queue)
+
+  def dequeue(self) -> Iterator[Any]:
+    """Roundrobin across all queues and get the next avaialble item."""
+    states = {}
+    reamining_queues = copy.copy(self.remote_queues)
+    ticker = time.time()
+    while reamining_queues:
+      for remote_queue in tuple(reamining_queues):
+        if remote_queue not in states:
+          states[remote_queue] = remote_queue.get_nowait().deref_()
+        if (state := states[remote_queue]).done():
+          try:
+            result = lazy_fns.pickler.loads(state.result())
+            del states[remote_queue]
+            if isinstance(result, StopIteration):
+              reamining_queues.remove(remote_queue)
+            else:
+              yield result
+              ticker = time.time()
+          except Exception as e:  # pylint: disable=broad-exception-caught
+            # Courier worker returns a str reprenestation of the exception.
+            if 'queue.Empty' in getattr(e, 'message', ''):
+              if (
+                  self.timeout_secs is not None
+                  and time.time() - ticker > self.timeout_secs
+              ):
+                raise TimeoutError(
+                    f'Dequeue timeout after {self.timeout_secs}s.'
+                ) from e
+              continue
+            else:
+              raise e
+      time.sleep(0)
+
+  def enqueue(self, values: Iterable[Any]):
+    """Roundrobin across all queues and put the item to a available queue."""
+    values = iter(values)
+    enqueueing: dict[RemoteObject[queue.Queue[Any]], _InputAndFuture] = {}
+    preferred_queues = copy.copy(self.remote_queues)
+    if not self.remote_queues:
+      raise queue.Full(f'No remote queue: {self.remote_queues=}')
+    ticker = time.time()
+    stopping = False
+    while not stopping or enqueueing:
+      # Reset the state of the queues that has finished enqueing.
+      for remote_queue, (input_, state) in tuple(enqueueing.items()):
+        if state.done():
+          try:
+            assert lazy_fns.pickler.loads(state.result()) is None
+            ticker = time.time()
+            preferred_queues.add(remote_queue)
+            del enqueueing[remote_queue]
+            # if not iter_utils.is_stop_iteration(input_):
+            #   yield input_
+          except Exception as e:  # pylint: disable=broad-exception-caught
+            preferred_queues.discard(remote_queue)
+            if _is_queue_full(e) or _is_courier_timeout(e):
+              if time.time() - ticker > self.timeout_secs:
+                raise TimeoutError(
+                    f'Enqueue timeout after {self.timeout_secs}s.'
+                ) from e
+              # For StopIteration, retry on the same queue.
+              if iter_utils.is_stop_iteration(input_):
+                enqueueing[remote_queue] = _InputAndFuture(
+                    input_, remote_queue.put_nowait(input_).deref_()
+                )
+              else:
+                values = mit.prepend(input_, values)
+            else:
+              raise e
+
+      # Pull the next value from the iterator.
+      value = next(values, iter_utils.STOP_ITERATION)
+      if iter_utils.is_stop_iteration(value):
+        # Only starts to put StopIteration when all values are enqueued. This is
+        # to ensure retrying is still possible.
+        if not stopping and not enqueueing:
+          # Broadcast the StopIteration to all queues.
+          for remote_queue in self.remote_queues:
+            enqueueing[remote_queue] = _InputAndFuture(
+                value, remote_queue.put_nowait(value).deref_()
+            )
+          stopping = True
+      else:
+        # Prefer to send item to queues that haven't thrown exception yet.
+        available_queues = preferred_queues - set(enqueueing)
+        if not available_queues:
+          available_queues = self.remote_queues - set(enqueueing)
+        # Enqueue the value to a random available queue.
+        if available_queues:
+          remote_queue = random.choice(list(available_queues))
+          enqueueing[remote_queue] = _InputAndFuture(
+              value, remote_queue.put_nowait(value).deref_()
+          )
+        else:
+          values = mit.prepend(value, values)
+      time.sleep(0)
 
 
 def _normalize_args(args, kwargs):
@@ -535,11 +720,6 @@ class Worker:
     self._shutdown_requested = True
     self.state = self._client.futures.shutdown()
     return self.state
-
-
-def _is_courier_timeout(exc: Exception | None) -> bool:
-  # absl::status::kDeadlineExceeded
-  return hasattr(exc, 'code') and exc.code == 4
 
 
 class WorkerPool:
