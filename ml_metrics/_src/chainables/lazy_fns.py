@@ -25,7 +25,7 @@ import inspect
 import itertools as it
 import json
 import operator
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Self, TypeVar
 import uuid
 
 from absl import logging
@@ -123,9 +123,18 @@ class _Makers(collections.UserDict):
 makeables = _Makers()
 
 
-def maybe_make(maybe_lazy: LazyFn[_ValueT] | bytes) -> _ValueT:
+def maybe_make(
+    maybe_lazy: LazyFn[_ValueT] | bytes,
+) -> _ValueT | LazyObject[_ValueT]:
   if isinstance(maybe_lazy, bytes):
     maybe_lazy = pickler.loads(maybe_lazy)
+  result = _maybe_make(maybe_lazy)
+  if isinstance(maybe_lazy, LazyFn) and maybe_lazy.remote:
+    return LazyObject.new(result)
+  return result
+
+
+def _maybe_make(maybe_lazy: LazyFn[_ValueT]) -> _ValueT:
   # User defined maker as an escape path for custom lazy instances.
   if maker := makeables[type(maybe_lazy)]:
     return maker(maybe_lazy)
@@ -264,7 +273,7 @@ class LazyFn(Generic[_ValueT], Callable[..., 'LazyFn']):
       kwargs: Mapping[str, Hashable] | None = None,
       cache_result: bool = False,
       remote: bool = False,
-  ) -> LazyFn[_ValueT]:
+  ) -> Self:
     """Normalizes the arguments before constructing a LazyFn."""
     kwargs = (kwargs or {}).items()
     return cls(
@@ -275,7 +284,7 @@ class LazyFn(Generic[_ValueT], Callable[..., 'LazyFn']):
         remote=remote,
     )
 
-  def __call__(self, *args, **kwargs) -> LazyFn[LazyFn]:
+  def __call__(self, *args, **kwargs) -> Self:
     """Calling a LazyFn records a lazy result of the call.
 
     Note, this does not call the actual function. E.g.,
@@ -298,6 +307,7 @@ class LazyFn(Generic[_ValueT], Callable[..., 'LazyFn']):
         fn=_make,
         args=(self,) + args,
         kwargs=normalize_kwargs(kwargs),
+        remote=self.remote,
     )
 
   def __hash__(self):
@@ -309,18 +319,20 @@ class LazyFn(Generic[_ValueT], Callable[..., 'LazyFn']):
       )
       return hash(self.id)
 
-  def __getattr__(self, name):
+  def __getattr__(self, name) -> Self:
     if name.startswith('__') and name.endswith('__'):
       raise AttributeError
     return self.__class__(
         fn=getattr,
         args=(self, name),
+        remote=self.remote,
     )
 
-  def __getitem__(self, key):
+  def __getitem__(self, key) -> Self:
     return self.__class__(
         fn=operator.getitem,
         args=(self, key),
+        remote=self.remote,
     )
 
   # Overrides to support pickling when getattr is overridden.
@@ -340,8 +352,8 @@ def _cached_make(fn: LazyFn | bytes) -> Any:
     fn = pickler.loads(fn)
   if not fn.fn:
     return None
-  args = tuple(maybe_make(arg) for arg in fn.args)
-  kwargs = {k: maybe_make(v) for k, v in fn.kwargs}
+  args = tuple(_maybe_make(arg) for arg in fn.args)
+  kwargs = {k: _maybe_make(v) for k, v in fn.kwargs}
   if fn.fn is _make:
     assert callable(args[0])
     result = args[0](*args[1:], **kwargs)
@@ -349,20 +361,9 @@ def _cached_make(fn: LazyFn | bytes) -> Any:
     result = fn.fn(*args, **kwargs)
   else:
     raise TypeError(f'fn is not callable from {fn}.')
-  return maybe_make(result)
+  return _maybe_make(result)
 
 
-def _maybe_lazy_object(make_fn: Callable[..., _ValueT]):
-
-  @functools.wraps(make_fn)
-  def wrapped_fn(fn: LazyFn[_ValueT]) -> _ValueT | LazyObject[_ValueT]:
-    result = make_fn(fn)
-    return LazyObject.new(result) if fn.remote else result
-
-  return wrapped_fn
-
-
-@_maybe_lazy_object
 def _make(fn: LazyFn[_ValueT]) -> _ValueT:
   """Instantiate a lazy fn to a actual fn when applicable."""
   if not fn.fn:
@@ -376,8 +377,8 @@ def _make(fn: LazyFn[_ValueT]) -> _ValueT:
     except TypeError as e:
       raise TypeError(f'fn is not hashable: {fn}.') from e
 
-  args = tuple(maybe_make(arg) for arg in fn.args)
-  kwargs = {k: maybe_make(v) for k, v in fn.kwargs}
+  args = tuple(_maybe_make(arg) for arg in fn.args)
+  kwargs = {k: _maybe_make(v) for k, v in fn.kwargs}
   if fn.fn is _make:
     assert callable(args[0])
     result = args[0](*args[1:], **kwargs)
@@ -385,7 +386,7 @@ def _make(fn: LazyFn[_ValueT]) -> _ValueT:
     result = fn.fn(*args, **kwargs)
   else:
     raise TypeError(f'fn is not callable from {fn}.')
-  return maybe_make(result)
+  return _maybe_make(result)
 
 
 makeables.register(LazyFn, _make)
@@ -399,15 +400,16 @@ class LazyObject(Generic[_ValueT]):
   id: int = dataclasses.field(
       default_factory=lambda: next(_increment_id), compare=False
   )
+  remote: bool = False
   gc: bool = dataclasses.field(default=False, hash=False, compare=False)
 
   @classmethod
-  def new(cls, value: _ValueT, *, ref_only: bool = True):
+  def new(cls, value: _ValueT, *, ref_only: bool = True, remote: bool = False):
     if ref_only:
-      result = cls()
+      result = cls(remote=remote)
       _objects[result.id] = value
       return result
-    return cls(value=value)
+    return cls(value=value, remote=remote)
 
   def __hash__(self):
     return hash(self.id)
@@ -415,12 +417,14 @@ class LazyObject(Generic[_ValueT]):
   def set_(self, **kwargs):
     return dataclasses.replace(self, **kwargs)
 
+  # The following are remote builtin methods.
   def __call__(self, *args, **kwargs) -> LazyFn[LazyFn]:
     """Calling a LazyFn records a lazy result of the call."""
     return LazyFn(
         fn=_make,
         args=(self,) + args,
         kwargs=normalize_kwargs(kwargs),
+        remote=self.remote,
     )
 
   def __getattr__(self, name):
@@ -429,12 +433,14 @@ class LazyObject(Generic[_ValueT]):
     return LazyFn(
         fn=getattr,
         args=(self, name),
+        remote=self.remote,
     )
 
   def __getitem__(self, key):
     return LazyFn(
         fn=operator.getitem,
         args=(self, key),
+        remote=self.remote,
     )
 
   # Overrides to support pickling when getattr is overridden.
@@ -530,7 +536,7 @@ def trace(
   return wrapped
 
 
-def trace_object(elem: _ValueT, ref_only: bool = False) -> LazyObject[_ValueT]:
+def trace_object(elem: _ValueT, *, remote: bool = False) -> LazyObject[_ValueT]:
   """Converts an object to a LazyFn by wrapping it in an identify function.
 
   This is useful when the object itself is not a function, and thus cannot be
@@ -544,13 +550,12 @@ def trace_object(elem: _ValueT, ref_only: bool = False) -> LazyObject[_ValueT]:
 
   Args:
     elem: The object to be wrapped as a LazyFn.
-    ref_only: True when the object is only a reference that can be dereferenced
-      later.
+    remote: Any follow up builtin ops like __call__ is also marked as remote.
 
   Returns:
     A LazyFn that wraps the object.
   """
-  return LazyObject.new(elem, ref_only=ref_only)
+  return LazyObject.new(elem, remote=remote, ref_only=False)
 
 
 @dataclasses.dataclass(frozen=True)

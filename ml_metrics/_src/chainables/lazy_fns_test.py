@@ -81,28 +81,34 @@ class LazyFnsTest(parameterized.TestCase):
 
   @parameterized.named_parameters([
       dict(
-          testcase_name='callable',
-          fn=lambda x: x(2),
-          expected=np.array([3, 4]),
-      ),
-      dict(
-          testcase_name='member_fn',
-          fn=lambda x: x.a,
+          testcase_name='member_attr',
+          x=trace(Foo, remote=True)(np.array([1, 2])).a,
           expected=np.array([1, 2]),
       ),
       dict(
-          testcase_name='member_fn_with_index',
-          fn=lambda x: x.a[1],
+          testcase_name='callable',
+          x=trace(Foo, remote=True)(np.array([1, 2]))(2),
+          expected=np.array([3, 4]),
+      ),
+      dict(
+          testcase_name='member_attr_after_call',
+          x=trace(Foo, remote=True)(np.array([1, 2]))(2)[0],
+          expected=3,
+      ),
+      dict(
+          testcase_name='member_attr_with_index',
+          x=trace(Foo, remote=True)(np.array([1, 2])).a[1],
           expected=2,
       ),
   ])
-  def test_lazy_object(self, fn, expected):
-    x = trace(Foo, remote=True)(np.array([1, 2]))
-    x = lazy_fns.maybe_make(x)
-    self.assertIsInstance(x, lazy_fns.LazyObject)
-    x = fn(x)
+  def test_lazy_object_lazy_fn(self, x, expected):
+    lazy_fns._objects.clear()
     self.assertIsInstance(x, lazy_fns.LazyFn)
-    np.testing.assert_array_equal(expected, lazy_fns.maybe_make(x))
+    self.assertTrue(x.remote)
+    lazy_obj = lazy_fns.maybe_make(x)
+    self.assertIsInstance(lazy_obj, lazy_fns.LazyObject)
+    self.assertLen(lazy_fns._objects, 1)
+    np.testing.assert_array_equal(expected, lazy_fns.maybe_make(lazy_obj))
 
   def test_lazy_object_iterator(self):
 
