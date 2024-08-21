@@ -212,10 +212,11 @@ def normalize_kwargs(kwargs: Mapping[str, Hashable]):
 class FnConfig:
   """A readable config that instantiates an in-memory LazyFn.
 
-  The config is a serialized config for the LazyFn. There are two directions
-  these are used: a) this is a readable version of the in-memory LazyFn;
-  b) this can convert a JSON deserializable config to a LazyFn. E.g.,
-  `FnConfig(...).make()` makes a in-memory LazyFn instance.
+  The config is a serialized config for the LazyFn, which can be used in two
+  directions:
+    a) this is a readable version of the in-memory LazyFn;
+    b) this can convert a JSON deserializable config to a LazyFn. E.g.,
+       `FnConfig(...).make()` makes a in-memory LazyFn instance.
 
   Attr:
     fn: The function to be called.
@@ -484,10 +485,9 @@ def trace(
 
   A lazy function is the lazy counterpart of the actual function. We can convert
   a lazy function using `lazy`: fn -> lazy(fn) -> lazy_fn. Calling a lazy
-  counterpart
-  of the function doesn't call the actual function, but record the arguments
-  used to call the function later. To call the actual function, uses.
-  `lazy_fn.call()`. E.g.,
+  counterpart of the function doesn't call the actual function, but record the
+  arguments used to call the function later. To call the actual function, use
+  `chainable.maybe_make(lazy_fn)`. E.g.,
   ```
   lazy_len = lazy(len)()
   # Then:
