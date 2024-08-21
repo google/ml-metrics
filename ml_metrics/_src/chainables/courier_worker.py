@@ -22,6 +22,7 @@ from collections.abc import AsyncIterator, Iterable, Iterator
 from concurrent import futures
 import copy
 import dataclasses
+import functools
 import itertools
 import queue
 import random
@@ -41,6 +42,29 @@ import more_itertools as mit
 _LOGGING_INTERVAL_SEC = 30
 _NUM_TOTAL_FAILURES_THRESHOLD = 60
 _T = TypeVar('_T')
+
+
+@functools.lru_cache(maxsize=128)
+def _cached_client(addr: str, call_timeout: int):
+  return courier.Client(addr, call_timeout=call_timeout)
+
+
+@functools.lru_cache(maxsize=128)
+def _cached_worker(
+    addr: str,
+    *,
+    call_timeout: int = 60,
+    max_parallelism: int = 1,
+    heartbeat_threshold_secs: int = 180,
+    iterate_batch_size: int = 1,
+):
+  return Worker(
+      addr,
+      call_timeout=call_timeout,
+      max_parallelism=max_parallelism,
+      heartbeat_threshold_secs=heartbeat_threshold_secs,
+      iterate_batch_size=iterate_batch_size,
+  )
 
 
 class _FutureLike(Protocol[_T]):
@@ -272,7 +296,7 @@ class RemoteObject(Generic[_T]):
 
   @property
   def _worker(self) -> Worker:
-    return Worker(self.worker_address)
+    return _cached_worker(self.worker_address)
 
   def deref_(self) -> futures.Future[Any]:
     return self._worker.call(self.lazy_object)
@@ -500,8 +524,8 @@ class Worker:
     self._worker_pool = None
     self._shutdown_requested = True if server_name is None else False
     self._pendings = []
-    self._client = courier.Client(self.server_name, call_timeout=call_timeout)
-    self._heartbeat_client = courier.Client(
+    self._client = _cached_client(self.server_name, call_timeout=call_timeout)
+    self._heartbeat_client = _cached_client(
         self.server_name, call_timeout=self.heartbeat_threshold_secs
     )
     self._heartbeat = None
@@ -528,7 +552,7 @@ class Worker:
 
   def set_timeout(self, call_timeout: int):
     self._call_timeout = call_timeout
-    self._client = courier.Client(
+    self._client = _cached_client(
         self.server_name, call_timeout=self.call_timeout
     )
 
@@ -737,7 +761,7 @@ class WorkerPool:
       iterate_batch_size: int = 0,
   ):
     if all(isinstance(name, str) for name in names_or_workers):
-      self._workers = [Worker(name) for name in names_or_workers]
+      self._workers = [_cached_worker(name) for name in names_or_workers]
     elif all(isinstance(worker, Worker) for worker in names_or_workers):
       self._workers = typing.cast(list[Worker], list(names_or_workers))
     else:
