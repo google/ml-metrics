@@ -18,7 +18,7 @@ import re
 from typing import Any
 
 
-def _convert_to_sequence(
+def _maybe_tuple(
     reference: str | Sequence[str],
 ) -> Sequence[str]:
   """Converts reference to a sequence if it is a single string."""
@@ -56,7 +56,7 @@ def token_count(text: str, tokenizer: Callable[[str], Sequence[Any]]) -> int:
 
 def exact_match(sample: str, reference: str | Sequence[str]) -> bool:
   """Computes the exact match between sample and reference."""
-  references = _convert_to_sequence(reference)
+  references = _maybe_tuple(reference)
   return any(sample == ref for ref in references)
 
 
@@ -64,7 +64,7 @@ def sample_startswith_reference_match(
     sample: str, reference: str | Sequence[str]
 ) -> bool:
   """True when the sample starts with reference."""
-  references = _convert_to_sequence(reference)
+  references = _maybe_tuple(reference)
   return any(sample.startswith(ref) for ref in references)
 
 
@@ -72,7 +72,7 @@ def reference_startswith_sample_match(
     sample: str, reference: str | Sequence[str]
 ) -> bool:
   """True when the reference starts with sample."""
-  references = _convert_to_sequence(reference)
+  references = _maybe_tuple(reference)
   return any(ref.startswith(sample) for ref in references)
 
 
@@ -80,7 +80,7 @@ def reference_in_sample_match(
     sample: str, reference: str | Sequence[str]
 ) -> bool:
   """True when the reference in sample match."""
-  references = _convert_to_sequence(reference)
+  references = _maybe_tuple(reference)
   return any(ref in sample for ref in references)
 
 
@@ -88,7 +88,7 @@ def sample_in_reference_match(
     sample: str, reference: str | Sequence[str]
 ) -> bool:
   """True when the sample in reference match."""
-  references = _convert_to_sequence(reference)
+  references = _maybe_tuple(reference)
   return any(sample in ref for ref in references)
 
 
