@@ -18,6 +18,15 @@ import re
 from typing import Any
 
 
+def _convert_to_sequence(
+    reference: str | Sequence[str],
+) -> Sequence[str]:
+  """Converts reference to a sequence if it is a single string."""
+  if isinstance(reference, str):
+    return (reference,)
+  return reference
+
+
 def alphabetical_char_count(text: str) -> int:
   """Computes the number of alphabetical characters."""
   return len(re.sub(r'[^a-zA-Z]', '', text))
@@ -45,29 +54,42 @@ def token_count(text: str, tokenizer: Callable[[str], Sequence[Any]]) -> int:
   return len(tokenizer(text))
 
 
-def exact_match(sample: str, reference: str) -> bool:
+def exact_match(sample: str, reference: str | Sequence[str]) -> bool:
   """Computes the exact match between sample and reference."""
-  return sample == reference
+  references = _convert_to_sequence(reference)
+  return any(sample == ref for ref in references)
 
 
-def sample_startswith_reference_match(sample: str, reference: str) -> bool:
+def sample_startswith_reference_match(
+    sample: str, reference: str | Sequence[str]
+) -> bool:
   """True when the sample starts with reference."""
-  return sample.startswith(reference)
+  references = _convert_to_sequence(reference)
+  return any(sample.startswith(ref) for ref in references)
 
 
-def reference_startswith_sample_match(sample: str, reference: str) -> bool:
+def reference_startswith_sample_match(
+    sample: str, reference: str | Sequence[str]
+) -> bool:
   """True when the reference starts with sample."""
-  return reference.startswith(sample)
+  references = _convert_to_sequence(reference)
+  return any(ref.startswith(sample) for ref in references)
 
 
-def reference_in_sample_match(sample: str, reference: str) -> bool:
+def reference_in_sample_match(
+    sample: str, reference: str | Sequence[str]
+) -> bool:
   """True when the reference in sample match."""
-  return reference in sample
+  references = _convert_to_sequence(reference)
+  return any(ref in sample for ref in references)
 
 
-def sample_in_reference_match(sample: str, reference: str) -> bool:
+def sample_in_reference_match(
+    sample: str, reference: str | Sequence[str]
+) -> bool:
   """True when the sample in reference match."""
-  return sample in reference
+  references = _convert_to_sequence(reference)
+  return any(sample in ref for ref in references)
 
 
 def non_ascii_char_count(text: str) -> int:
