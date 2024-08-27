@@ -359,8 +359,6 @@ class SymmetricPredictionDifference(base.MergeableMetric):
   difference between two input values. For two input values x and y, the
   pointwise symmetric relative prediction difference is defined as
   2 * |x - y| / |x + y|.
-
-  This metric comes from tf-model-analysis.
   """
 
   num_samples: int = 0
