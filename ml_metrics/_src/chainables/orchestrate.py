@@ -137,13 +137,9 @@ def sharded_pipelines_as_iterator(
 @dataclasses.dataclass(kw_only=True)
 class StageState:
   state: futures.Future[Any]
-  result_queue: queue.Queue[Any]
+  result_queue: iter_utils.IteratorQueue[Any]
   name: str = ''
-  _progress: list[int]
-
-  @property
-  def progress(self) -> int:
-    return self._progress[0] if self._progress else -1
+  progress: iter_utils.Progress | None = None
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -153,8 +149,8 @@ class RunnerState:
   stages: list[StageState]
 
   @property
-  def progress(self) -> int:
-    return self.stages[-1].progress if self.stages else -1
+  def progress(self) -> iter_utils.Progress | None:
+    return self.stages[-1].progress if self.stages else None
 
   def wait(self, mode=futures.FIRST_EXCEPTION):
     return futures.wait(
@@ -163,9 +159,9 @@ class RunnerState:
     )
 
   def iterate(self) -> Iterator[Any]:
-    return iter_utils.dequeue_as_iterator(self.stages[-1].result_queue)
+    return self.stages[-1].result_queue.dequeue_as_iterator()
 
-  def stage_progress(self) -> list[int]:
+  def stage_progress(self) -> list[iter_utils.Progress | None]:
     return [s.progress for s in self.stages]
 
   def done(self):
@@ -204,7 +200,7 @@ def _async_run_single_stage(
     *,
     thread_pool: futures.ThreadPoolExecutor,
     resource: RunnerResource,
-    input_queue: queue.Queue[Any] | None = None,
+    input_queue: iter_utils.IteratorQueue[Any] | None = None,
     ignore_failures: bool = False,
 ) -> StageState:
   """Asyncronously runs a single stage."""
@@ -217,11 +213,10 @@ def _async_run_single_stage(
     raise ValueError(
         'chainables: AggregateTransform is not supported with worker_pool.'
     )
-  result_q = queue.Queue(maxsize=resource.buffer_size)
+  result_q = iter_utils.IteratorQueue(queue.Queue(maxsize=resource.buffer_size))
   input_iterator = None
   if input_queue is not None:
-    input_iterator = iter_utils.dequeue_as_iterator(input_queue)
-  progress = [0]
+    input_iterator = input_queue.dequeue_as_iterator()
 
   def _iterate_with_worker_pool():
     assert worker_pool is not None
@@ -232,30 +227,19 @@ def _async_run_single_stage(
         ),
         ignore_failures=ignore_failures,
     )
-    for i, _ in enumerate(
-        iter_utils.enqueue_from_iterator(
-            (task.result() for task in completed_tasks), result_q
-        )
-    ):
-      progress[0] = i + 1
+    result_q.enqueue_from_iterator((task.result() for task in completed_tasks))
 
   def _iterate_in_process():
-    for i, _ in enumerate(
-        iter_utils.enqueue_from_iterator(
-            transform.make(recursive=False).iterate(
-                input_iterator=input_iterator
-            ),
-            result_q,
-        )
-    ):
-      progress[0] = i
+    result_q.enqueue_from_iterator(
+        transform.make(recursive=False).iterate(input_iterator=input_iterator)
+    )
 
   iterate_fn = _iterate_with_worker_pool if worker_pool else _iterate_in_process
   return StageState(
       state=thread_pool.submit(iterate_fn),
       result_queue=result_q,
       name=transform.name,
-      _progress=progress,
+      progress=result_q.progress,
   )
 
 

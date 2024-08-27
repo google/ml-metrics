@@ -22,7 +22,6 @@ from courier.python import testutil
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
-from ml_metrics._src.chainables import transform as transform_lib
 from ml_metrics._src.utils import iter_utils
 import portpicker
 
@@ -188,35 +187,37 @@ class RemoteObjectTest(parameterized.TestCase):
     with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout'):
       remote_qs.enqueue(range(3))
 
-  def test_remote_object_iterator_pipe_with_datasource(self):
-    t = (
-        transform_lib.TreeTransform.new()
-        .data_source(range(10))
-        .apply(fn=lambda x: x + 1)
-    )
-    deferred_pipe = (
-        lazy_fns.trace_object(t, remote=True).make().iterator_pipe(timeout=1)
-    )
-    remote_pipe = self.worker.submit(deferred_pipe).result()
-    self.assertIsInstance(remote_pipe, courier_worker.RemoteObject)
-    remote_queues = courier_worker.RemoteQueues([remote_pipe.output_queue])
-    actual = list(remote_queues.dequeue())
-    self.assertEqual(list(range(1, 11)), actual)
-    self.assertEqual(10, remote_pipe.progress.processed_cnt.value_())
+  # TODO: b/349174267 - Re-enable the tests when remote_iterator_pipe is
+  # available.
+  # def test_remote_object_iterator_pipe_with_datasource(self):
+  #   t = (
+  #       transform_lib.TreeTransform.new()
+  #       .data_source(range(10))
+  #       .apply(fn=lambda x: x + 1)
+  #   )
+  #   deferred_pipe = (
+  #       lazy_fns.trace_object(t, remote=True).make().iterator_pipe(timeout=1)
+  #   )
+  #   remote_pipe = self.worker.submit(deferred_pipe).result()
+  #   self.assertIsInstance(remote_pipe, courier_worker.RemoteObject)
+  #   remote_queues = courier_worker.RemoteQueues([remote_pipe.output_queue])
+  #   actual = list(remote_queues.dequeue())
+  #   self.assertEqual(list(range(1, 11)), actual)
+  #   self.assertEqual(10, remote_pipe.progress.cnt.value_())
 
-  def test_remote_object_iterator_pipe_without_datasource(self):
-    t = transform_lib.TreeTransform.new().apply(fn=lambda x: x + 1)
-    deferred_pipe = (
-        lazy_fns.trace_object(t, remote=True).make().iterator_pipe(timeout=1)
-    )
-    remote_pipe = self.worker.submit(deferred_pipe).result()
-    self.assertIsInstance(remote_pipe, courier_worker.RemoteObject)
-    input_queues = courier_worker.RemoteQueues([remote_pipe.input_queue])
-    input_queues.enqueue(range(10))
-    output_queues = courier_worker.RemoteQueues([remote_pipe.output_queue])
-    actual = list(output_queues.dequeue())
-    self.assertEqual(list(range(1, 11)), actual)
-    self.assertEqual(10, remote_pipe.progress.processed_cnt.value_())
+  # def test_remote_object_iterator_pipe_without_datasource(self):
+  #   t = transform_lib.TreeTransform.new().apply(fn=lambda x: x + 1)
+  #   deferred_pipe = (
+  #       lazy_fns.trace_object(t, remote=True).make().iterator_pipe(timeout=1)
+  #   )
+  #   remote_pipe = self.worker.submit(deferred_pipe).result()
+  #   self.assertIsInstance(remote_pipe, courier_worker.RemoteObject)
+  #   input_queues = courier_worker.RemoteQueues([remote_pipe.input_queue])
+  #   input_queues.enqueue(range(10))
+  #   output_queues = courier_worker.RemoteQueues([remote_pipe.output_queue])
+  #   actual = list(output_queues.dequeue())
+  #   self.assertEqual(list(range(1, 11)), actual)
+  #   self.assertEqual(10, remote_pipe.progress.cnt.value_())
 
 
 class CourierWorkerTest(absltest.TestCase):

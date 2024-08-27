@@ -205,7 +205,7 @@ class TransformTest(parameterized.TestCase):
     pipe = t.make().iterator_pipe(timeout=3)
     self.assertIsNone(pipe.input_queue)
     self.assertIsNotNone(pipe.output_queue)
-    actual = list(iter_utils.dequeue_as_iterator(pipe.output_queue))
+    actual = list(pipe.output_queue.dequeue_as_iterator())
     self.assertEqual([1, 2, 3], actual)
 
   def test_transform_iterator_pipe_normal(self):
@@ -213,8 +213,8 @@ class TransformTest(parameterized.TestCase):
     pipe = t.make().iterator_pipe(timeout=3)
     self.assertIsNotNone(pipe.input_queue)
     self.assertIsNotNone(pipe.output_queue)
-    mit.last(iter_utils.enqueue_from_iterator(range(3), pipe.input_queue))
-    actual = list(iter_utils.dequeue_as_iterator(pipe.output_queue))
+    pipe.input_queue.enqueue_from_iterator(range(3))
+    actual = list(pipe.output_queue.dequeue_as_iterator())
     self.assertEqual([1, 2, 3], actual)
 
   def test_transform_unique_ids_with_each_op(self):

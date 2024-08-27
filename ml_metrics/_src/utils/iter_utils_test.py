@@ -64,22 +64,21 @@ class UtilsTest(parameterized.TestCase):
     self.assertIsNotNone(iter_pipe.input_queue)
     self.assertIsNotNone(iter_pipe.output_queue)
     iter_pipe = iter_pipe.submit_to(self.thread_pool)
-    mit.last(iter_utils.enqueue_from_iterator(range(10), iter_pipe.input_queue))
-    self.assertEqual(10, iter_pipe.state.result())
-    actual = list(iter_utils.dequeue_as_iterator(iter_pipe.output_queue))
+    iter_pipe.input_queue.enqueue_from_iterator(range(10))
+    self.assertIsNone(iter_pipe.state.result())
+    actual = list(iter_pipe.output_queue.dequeue_as_iterator())
     self.assertEqual(list(range(1, 11)), actual)
 
-  def test_iterator_pipe_source(self):
-
+  def test_iterator_pipe_source_only(self):
     iter_pipe = iter_utils.IteratorPipe.new(
         range(10), input_qsize=None, timeout=1
     ).submit_to(self.thread_pool)
-    self.assertEqual(9, iter_pipe.state.result())
-    actual = list(iter_utils.dequeue_as_iterator(iter_pipe.output_queue))
-    self.assertEqual(list(range(10)), actual)
     self.assertIsNone(iter_pipe.input_queue)
+    self.assertIsNone(iter_pipe.state.result())
+    actual = list(iter_pipe.output_queue.dequeue_as_iterator())
+    self.assertEqual(list(range(10)), actual)
 
-  def test_iterator_pipe_sink(self):
+  def test_iterator_pipe_sink_only(self):
 
     def consumer(iterator):
       for x in iterator:
@@ -91,10 +90,10 @@ class UtilsTest(parameterized.TestCase):
     self.assertIsNone(iter_pipe.output_queue)
     self.assertIsNotNone(iter_pipe.input_queue)
     iter_pipe = iter_pipe.submit_to(self.thread_pool)
-    mit.last(iter_utils.enqueue_from_iterator(range(10), iter_pipe.input_queue))
+    iter_pipe.input_queue.enqueue_from_iterator(range(10))
     self.assertIsNone(iter_pipe.state.result())
     # Nothing dequeued from output.
-    self.assertEqual(10, iter_pipe.progress.processed_cnt)
+    self.assertEqual(10, iter_pipe.progress.cnt)
 
   def test_iterator_pipe_timeout(self):
 
@@ -106,8 +105,8 @@ class UtilsTest(parameterized.TestCase):
     )
     self.assertIsNotNone(iter_pipe.output_queue)
     self.assertIsNotNone(iter_pipe.input_queue)
-    iter_pipe.input_queue.put(0)
-    with self.assertRaisesRegex(TimeoutError, '(De|En)queue timeout after'):
+    iter_pipe.input_queue.queue.put(0)
+    with self.assertRaisesRegex(TimeoutError, '(De|En)queue timeout'):
       iter_pipe._state.result()
 
   def test_enqueue_dequeue_from_generator(self):
@@ -116,16 +115,22 @@ class UtilsTest(parameterized.TestCase):
     actual = list(iter_utils.dequeue_as_iterator(q))
     self.assertSequenceEqual(expected, actual)
 
+  def test_iterator_queue_enqueue_dequeue(self):
+    q = iter_utils.IteratorQueue(queue.SimpleQueue())
+    q.enqueue_from_iterator(range(10))
+    actual = list(q.dequeue_as_iterator())
+    self.assertSequenceEqual(list(range(10)), actual)
+
   def test_enqueue_from_generator_timeout(self):
-    q = queue.Queue(maxsize=1)
-    with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout after'):
-      list(iter_utils.enqueue_from_iterator(range(2), q, timeout=0.1))
+    q = iter_utils.IteratorQueue(queue.Queue(maxsize=1), timeout=0.1)
+    with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout'):
+      q.enqueue_from_iterator(range(2))
 
   def test_dequeue_from_generator_timeout(self):
-    q = queue.Queue(maxsize=1)
-    q.put(1)
-    with self.assertRaisesRegex(TimeoutError, 'Dequeue timeout after'):
-      list(iter_utils.dequeue_as_iterator(q, timeout=0.1))
+    q = iter_utils.IteratorQueue(queue.Queue(maxsize=1), timeout=0.1)
+    q.queue.put(1)
+    with self.assertRaisesRegex(TimeoutError, 'Dequeue timeout'):
+      mit.last(q.dequeue_as_iterator())
 
   def test_prefetched_iterator(self):
     iterator = iter_utils.PrefetchedIterator(range(10), prefetch_size=2)
