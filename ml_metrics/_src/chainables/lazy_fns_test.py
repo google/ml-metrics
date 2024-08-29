@@ -74,49 +74,71 @@ class LazyFnsTest(parameterized.TestCase):
     lazy_fns.pickler.register(custom_pickler)
     self.pickler = lazy_fns.pickler
 
-  def test_maybe_make(self):
-    self.assertEqual(3, lazy_fns.maybe_make(lazy_fns.trace(len)([1, 2, 3])))
-    pickled = self.pickler.dumps(lazy_fns.trace(len)([1, 2, 3]))
-    self.assertEqual(3, lazy_fns.maybe_make(pickled))
-
   @parameterized.named_parameters([
       dict(
+          testcase_name='self',
+          x=trace(len)([1, 2, 3], lazy_result_=True),
+          expected=3,
+      ),
+      dict(
           testcase_name='member_attr',
-          x=trace(Foo, remote=True)(np.array([1, 2])).a,
+          x=trace(Foo)(np.array([1, 2]), lazy_result_=True).a,
           expected=np.array([1, 2]),
       ),
       dict(
           testcase_name='callable',
-          x=trace(Foo, remote=True)(np.array([1, 2]))(2),
+          x=trace(Foo)(np.array([1, 2]), lazy_result_=True)(2),
           expected=np.array([3, 4]),
       ),
       dict(
           testcase_name='member_attr_after_call',
-          x=trace(Foo, remote=True)(np.array([1, 2]))(2)[0],
+          x=trace(Foo)(np.array([1, 2]), lazy_result_=True)(2)[0],
           expected=3,
       ),
       dict(
           testcase_name='member_attr_with_index',
-          x=trace(Foo, remote=True)(np.array([1, 2])).a[1],
+          x=trace(Foo)(np.array([1, 2]), lazy_result_=True).a[1],
           expected=2,
       ),
   ])
-  def test_lazy_object_lazy_fn(self, x, expected):
-    lazy_fns._objects.clear()
-    self.assertIsInstance(x, lazy_fns.LazyFn)
-    self.assertTrue(x.remote)
+  def test_lazy_object_lazy_result(self, x, expected):
+    lazy_fns.clear_object()
+    self.assertIsInstance(x, (lazy_fns.LazyFn, lazy_fns.LazyObject))
     lazy_obj = lazy_fns.maybe_make(x)
-    self.assertIsInstance(lazy_obj, lazy_fns.LazyObject)
-    self.assertLen(lazy_fns._objects, 1)
     np.testing.assert_array_equal(expected, lazy_fns.maybe_make(lazy_obj))
+    self.assertEqual(lazy_fns.object_info().currsize, 1)
+
+  @parameterized.named_parameters([
+      dict(testcase_name='int', a=trace(3), b=trace(3)),
+      dict(testcase_name='number', a=trace(3.0), b=trace(3)),
+      dict(
+          testcase_name='int_not_equal_lazy',
+          a=lazy_fns.LazyObject.new(10),
+          b=trace(10),
+          equal=False,
+      ),
+      dict(
+          testcase_name='lazy_not_equal',
+          a=lazy_fns.LazyObject.new(10),
+          b=lazy_fns.LazyObject.new(10),
+          equal=False,
+      ),
+  ])
+  def test_lazy_object_equal(self, a, b, equal=True):
+    if equal:
+      self.assertEqual(a, b)
+    else:
+      self.assertNotEqual(a, b)
 
   def test_lazy_object_iterator(self):
 
     def foo_genrator(n):
       yield from range(n)
 
-    x = trace(foo_genrator, remote=True)(3)
+    x = trace(foo_genrator)(3, lazy_result_=True)
     x = lazy_fns.maybe_make(x)
+    self.assertIsInstance(x, lazy_fns.LazyObject)
+    self.assertIsNone(x.value)
     actual = []
     while (value := lazy_fns.maybe_make(trace(next)(x, None))) is not None:
       actual.append(value)
@@ -131,53 +153,59 @@ class LazyFnsTest(parameterized.TestCase):
       q.put(None)
       return q
 
-    x = trace(foo_q, remote=True)(3)
+    x = trace(foo_q)(3, lazy_result_=True)
     x = lazy_fns.maybe_make(x)
     self.assertIsInstance(x, lazy_fns.LazyObject)
     actual = []
     while (value := lazy_fns.maybe_make(x.get())) is not None:
       actual.append(value)
-    self.assertEqual(actual, [0, 1, 2])
-    lazy_fns.maybe_make(x.set_(gc=True))
-    self.assertIsNone(lazy_fns.maybe_make(x))
+    self.assertEqual([0, 1, 2], actual)
+    self.assertIsInstance(x.result_(), queue.SimpleQueue)
 
-  def test_lazy_object_collect(self):
-    x = trace(len, remote=True)([1, 2, 3])
-    x = lazy_fns.maybe_make(x)
-    self.assertIsInstance(x, lazy_fns.LazyObject)
-    self.assertEqual(3, lazy_fns.maybe_make(x.set_(gc=True)))
-    # Can only deference at most once.
-    self.assertIsNone(lazy_fns.maybe_make(x))
-
-  @parameterized.named_parameters(
+  @parameterized.named_parameters([
       dict(
-          testcase_name='callable',
-          lazy_f=lazy_fns.trace_object(Foo(1))(2),
+          testcase_name='constant',
+          x=trace(3),
+          expected=3,
+      ),
+      dict(
+          testcase_name='function',
+          x=trace(len)([1, 2, 3]),
+          expected=3,
+      ),
+      dict(
+          testcase_name='constructor',
+          x=lazy_fns.trace(Foo(1))(2),
           expected=3,
       ),
       dict(
           testcase_name='member_fn',
-          lazy_f=lazy_fns.trace_object(Foo(1)).c(),
+          x=lazy_fns.trace(Foo(1)).c(),
           expected=[1, 2, 3],
       ),
       dict(
           testcase_name='member_fn_with_index',
-          lazy_f=lazy_fns.trace_object(Foo(1)).c()[1],
+          x=lazy_fns.trace(Foo(1)).c()[1],
           expected=2,
       ),
       dict(
           testcase_name='member_attr',
-          lazy_f=lazy_fns.trace_object(Foo(1)).a,
+          x=lazy_fns.trace(Foo(1)).a,
           expected=1,
       ),
       dict(
-          testcase_name='pickled',
-          lazy_f=pickle.dumps(lazy_fns.trace_object(Foo(1))(2)),
+          testcase_name='member_attr_after_call',
+          x=trace(Foo)(np.array([1, 2]))(2)[0],
           expected=3,
       ),
-  )
-  def test_maybe_make_from_traced_object(self, lazy_f, expected):
-    self.assertEqual(expected, lazy_fns.maybe_make(lazy_f))
+      dict(
+          testcase_name='pickled',
+          x=pickle.dumps(lazy_fns.trace(Foo(1))(2)),
+          expected=3,
+      ),
+  ])
+  def test_maybe_make_from_traced_object(self, x, expected):
+    self.assertEqual(expected, lazy_fns.maybe_make(x))
 
   def test_pickler_register_assertion(self):
     with self.assertRaises(TypeError):
@@ -198,7 +226,7 @@ class LazyFnsTest(parameterized.TestCase):
   def test_maybe_make_cached_normal(self):
     lazy_fns.clear_cache()
     self.assertEqual(lazy_fns.cache_info().hits, 0)
-    lazy_foo = trace(Foo, use_cache=True)(a=1)
+    lazy_foo = trace(Foo)(a=1, cache_result_=True)
     self.assertEqual(Foo(a=1)(x=1), maybe_make(trace(get)(lazy_foo)(x=1)))
     with mock.patch.object(Foo, '__init__', autospec=True) as mock_cached_make:
       maybe_make(lazy_foo)
@@ -213,7 +241,7 @@ class LazyFnsTest(parameterized.TestCase):
     # calls with their args.
     lazy_fns.clear_cache()
     self.assertEqual(lazy_fns.cache_info().hits, 0)
-    lazy_foo = trace(Foo, use_cache=True)(a=1)
+    lazy_foo = trace(Foo)(a=1, cache_result_=True)
     maybe_make(lazy_foo(x=1))
     with mock.patch.object(Foo, '__call__', autospec=True) as mock_cached_make:
       maybe_make(lazy_foo(x=1))
@@ -223,16 +251,16 @@ class LazyFnsTest(parameterized.TestCase):
   def test_maybe_make_cached_by_id(self):
     lazy_fns.clear_cache()
     # list is not hashable, hash should fall back by id.
-    lazy_foo = trace(Foo, use_cache=True)(np.array([1, 2, 3]))(1)
+    lazy_foo = trace(Foo)(np.array([1, 2, 3]))(1, cache_result_=True)
     np.testing.assert_array_equal([2, 3, 4], maybe_make(lazy_foo))
-    with mock.patch.object(Foo, '__init__', autospec=True) as mock_cached_make:
+    with mock.patch.object(Foo, '__call__', autospec=True) as mock_cached_make:
       maybe_make(lazy_foo)
       mock_cached_make.assert_not_called()
     self.assertEqual(lazy_fns.cache_info().hits, 1)
 
   def test_lazy_fn_not_makeabe_raise_typeerror(self):
     with self.assertRaises(TypeError):
-      maybe_make(lazy_fns.LazyFn(fn=3))
+      maybe_make(lazy_fns.LazyFn(value=3))
 
   def test_lazy_fn_pickling(self):
     lazy_foo = trace(Foo)(a=trace(get)('a'))
@@ -241,7 +269,7 @@ class LazyFnsTest(parameterized.TestCase):
   def test_lazy_fn_returns_lazy(self):
     lazy_foo = trace(foo)(1, 2, 3, a='a', b='b')
     expected = lazy_fns.LazyFn.new(
-        foo,
+        trace(foo),
         args=(1, 2, 3),
         kwargs=dict(a='a', b='b'),
     )
@@ -253,7 +281,7 @@ class LazyFnsTest(parameterized.TestCase):
     self.assertEqual(foo(1, 2, 3, a='a', b='b'), maybe_make(lazy_foo))
 
   def test_lazy_fn_none(self):
-    lazy_none = trace(None)()
+    lazy_none = trace(None)
     self.assertIsNone(maybe_make(lazy_none))
 
   def test_lazy_fn_fn(self):

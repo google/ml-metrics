@@ -141,13 +141,13 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
 
   @functools.cached_property
   def lazy(self):
-    return lazy_fns.makeables[type(self.fn)] is not None
+    return lazy_fns.is_makeable(self.fn)
 
   @functools.cached_property
   def actual_fn(self) -> FnT:
     if self.lazy:
       # self.fn is always LazyFn if self.lazy is True.
-      return lazy_fns.maybe_make(typing.cast(lazy_fns.LazyFn, self.fn))
+      return lazy_fns.maybe_make(typing.cast(lazy_fns.LazyObject, self.fn))
     return self.fn
 
   @functools.cached_property

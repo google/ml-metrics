@@ -222,7 +222,7 @@ def _async_run_single_stage(
     assert worker_pool is not None
     completed_tasks = worker_pool.as_completed(
         (
-            lazy_fns.trace_object(transform).make(recursive=False)(batch)
+            lazy_fns.trace(transform).make(recursive=False)(batch)
             for batch in input_iterator
         ),
         ignore_failures=ignore_failures,

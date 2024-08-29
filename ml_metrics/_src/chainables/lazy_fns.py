@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import collections
 from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
-import dataclasses
+import dataclasses as dc
 import functools
 import importlib
 import inspect
@@ -31,10 +31,44 @@ import uuid
 from absl import logging
 import cloudpickle as pickle
 from ml_metrics._src import base_types
+from ml_metrics._src.utils import func_utils
 
+_KeyT = TypeVar('_KeyT')
 _ValueT = TypeVar('_ValueT')
 Fn = Callable[..., _ValueT]
-_objects = {}
+
+
+def _lru_cache(maxsize: int):
+  """A function decorator to makes it lru cached with the cached dict."""
+
+  lazy_obj_cache = func_utils.LruCache(maxsize=maxsize)
+
+  def decorator(fn: Callable[..., Any]):
+
+    def wrapped_fn(x: LazyObject[_ValueT]) -> _ValueT:
+      if x.cache_result:
+        try:
+          return lazy_obj_cache[x]
+        except KeyError as e:
+          if isinstance(x, LazyFn):
+            result = fn(x)
+            lazy_obj_cache[x] = result
+            return result
+          else:
+            raise KeyError(
+                'The local object is missing, likely the cache'
+                'was mistakenly cleared, or is resolved in'
+                f'a wrong worker, object:{x}'
+            ) from e
+      else:
+        return fn(x)
+
+    wrapped_fn.cache_info = lazy_obj_cache.cache_info
+    wrapped_fn.cache_clear = lazy_obj_cache.cache_clear
+    wrapped_fn.cache_add = lazy_obj_cache.cache_insert
+    return wrapped_fn
+
+  return decorator
 
 
 def _shortened_uuid(b: bytes, length: int) -> int:
@@ -47,20 +81,18 @@ def _shortened_uuid(b: bytes, length: int) -> int:
   return _shortened_uuid(b, length=length)
 
 
-@dataclasses.dataclass(slots=True)
+@dc.dataclass(slots=True)
 class IncrementId(Iterator[int]):
   """An ID that increments everytime. Used to track local object."""
 
-  id_len: dataclasses.InitVar[int]
-  _inc_iter: Iterator[int] = dataclasses.field(
-      default_factory=it.count, init=False
-  )
-  _max_id: int = dataclasses.field(init=False, default=0)
-  _half_id_len: int = dataclasses.field(
+  id_len: dc.InitVar[int]
+  _inc_iter: Iterator[int] = dc.field(default_factory=it.count, init=False)
+  _max_id: int = dc.field(init=False, default=0)
+  _half_id_len: int = dc.field(
       default=0,
       init=False,
   )
-  _base: int = dataclasses.field(default=0, init=False)
+  _base: int = dc.field(default=0, init=False)
 
   def __post_init__(self, id_len: int):
     self._half_id_len, residual = divmod(id_len, 2)
@@ -85,7 +117,7 @@ _increment_id = IncrementId(id_len=8)
 
 
 # TODO: b/318463291 - support heterogeneous (de)serializations methods.
-@dataclasses.dataclass
+@dc.dataclass
 class _Pickler:
   """Pickler that can be registered at run time.."""
 
@@ -123,22 +155,21 @@ class _Makers(collections.UserDict):
 makeables = _Makers()
 
 
-def maybe_make(
-    maybe_lazy: LazyFn[_ValueT] | bytes,
-) -> _ValueT | LazyObject[_ValueT]:
-  if isinstance(maybe_lazy, bytes):
-    maybe_lazy = pickler.loads(maybe_lazy)
-  result = _maybe_make(maybe_lazy)
-  if isinstance(maybe_lazy, LazyFn) and maybe_lazy.remote:
-    return LazyObject.new(result)
-  return result
-
-
-def _maybe_make(maybe_lazy: LazyFn[_ValueT]) -> _ValueT:
-  # User defined maker as an escape path for custom lazy instances.
-  if maker := makeables[type(maybe_lazy)]:
+def _maybe_make(maybe_lazy: _ValueT | LazyObject[_ValueT]) -> _ValueT:
+  if isinstance(maybe_lazy, LazyObject):
+    return maybe_lazy.result_()
+  elif maker := makeables[type(maybe_lazy)]:
     return maker(maybe_lazy)
   return maybe_lazy
+
+
+def maybe_make(
+    maybe_lazy: LazyObject[_ValueT] | bytes,
+) -> _ValueT | LazyObject[_ValueT]:
+  """Dereference a lazy object or lazy function when applicable."""
+  if isinstance(maybe_lazy, bytes):
+    maybe_lazy = pickler.loads(maybe_lazy)
+  return _maybe_make(maybe_lazy)
 
 
 def _as_awaitable(fn: Callable[..., Any], *args, **kwargs):
@@ -208,7 +239,7 @@ def normalize_kwargs(kwargs: Mapping[str, Hashable]):
   return tuple(kwargs.items())
 
 
-@dataclasses.dataclass(kw_only=True, frozen=True)
+@dc.dataclass(kw_only=True, frozen=True)
 class FnConfig:
   """A readable config that instantiates an in-memory LazyFn.
 
@@ -228,8 +259,8 @@ class FnConfig:
 
   fn: str
   module: str = ''
-  args: list[Any] = dataclasses.field(default_factory=list)
-  kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+  args: list[Any] = dc.field(default_factory=list)
+  kwargs: dict[str, Any] = dc.field(default_factory=dict)
 
   @classmethod
   def from_json_str(cls, json_str: str):
@@ -243,244 +274,219 @@ class FnConfig:
     return LazyFn.new(actual_fn, args=self.args, kwargs=self.kwargs)
 
 
-@dataclasses.dataclass(kw_only=True, frozen=True)
-class LazyFn(Generic[_ValueT], Callable[..., 'LazyFn']):
-  """A lazy function that has all the information to be called later.
+@dc.dataclass(kw_only=True, frozen=True)
+class LazyObject(Generic[_ValueT]):
+  """A remote object that can be pickled.
 
   Attributes:
-    fn: The function to be called.
-    args: The positional arguments later used to pass in the fn.
-    kwargs: The named arguments later used to pass in the fn.
-    cache_result: If True, cache the result of the make LazyFn.
-    remote: If True, return a LazyObject instead of the actual result.
+    value: The function to be called.
+    is_lazy: If True, the instance value is not stored.
     id: The id of the LazyFn that persists across processes.
+    cache_result: If True, cache the result of the make LazyFn.
+    lazy_result: If True, return a LazyObject instead of the actual result.
   """
 
-  fn: Callable[..., _ValueT] | LazyFn | None = None
-  args: tuple[Hashable | LazyFn, ...] = ()
-  kwargs: tuple[tuple[str, Hashable | LazyFn], ...] = ()
-  cache_result: bool = False
-  remote: bool = False
-  id: int = dataclasses.field(
-      default_factory=lambda: next(_increment_id), compare=False
-  )
+  value: _ValueT | None = None
+  _cache_result: bool = False
+  _lazy_result: bool = False
+  _id: int = dc.field(default_factory=lambda: next(_increment_id), init=False)
 
   @classmethod
   def new(
       cls,
-      fn: Callable[..., _ValueT] | None = None,
+      value: _ValueT,
+      *,
+      cache_result: bool = True,
+  ):
+    """Creates and LazyObject, optionally with the value stored locally."""
+    if cache_result:
+      result = cls(value=None, _cache_result=True)
+      # Direct insert to the cache without retrieving.
+      result.result_.cache_add(result, value)
+      return result
+    return cls(value=value, _cache_result=False)
+
+  @property
+  def id(self):
+    return self._id
+
+  @property
+  def cache_result(self):
+    return self._cache_result
+
+  @property
+  def lazy_result(self):
+    return self._lazy_result
+
+  def __hash__(self) -> int:
+    if not self._cache_result:
+      try:
+        return hash(self.value)
+      except TypeError:
+        # Fall back to hashing on id when value failed.
+        pass
+    return hash(self.id)
+
+  def __eq__(self, other: Self) -> bool:
+    if self.id == other.id:
+      return True
+    if not self._cache_result and not other._cache_result:
+      return self.value == other.value
+    return False
+
+  def set_(self, **kwargs):
+    return dc.replace(self, **kwargs)
+
+  @_lru_cache(maxsize=128)
+  def result_(self) -> _ValueT:
+    """Dereference the lazy object."""
+    result = self.value
+    if self._lazy_result:
+      result = LazyObject.new(result)
+    return result
+
+  # Overrides to support pickling when getattr is overridden.
+  def __getstate__(self):
+    return dict(self.__dict__)
+
+  # Overrides to support pickling when getattr is overridden.
+  def __setstate__(self, state):
+    self.__dict__.update(state)
+
+  # The following are remote builtin methods.
+  def __call__(
+      self,
+      *args,
+      cache_result_: bool = False,
+      lazy_result_: bool = False,
+      **kwargs,
+  ) -> LazyFn:
+    """Calling a LazyFn records a lazy result of the call."""
+    if lazy_result_ and cache_result_:
+      raise ValueError(
+          'The result of a traced call cannot be both lazy and cached.'
+          f'calling: {self} with {args=}, {kwargs=}'
+      )
+    return LazyFn.new(
+        value=self,
+        args=args,
+        kwargs=kwargs,
+        lazy_result=lazy_result_,
+        cache_result=cache_result_,
+    )
+
+  def __getattr__(self, name) -> LazyFn:
+    if name.startswith('__') and name.endswith('__'):
+      raise AttributeError
+    return LazyFn.new(
+        value=getattr,
+        args=(self, name),
+    )
+
+  def __getitem__(self, key) -> LazyFn:
+    return LazyFn.new(
+        value=operator.getitem,
+        args=(self, key),
+    )
+
+
+@dc.dataclass(kw_only=True, frozen=True)
+class LazyFn(LazyObject[_ValueT]):
+  """A lazy function that has all the information to be called later.
+
+  Attributes:
+    value: The function to be called.
+    args: The positional arguments later used to pass in the fn.
+    kwargs: The named arguments later used to pass in the fn.
+    cache_result: If True, cache the result of the make LazyFn.
+    lazy_result: If True, return a LazyObject instead of the actual result.
+    id: The id of the LazyFn that persists across processes.
+  """
+
+  args: tuple[Hashable | LazyFn, ...] = ()
+  kwargs: tuple[tuple[str, Hashable | LazyFn], ...] = ()
+
+  @classmethod
+  def new(
+      cls,
+      value: Callable[..., _ValueT] | None = None,
       *,
       args: Sequence[Hashable] = (),
       kwargs: Mapping[str, Hashable] | None = None,
       cache_result: bool = False,
-      remote: bool = False,
+      lazy_result: bool = False,
   ) -> Self:
     """Normalizes the arguments before constructing a LazyFn."""
-    kwargs = (kwargs or {}).items()
     return cls(
-        fn=fn,
+        value=value,
         args=tuple(args),
-        kwargs=tuple(kwargs),
-        cache_result=cache_result,
-        remote=remote,
+        kwargs=normalize_kwargs(kwargs or {}),
+        _cache_result=cache_result,
+        _lazy_result=lazy_result,
     )
 
-  def __call__(self, *args, **kwargs) -> Self:
-    """Calling a LazyFn records a lazy result of the call.
-
-    Note, this does not call the actual function. E.g.,
-    ```
-    def foo(x):
-      return lambda y: x + y
-    lazy_foo = LazyFn.new(fn=foo)
-    ```
-    lazy_foo(1)(2) is the lazy version of foo(1)(2) and
-    call(lazy_foo(1)(2)) == foo(1)(2).
-
-    Args:
-      *args: positional args.
-      **kwargs: keyword args.
-
-    Returns:
-      A new LazyFn that traces the call of the current LazyFn.
-    """
-    return self.__class__(
-        fn=_make,
-        args=(self,) + args,
-        kwargs=normalize_kwargs(kwargs),
-        remote=self.remote,
-    )
-
-  def __hash__(self):
+  def __hash__(self) -> int:
     try:
-      return hash((self.fn, self.args, self.kwargs))
-    except TypeError as e:
-      logging.exception(
-          'chainables: hashing failed back up to id, original exception: %s.', e
-      )
+      return hash((self.value, self.args, self.kwargs))
+    except TypeError:
+      # logging.exception('chainables: hashing failed, fall back to id.')
       return hash(self.id)
 
-  def __getattr__(self, name) -> Self:
-    if name.startswith('__') and name.endswith('__'):
-      raise AttributeError
-    return self.__class__(
-        fn=getattr,
-        args=(self, name),
-        remote=self.remote,
+  def __eq__(self, other: Self):
+    if self.id == other.id:
+      return True
+    return (
+        self.value == other.value
+        and self.args == other.args
+        and self.kwargs == other.kwargs
     )
 
-  def __getitem__(self, key) -> Self:
-    return self.__class__(
-        fn=operator.getitem,
-        args=(self, key),
-        remote=self.remote,
-    )
-
-  # Overrides to support pickling when getattr is overridden.
-  def __getstate__(self):
-    return dict(self.__dict__)
-
-  # Overrides to support pickling when getattr is overridden.
-  def __setstate__(self, state):
-    self.__dict__.update(state)
-
-
-@functools.lru_cache(maxsize=64)
-def _cached_make(fn: LazyFn | bytes) -> Any:
-  """Instantiate a lazy fn to a actual fn when applicable."""
-  logging.info('chainables: cache miss, making %s', fn)
-  if isinstance(fn, bytes):
-    fn = pickler.loads(fn)
-  if not fn.fn:
-    return None
-  args = tuple(_maybe_make(arg) for arg in fn.args)
-  kwargs = {k: _maybe_make(v) for k, v in fn.kwargs}
-  if fn.fn is _make:
-    assert callable(args[0])
-    result = args[0](*args[1:], **kwargs)
-  elif callable(fn.fn):
-    result = fn.fn(*args, **kwargs)
-  else:
-    raise TypeError(f'fn is not callable from {fn}.')
-  return _maybe_make(result)
-
-
-def _make(fn: LazyFn[_ValueT]) -> _ValueT:
-  """Instantiate a lazy fn to a actual fn when applicable."""
-  if not fn.fn:
-    return None
-  if fn.cache_result:
-    # In case the fn is not hash-able, we use the default pickler to pickle it
-    # to bytes first then cache it.
-    try:
-      logging.info('chainables: attempt to fetch from cache %s', fn)
-      return _cached_make(fn)
-    except TypeError as e:
-      raise TypeError(f'fn is not hashable: {fn}.') from e
-
-  args = tuple(_maybe_make(arg) for arg in fn.args)
-  kwargs = {k: _maybe_make(v) for k, v in fn.kwargs}
-  if fn.fn is _make:
-    assert callable(args[0])
-    result = args[0](*args[1:], **kwargs)
-  elif callable(fn.fn):
-    result = fn.fn(*args, **kwargs)
-  else:
-    raise TypeError(f'fn is not callable from {fn}.')
-  return _maybe_make(result)
-
-
-makeables.register(LazyFn, _make)
-
-
-@dataclasses.dataclass(frozen=True)
-class LazyObject(Generic[_ValueT]):
-  """A remote object that can be pickled."""
-
-  value: _ValueT | None = None
-  id: int = dataclasses.field(
-      default_factory=lambda: next(_increment_id), compare=False
-  )
-  remote: bool = False
-  gc: bool = dataclasses.field(default=False, hash=False, compare=False)
-
-  @classmethod
-  def new(cls, value: _ValueT, *, ref_only: bool = True, remote: bool = False):
-    if ref_only:
-      result = cls(remote=remote)
-      _objects[result.id] = value
-      return result
-    return cls(value=value, remote=remote)
-
-  def __hash__(self):
-    return hash(self.id)
-
-  def set_(self, **kwargs):
-    return dataclasses.replace(self, **kwargs)
-
-  # The following are remote builtin methods.
-  def __call__(self, *args, **kwargs) -> LazyFn[LazyFn]:
-    """Calling a LazyFn records a lazy result of the call."""
-    return LazyFn(
-        fn=_make,
-        args=(self,) + args,
-        kwargs=normalize_kwargs(kwargs),
-        remote=self.remote,
-    )
-
-  def __getattr__(self, name):
-    if name.startswith('__') and name.endswith('__'):
-      raise AttributeError
-    return LazyFn(
-        fn=getattr,
-        args=(self, name),
-        remote=self.remote,
-    )
-
-  def __getitem__(self, key):
-    return LazyFn(
-        fn=operator.getitem,
-        args=(self, key),
-        remote=self.remote,
-    )
-
-  # Overrides to support pickling when getattr is overridden.
-  def __getstate__(self):
-    return dict(self.__dict__)
-
-  # Overrides to support pickling when getattr is overridden.
-  def __setstate__(self, state):
-    self.__dict__.update(state)
-
-
-def _dereference(lazy_object: LazyObject[_ValueT]) -> _ValueT | None:
-  """Dereference the lazy object."""
-  if lazy_object.value:
-    return lazy_object.value
-
-  if lazy_object.gc:
-    return _objects.pop(lazy_object.id, None)
-  return _objects.get(lazy_object.id, None)
-
-
-makeables.register(LazyObject, _dereference)
+  @_lru_cache(maxsize=128)
+  def result_(self):
+    """Instantiate a lazy fn to a actual fn when applicable."""
+    if self.value is None:
+      result = None
+    else:
+      fn = _maybe_make(self.value)
+      if not callable(fn):
+        raise TypeError(f'fn is not callable from {self}.')
+      args = tuple(_maybe_make(arg) for arg in self.args)
+      kwargs = {k: _maybe_make(v) for k, v in self.kwargs}
+      result = _maybe_make(fn(*args, **kwargs))
+    if self._lazy_result:
+      result = LazyObject.new(result)
+    return result
 
 
 def clear_cache():
   """Clear the cache for maybe_make."""
-  _cached_make.cache_clear()
+  LazyFn.result_.cache_clear()
 
 
 def cache_info():
-  """Returns the cache info for maybe_make."""
-  return _cached_make.cache_info()
+  """Returns the cache info for lazy_fn."""
+  return LazyFn.result_.cache_info()
+
+
+def object_info():
+  """Returns the cache info for lazy_objects."""
+  return LazyObject.result_.cache_info()
+
+
+def clear_object():
+  """Returns the cache info for lazy_objects."""
+  return LazyObject.result_.cache_clear()
+
+
+def is_makeable(obj: Any):
+  return isinstance(obj, LazyObject) or makeables[type(obj)] is not None
 
 
 def trace(
-    fn: Callable[..., _ValueT],
+    value: _ValueT,
+    *,
     use_cache: bool = False,
-    remote: bool = False,
-) -> Callable[..., LazyFn[_ValueT]]:
+) -> LazyObject[_ValueT]:
   """Traces a callable to record the function and its arguments.
 
   A lazy function is the lazy counterpart of the actual function. We can convert
@@ -516,49 +522,23 @@ def trace(
   ```
 
   Args:
-    fn: The fn to be called lazily.
-    use_cache: If True, uses cache for the result of the make LazyFn.
-    remote: If True, returns a LazyObject instead of the actual result.
+    value: The value to be dereferenced or called lazily.
+    use_cache: Deprecated, uses cache_result instead.
 
   Returns:
     A function that records the fn and its arguments to be called later.
   """
-
-  def wrapped(*args, **kwargs):
-    return LazyFn.new(
-        fn,
-        args=args,
-        kwargs=kwargs,
-        cache_result=use_cache,
-        remote=remote,
+  if use_cache:
+    logging.warning(
+        '`use_cache` is deprecated, please directly use `cache_result_` at the'
+        ' callsite. E.g., trace(Model)(path="", cache_result_=True).'
+        'traced value: %s',
+        value,
     )
-
-  return wrapped
-
-
-def trace_object(elem: _ValueT, *, remote: bool = False) -> LazyObject[_ValueT]:
-  """Converts an object to a LazyFn by wrapping it in an identify function.
-
-  This is useful when the object itself is not a function, and thus cannot be
-  used directly with `trace`, but the user still wants to access its attributes
-  lazily.
-
-  Example usage:
-    trace_object(f).make()  # if f has a member function make;
-    trace_oject(f).x  # if f has an attribute x;
-    trace_object(f)[0]  # if f is indexable.
-
-  Args:
-    elem: The object to be wrapped as a LazyFn.
-    remote: Any follow up builtin ops like __call__ is also marked as remote.
-
-  Returns:
-    A LazyFn that wraps the object.
-  """
-  return LazyObject.new(elem, remote=remote, ref_only=False)
+  return LazyObject.new(value, cache_result=False)
 
 
-@dataclasses.dataclass(frozen=True)
+@dc.dataclass(frozen=True)
 class MakeableLazyFn(base_types.Makeable[_ValueT]):
   """Wraps a LazyFn to be used as a Makeable."""
 

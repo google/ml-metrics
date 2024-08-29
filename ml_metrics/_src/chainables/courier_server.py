@@ -54,8 +54,6 @@ class CourierServerWrapper:
 
   def set_up(self) -> None:
     """Set up (e.g. binding to methods) at server build time."""
-    # Verify the registered makeables.
-    assert lazy_fns.makeables[lazy_fns.LazyFn] is not None
 
     def shutdown():
       self._shutdown_requested[_DEFAULT] = True

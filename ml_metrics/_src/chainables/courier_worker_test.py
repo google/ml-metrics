@@ -88,17 +88,18 @@ class RemoteObjectTest(parameterized.TestCase):
 
   def test_remote_object_self(self):
     remote_value = self.worker.submit(
-        lazy_fns.trace(len, remote=True)([1, 2, 3])
+        lazy_fns.trace(len)([1, 2, 3], lazy_result_=True)
     ).result()
     self.assertIsInstance(remote_value, courier_worker.RemoteObject)
     self.assertEqual(3, remote_value.value_())
-    remote_value = remote_value.set_(gc=True)
-    self.assertEqual(3, remote_value.value_())
-    self.assertIsNone(remote_value.value_())
+    # TODO: b/349174267 - Re-enable remote GC when it is supported.
+    # remote_value = remote_value.value_(gc=True)
+    # self.assertEqual(3, remote_value.value_())
+    # self.assertIsNone(remote_value.value_())
 
   def test_remote_object_with_index(self):
     remote_value = self.worker.submit(
-        lazy_fns.trace(tuple, remote=True)([1, 2, 3])
+        lazy_fns.trace(tuple)([1, 2, 3], lazy_result_=True)
     ).result()
     self.assertIsInstance(remote_value, courier_worker.RemoteObject)
     self.assertIsInstance(remote_value[1], courier_worker.RemoteObject)
@@ -106,7 +107,7 @@ class RemoteObjectTest(parameterized.TestCase):
 
   def test_remote_object_with_attr(self):
     remote_value = self.worker.submit(
-        lazy_fns.trace(list, remote=True)([1, 2, 3])
+        lazy_fns.trace(list)([1, 2, 3], lazy_result_=True)
     ).result()
     self.assertIsInstance(remote_value, courier_worker.RemoteObject)
     self.assertIsInstance(remote_value.pop(), courier_worker.RemoteObject)
@@ -114,7 +115,7 @@ class RemoteObjectTest(parameterized.TestCase):
 
   def test_remote_object_queue(self):
     remote_queue = self.worker.submit(
-        lazy_fns.trace(lazy_q_fn, remote=True)(3)
+        lazy_fns.trace(lazy_q_fn)(3, lazy_result_=True)
     ).result()
     actual = []
     while not iter_utils.is_stop_iteration(
@@ -124,7 +125,7 @@ class RemoteObjectTest(parameterized.TestCase):
     self.assertEqual(actual, [0, 1, 2])
 
   def test_remote_queue_dequeue_normal(self):
-    fns = [lazy_fns.trace(lazy_q_fn, remote=True)(2) for _ in range(3)]
+    fns = [lazy_fns.trace(lazy_q_fn)(2, lazy_result_=True) for _ in range(3)]
     remote_qs = courier_worker.RemoteQueues(
         self.worker.submit(fn).result() for fn in fns
     )
@@ -133,7 +134,8 @@ class RemoteObjectTest(parameterized.TestCase):
 
   def test_remote_queue_dequeue_timeout(self):
     fns = [
-        lazy_fns.trace(lazy_q_fn, remote=True)(2, stop=False) for _ in range(3)
+        lazy_fns.trace(lazy_q_fn)(2, stop=False, lazy_result_=True)
+        for _ in range(3)
     ]
     remote_qs = courier_worker.RemoteQueues(
         (self.worker.submit(fn).result() for fn in fns), timeout_secs=1
@@ -164,7 +166,7 @@ class RemoteObjectTest(parameterized.TestCase):
         base_qsize + (1 if i < residual else 0) for i in range(num_queues)
     ]
     fns = [
-        lazy_fns.trace(queue.Queue, remote=True)(maxsize=q_size)
+        lazy_fns.trace(queue.Queue)(maxsize=q_size, lazy_result_=True)
         for q_size in q_sizes
     ]
     remote_qs = courier_worker.RemoteQueues(
@@ -178,7 +180,7 @@ class RemoteObjectTest(parameterized.TestCase):
 
   def test_remote_queue_enqueue_timeout(self):
     fns = [
-        lazy_fns.trace(queue.Queue, remote=True)(maxsize=q_size)
+        lazy_fns.trace(queue.Queue)(maxsize=q_size, lazy_result_=True)
         for q_size in [1, 1, 1]
     ]
     remote_qs = courier_worker.RemoteQueues(
@@ -196,7 +198,7 @@ class RemoteObjectTest(parameterized.TestCase):
   #       .apply(fn=lambda x: x + 1)
   #   )
   #   deferred_pipe = (
-  #       lazy_fns.trace_object(t, remote=True).make().iterator_pipe(timeout=1)
+  #       lazy_fns.trace(t, lazy_result=True).make().iterator_pipe(timeout=1)
   #   )
   #   remote_pipe = self.worker.submit(deferred_pipe).result()
   #   self.assertIsInstance(remote_pipe, courier_worker.RemoteObject)
@@ -208,7 +210,7 @@ class RemoteObjectTest(parameterized.TestCase):
   # def test_remote_object_iterator_pipe_without_datasource(self):
   #   t = transform_lib.TreeTransform.new().apply(fn=lambda x: x + 1)
   #   deferred_pipe = (
-  #       lazy_fns.trace_object(t, remote=True).make().iterator_pipe(timeout=1)
+  #       lazy_fns.trace(t, lazy_result=True).make().iterator_pipe(timeout=1)
   #   )
   #   remote_pipe = self.worker.submit(deferred_pipe).result()
   #   self.assertIsInstance(remote_pipe, courier_worker.RemoteObject)
@@ -521,15 +523,15 @@ class CourierWorkerGroupTest(absltest.TestCase):
     self.assertEqual([2] * 3, actual)
 
   def test_worker_cache_info(self):
-    self.worker_pool.run(lazy_fns.trace(len, use_cache=True)((1, 2)))
+    self.worker_pool.run(lazy_fns.trace(len)((1, 2), cache_result_=True))
     hits = self.worker_pool.idle_workers()[0].cache_info().hits
-    self.worker_pool.run(lazy_fns.trace(len, use_cache=True)((1, 2)))
+    self.worker_pool.run(lazy_fns.trace(len)((1, 2), cache_result_=True))
     new_hits = self.worker_pool.idle_workers()[0].cache_info().hits
     self.assertEqual(new_hits - hits, 1)
 
   def test_worker_cache_by_id(self):
     # The list is not hashable, this will fall back to hashing by id.
-    fn = lazy_fns.trace(len, use_cache=True)([1, 2])
+    fn = lazy_fns.trace(len)([1, 2], cache_result_=True)
     self.worker_pool.run(fn)
     hits = self.worker_pool.idle_workers()[0].cache_info().hits
     self.worker_pool.run(fn)

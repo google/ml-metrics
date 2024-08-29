@@ -26,7 +26,6 @@ from ml_metrics._src.chainables.lazy_fns import makeables
 from ml_metrics._src.chainables.lazy_fns import maybe_make
 from ml_metrics._src.chainables.lazy_fns import pickler
 from ml_metrics._src.chainables.lazy_fns import trace
-from ml_metrics._src.chainables.lazy_fns import trace_object
 from ml_metrics._src.chainables.transform import AggregateResult
 from ml_metrics._src.chainables.transform import AggregateTransform
 from ml_metrics._src.chainables.transform import iterate_with_returned
