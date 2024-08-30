@@ -41,9 +41,8 @@ Fn = Callable[..., _ValueT]
 def _lru_cache(maxsize: int):
   """A function decorator to makes it lru cached with the cached dict."""
 
-  lazy_obj_cache = func_utils.LruCache(maxsize=maxsize)
-
   def decorator(fn: Callable[..., Any]):
+    lazy_obj_cache = func_utils.LruCache(maxsize=maxsize)
 
     def wrapped_fn(x: LazyObject[_ValueT]) -> _ValueT:
       if x.cache_result:
