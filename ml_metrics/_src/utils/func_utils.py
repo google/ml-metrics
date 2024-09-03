@@ -12,21 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Internal function utils, not meant to be used by users."""
+
 import collections
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+import copy
 import dataclasses as dc
+import functools
+import itertools as itt
 from typing import TypeVar
+import more_itertools as mit
+
 
 _KeyT = TypeVar('_KeyT')
 _ValueT = TypeVar('_ValueT')
 
 
-@dc.dataclass(slots=True, kw_only=True, frozen=True)
+@dc.dataclass(slots=True, frozen=True)
 class _CacheInfo:
   hits: int
   misses: int
-  maxsize: int
   currsize: int
+  maxsize: int = 0
 
 
 class LruCache(Mapping[_KeyT, _ValueT]):
@@ -81,3 +87,40 @@ class LruCache(Mapping[_KeyT, _ValueT]):
         maxsize=self.maxsize,
         currsize=self.currsize,
     )
+
+
+def cache_without_kwargs(
+    fn=None, *, except_for: Iterable[str] = (), maxsize: int = 128
+):
+  """Cache by the positional and specified keyword arguments."""
+
+  arg_names = {k for k in except_for if isinstance(k, str)}
+
+  def decorator(fn):
+    cache_ = LruCache(maxsize=maxsize)
+
+    @functools.wraps(fn)
+    def wrapped(*args, **kwargs):
+      is_in_arg_names = lambda x: x[0] in arg_names
+      others, hashed = mit.partition(is_in_arg_names, kwargs.items())
+      key = hash(tuple(itt.chain(args, hashed)))
+      try:
+        result = cache_[key]
+      except KeyError:
+        result = fn(*args, **kwargs)
+        cache_[key] = result
+        return result
+
+      result_new = None
+      for k, v in others:
+        if v != getattr(result, k):
+          if result_new is None:
+            result_new = copy.copy(result)
+          setattr(result_new, k, v)
+      return result_new if result_new is not None else result
+
+    wrapped.cache_info = cache_.cache_info
+    wrapped.cache_clear = cache_.cache_clear
+    return wrapped
+
+  return decorator if fn is None else decorator(fn)

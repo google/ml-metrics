@@ -11,8 +11,80 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import dataclasses as dc
 from absl.testing import absltest
 from ml_metrics._src.utils import func_utils
+
+
+@dc.dataclass()
+class Foo:
+  a: int
+  _b: int = 0
+  c: int = 0
+
+  @property
+  def b(self):
+    return self._b
+
+  @b.setter
+  def b(self, value):
+    self._b = value
+
+  def __eq__(self, other):
+    return self.a == other.a and self.b == other.b and self.c == other.c
+
+
+class CacheByKwargsTest(absltest.TestCase):
+
+  def test_without_kwargs(self):
+    foo_cached = func_utils.cache_without_kwargs()(Foo)
+    self.assertEqual(Foo(1, 0, 0), foo_cached(1))
+    self.assertEqual(Foo(1, 100, 100), foo_cached(1, b=100, c=100))
+    self.assertEqual(foo_cached.cache_info().hits, 1)
+
+  def test_ignore_kwargs(self):
+
+    foo_cached = func_utils.cache_without_kwargs()(Foo)
+    self.assertEqual(Foo(1, 10, 0), foo_cached(1, _b=10))
+    self.assertEqual(Foo(1, 100, 100), foo_cached(1, b=100, c=100))
+    self.assertEqual(Foo(1, 10, 0), foo_cached(1, b=10))
+
+  def test_cache_partial_kwargs(self):
+    foo_cached = func_utils.cache_without_kwargs(except_for=['c'])(Foo)
+    self.assertEqual(Foo(1, 0, 10), foo_cached(1, c=10))
+    self.assertEqual(Foo(1, 100, 10), foo_cached(1, b=100, c=10))
+    self.assertEqual(Foo(1, 10, 10), foo_cached(1, b=10, c=10))
+
+  def test_cache_info(self):
+    foo_cached = func_utils.cache_without_kwargs()(Foo)
+    foo_cached(1, c=10)
+    foo_cached(1, b=100, c=100)
+    foo_cached(1, b=10, c=100)
+    self.assertEqual(foo_cached.cache_info().hits, 2)
+    self.assertEqual(foo_cached.cache_info().misses, 1)
+    self.assertEqual(foo_cached.cache_info().currsize, 1)
+
+  def test_attribute_error_raises(self):
+
+    def foo(a, b=1):
+      return (a, b)
+
+    foo_cached = func_utils.cache_without_kwargs()(foo)
+    self.assertEqual((1, 1), foo_cached(1, b=1))
+
+    with self.assertRaises(AttributeError):
+      # b is not an attr in the result of foo, thus, cannot uses this kind of
+      # caching mechanism by setting the uncached attr afterwards.
+      foo_cached(1, b=10)
+
+  def test_cache_clear(self):
+    foo_cached = func_utils.cache_without_kwargs()(Foo)
+    foo_cached(1)
+    foo_cached(1, b=10, c=100)
+    foo_cached.cache_clear()
+    self.assertEqual(foo_cached.cache_info().hits, 0)
+    self.assertEqual(foo_cached.cache_info().misses, 0)
+    self.assertEqual(foo_cached.cache_info().currsize, 0)
 
 
 class LruCacheTest(absltest.TestCase):

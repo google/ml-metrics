@@ -35,6 +35,7 @@ from absl import logging
 import courier
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
+from ml_metrics._src.utils import func_utils
 from ml_metrics._src.utils import iter_utils
 import more_itertools as mit
 
@@ -44,12 +45,12 @@ _NUM_TOTAL_FAILURES_THRESHOLD = 60
 _T = TypeVar('_T')
 
 
-@functools.lru_cache(maxsize=128)
+@functools.lru_cache
 def _cached_client(addr: str, call_timeout: int):
   return courier.Client(addr, call_timeout=call_timeout)
 
 
-@functools.lru_cache(maxsize=128)
+@func_utils.cache_without_kwargs
 def _cached_worker(
     addr: str,
     *,
