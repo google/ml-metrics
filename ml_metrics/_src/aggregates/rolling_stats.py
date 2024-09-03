@@ -26,6 +26,124 @@ from ml_metrics._src.utils import math_utils
 import numpy as np
 
 
+@dataclasses.dataclass(slots=True)
+class Bucket:
+  """Bucket for Calibration Histogram."""
+  bucket_id: int
+  sum_labels: float
+  sum_predictions: float
+  num_examples: float
+
+  def merge(self, other: 'Bucket') -> None:
+    if self.bucket_id != other.bucket_id:
+      raise ValueError(
+          "Cannot merge buckets with different bucket_id's, but recieved"
+          f' self.bucket_id={self.bucket_id} and'
+          f' other.bucket_id={other.bucket_id}.'
+      )
+
+    self.sum_labels += other.sum_labels
+    self.sum_predictions += other.sum_predictions
+    self.num_examples += other.num_examples
+
+
+@dataclasses.dataclass(slots=True)
+class CalibrationHistogram(base.MergeableMetric):
+  """Computes the Calibration Histogram.
+
+  The Calibration Histogram is a histogram of the predictions and labels.
+  The histogram is organized by sorting the labels and predictions into buckets
+  based on the prediction or label values. Then, the sum of the labels, sum of
+  the predictions, and the number of examples in each bucket are computed.
+
+  Attributes:
+    num_buckets: The number of buckets to use. Note, the actual number of
+      buckets will be num_buckets + 2 to account for the edge cases.
+    left_boundary: The start of the predictions or labels interval.
+    right_boundary: The end of the predictions or labels interval.
+    prediction_based_bucketing: If True, use the predictions to set the bucket
+      indices. If False, use the labels.
+    _histogram: A dictionary of the buckets. The keys are the bucket_id's and
+      the values are the buckets. Note, the bucket_id's in the buckets are the
+      same as its key in self._histogram.
+  """
+
+  num_buckets: int = 10000
+  left_boundary: float = 0
+  right_boundary: float = 1
+  prediction_based_bucketing: bool = True
+  _histogram: dict[int, Bucket] = dataclasses.field(default_factory=dict)
+
+  def _bucket_indices(self, values: types.NumbersT) -> types.NumbersT:
+    """Returns the clipped bucket indices."""
+    bucket_indices = (values - self.left_boundary) / (
+        self.right_boundary - self.left_boundary
+    ) * self.num_buckets + 1
+
+    return np.floor(
+        np.clip(bucket_indices, a_min=0, a_max=self.num_buckets + 1)
+    ).astype(int)
+
+  def _add_bucket_to_histogram(self, bucket: Bucket) -> None:
+    if bucket.bucket_id in self._histogram:
+      self._histogram[bucket.bucket_id].merge(bucket)
+    else:
+      self._histogram[bucket.bucket_id] = bucket
+
+  def add(
+      self, labels: types.NumbersT, predictions: types.NumbersT
+  ) -> 'CalibrationHistogram':
+    labels = np.asarray(labels)
+    predictions = np.asarray(predictions)
+
+    # Get the Bucket IDs.
+    bucket_ids = self._bucket_indices(
+        predictions if self.prediction_based_bucketing else labels
+    )
+
+    # Save the indices of the bucket_ids if it was sorted, in the original
+    # order.
+    indices_of_sorted_bucket_ids = np.argsort(bucket_ids)
+
+    # Sort bucket_ids.
+    bucket_ids = bucket_ids[indices_of_sorted_bucket_ids]
+
+    # Get the unique Bucket IDs, the indices of the first occurrence of each
+    # unique Bucket ID (in the sorted array), and the number of times each
+    # unique Bucket ID exists in this batch.
+    bucket_ids, unique_bucket_ids_indices, num_examples_per_bucket = np.unique(
+        bucket_ids, return_counts=True, return_index=True
+    )
+
+    # Split the indices into arrays corresponding to each unique bucket ID.
+    indices_per_bucket = np.split(
+        indices_of_sorted_bucket_ids, unique_bucket_ids_indices[1:]
+    )
+
+    for bucket_id, indices, num_examples in zip(
+        bucket_ids, indices_per_bucket, num_examples_per_bucket
+    ):
+      self._add_bucket_to_histogram(
+          Bucket(
+              bucket_id=bucket_id,
+              sum_labels=sum(labels[indices]),
+              sum_predictions=sum(predictions[indices]),
+              num_examples=num_examples,
+          )
+      )
+
+    return self
+
+  def merge(self, other: 'CalibrationHistogram') -> 'CalibrationHistogram':
+    for bucket in other.result():
+      self._add_bucket_to_histogram(bucket)
+
+    return self
+
+  def result(self) -> list[Bucket]:
+    return [bucket for _, bucket in sorted(self._histogram.items())]
+
+
 @dataclasses.dataclass(kw_only=True)
 class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
   """Computes the mean and variance of a batch of values."""

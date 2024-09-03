@@ -24,6 +24,264 @@ import numpy as np
 from absl.testing import absltest
 
 
+class CalibrationHistogramTest(absltest.TestCase):
+
+  def test_calibration_histogram_simple(self):
+    labels = (0, 1, 0, 1, 1, 1, 0, 1)
+    predictions = (0.2, 0.8, 0.5, -0.1, 0.5, 0.8, 0.2, 1.1)
+
+    calibration_histogram = (
+        rolling_stats.CalibrationHistogram().add(labels, predictions).result()
+    )
+
+    # bucket_id = (prediction - state.left_boundary) / (
+    #     state.right_boundary - state.left_boundary
+    # ) * state.num_buckets + 1
+    # = (prediction - 0) / (1 - 0) * 10000 + 1
+    # = prediction * 10000 + 1
+
+    # Note, this is clipped into [0, state.num_buckets + 1] = [0, 10001]
+
+    expected_result = [
+        rolling_stats.Bucket(
+            bucket_id=0,  # -0.1 * 10000 + 1 = -999 --> 0
+            sum_labels=1,  # labels[3] = 1
+            sum_predictions=-0.1,  # predictions[3] = -0.1
+            num_examples=1,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=2001,  # 0.2 * 10000 + 1 = 2001
+            sum_labels=0,  # labels[0] + labels[6] = 0 + 0 = 0
+            # predictions[0] + predictions[6] = 0.2 + 0.2 = 0.4
+            sum_predictions=0.4,
+            num_examples=2,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=5001,  # 0.5 * 10000 + 1 = 5001
+            sum_labels=1,  # labels[2] + labels[4] = 0 + 1 = 1
+            # predictions[2] + predictions[4] = 0.5 + 0.5 = 1
+            sum_predictions=1,
+            num_examples=2,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=8001,  # 0.8 * 10000 + 1 = 8001
+            sum_labels=2,  # labels[1] + labels[5] = 1 + 1 = 2
+            # predictions[1] + predictions[5] = 0.8 + 0.8 = 1.6
+            sum_predictions=1.6,
+            num_examples=2,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=10001,  # 1.1 * 10000 + 1 = 11001 --> 10001
+            sum_labels=1,  # labels[7] = 1
+            sum_predictions=1.1,  # predictions[7] = 1.1
+            num_examples=1,
+        ),
+    ]
+
+    self.assertSequenceEqual(calibration_histogram, expected_result)
+
+  def test_calibration_histogram_label_based_bucketing(self):
+    # This is very similar to
+    # CalibrationHistogramTest.test_calibration_histogram_simple, but the labels
+    # and predictions are swapped.
+    labels = (0.2, 0.8, 0.5, -0.1, 0.5, 0.8, 0.2, 1.1)
+    predictions = (0, 1, 0, 1, 1, 1, 0, 1)
+
+    calibration_histogram = (
+        rolling_stats.CalibrationHistogram(prediction_based_bucketing=False)
+        .add(labels, predictions)
+        .result()
+    )
+
+    expected_result = [
+        rolling_stats.Bucket(
+            bucket_id=0,
+            sum_labels=-0.1,
+            sum_predictions=1,
+            num_examples=1,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=2001,
+            sum_labels=0.4,
+            sum_predictions=0,
+            num_examples=2,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=5001,
+            sum_labels=1,
+            sum_predictions=1,
+            num_examples=2,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=8001,
+            sum_labels=1.6,
+            sum_predictions=2,
+            num_examples=2,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=10001,
+            sum_labels=1.1,
+            sum_predictions=1,
+            num_examples=1,
+        ),
+    ]
+
+    self.assertSequenceEqual(calibration_histogram, expected_result)
+
+  def test_calibration_histogram_merge(self):
+    labels_1 = (0, 1, 0, 1)
+    labels_2 = (1, 1, 0, 1)
+    predictions_1 = (0.2, 0.8, 0.5, -0.1)
+    predictions_2 = (0.5, 0.8, 0.2, 1.1)
+
+    calibration_histogram_1 = rolling_stats.CalibrationHistogram().add(
+        labels_1, predictions_1
+    )
+    calibration_histogram_2 = rolling_stats.CalibrationHistogram().add(
+        labels_2, predictions_2
+    )
+    actual_result = calibration_histogram_1.merge(calibration_histogram_2)
+
+    # Same caluclations as
+    # CalibrationHistogramTest.test_calibration_histogram_simple.
+    expected_histogram = {
+        0: rolling_stats.Bucket(
+            bucket_id=0, sum_labels=1, sum_predictions=-0.1, num_examples=1
+        ),
+        2001: rolling_stats.Bucket(
+            bucket_id=2001, sum_labels=0, sum_predictions=0.4, num_examples=2,
+        ),
+        5001: rolling_stats.Bucket(
+            bucket_id=5001, sum_labels=1, sum_predictions=1, num_examples=2,
+        ),
+        8001: rolling_stats.Bucket(
+            bucket_id=8001, sum_labels=2, sum_predictions=1.6, num_examples=2,
+        ),
+        10001: rolling_stats.Bucket(
+            bucket_id=10001, sum_labels=1, sum_predictions=1.1, num_examples=1,
+        ),
+    }
+
+    self.assertEqual(actual_result.num_buckets, 10000)
+    self.assertEqual(actual_result.left_boundary, 0)
+    self.assertEqual(actual_result.right_boundary, 1)
+    self.assertDictEqual(actual_result._histogram, expected_histogram)
+
+  def test_calibration_histogram_one_large_batch(self):
+    np.random.seed(seed=0)
+
+    labels = np.random.uniform(low=-1e6, high=1e6, size=1000000)
+    predictions = np.random.uniform(low=-1e6, high=1e6, size=1000000)
+
+    actual_result = (
+        rolling_stats.CalibrationHistogram().add(labels, predictions).result()
+    )
+
+    expected_result = [
+        rolling_stats.Bucket(
+            bucket_id=0,
+            sum_labels=222595767.67539597,
+            sum_predictions=-250368876694.32257,
+            num_examples=499685,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=10001,
+            sum_labels=552800473.8703976,
+            sum_predictions=250157690217.9961,
+            num_examples=500315,
+        ),
+    ]
+
+    self.assertSequenceAlmostEqual(actual_result, expected_result, places=3)
+
+  def test_calibration_histogram_many_large_batches(self):
+    np.random.seed(seed=0)
+
+    labels = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
+    predictions = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
+
+    state = rolling_stats.CalibrationHistogram(num_buckets=10)
+    for label, prediction in zip(labels, predictions):
+      state.add(label, prediction)
+
+    expected_result = [
+        rolling_stats.Bucket(
+            bucket_id=0,
+            sum_labels=-3664864340.5500717,
+            sum_predictions=-25000381569065.836,
+            num_examples=49999957,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=1,
+            sum_labels=-240864.41626364063,
+            sum_predictions=0.32794139406178147,
+            num_examples=5,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=2,
+            sum_labels=-1745555.6248060695,
+            sum_predictions=0.5884038059739396,
+            num_examples=4,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=3,
+            sum_labels=853202.5882759399,
+            sum_predictions=1.2784287423128262,
+            num_examples=5,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=4,
+            sum_labels=-864655.2028198247,
+            sum_predictions=0.37604235706385225,
+            num_examples=1,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=5,
+            sum_labels=-755860.5497014731,
+            sum_predictions=1.32313259516377,
+            num_examples=3,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=6,
+            sum_labels=1470820.0825355249,
+            sum_predictions=3.194380351342261,
+            num_examples=6,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=7,
+            sum_labels=1661625.0224708724,
+            sum_predictions=2.6428064128849655,
+            num_examples=4,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=8,
+            sum_labels=-305796.69290243986,
+            sum_predictions=4.515988907776773,
+            num_examples=6,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=9,
+            sum_labels=-1030123.1117001167,
+            sum_predictions=8.534023314132355,
+            num_examples=10,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=10,
+            sum_labels=4473263.405320908,
+            sum_predictions=6.602025754516944,
+            num_examples=7,
+        ),
+        rolling_stats.Bucket(
+            bucket_id=11,
+            sum_labels=-4051023665.2192283,
+            sum_predictions=24999554602641.69,
+            num_examples=49999992,
+        ),
+    ]
+
+    self.assertAlmostEqual(state.result(), expected_result)
+
+
 def get_expected_stats_state(batches, batch_score_fn=None):
   if batch_score_fn is not None:
     batches = [batch_score_fn(batch) for batch in batches]
