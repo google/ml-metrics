@@ -74,6 +74,12 @@ class LazyFnsTest(parameterized.TestCase):
     lazy_fns.pickler.register(custom_pickler)
     self.pickler = lazy_fns.pickler
 
+  def test_cache_lazy_raises(self):
+    with self.assertRaises(ValueError):
+      lazy_fns.LazyObject.new([1, 2, 3], cache_result=True, lazy_result=True)
+    with self.assertRaises(ValueError):
+      lazy_fns.trace(len)([1, 2, 3], cache_result_=True, lazy_result_=True)
+
   @parameterized.named_parameters([
       dict(
           testcase_name='self',

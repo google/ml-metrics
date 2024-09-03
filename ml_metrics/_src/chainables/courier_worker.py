@@ -21,7 +21,7 @@ import collections
 from collections.abc import AsyncIterator, Iterable, Iterator
 from concurrent import futures
 import copy
-import dataclasses
+import dataclasses as dc
 import functools
 import itertools
 import queue
@@ -84,7 +84,7 @@ class _FutureLike(Protocol[_T]):
 
 
 # TODO: b/311207032 - Implements Future interface for Task.
-@dataclasses.dataclass(kw_only=True, frozen=True)
+@dc.dataclass(kw_only=True, frozen=True)
 class Task(_FutureLike[_T]):
   """Lazy function that runs on courier methods.
 
@@ -104,7 +104,7 @@ class Task(_FutureLike[_T]):
   """
 
   args: tuple[Any, ...] = ()
-  kwargs: dict[str, Any] = dataclasses.field(default_factory=dict)
+  kwargs: dict[str, Any] = dc.field(default_factory=dict)
   blocking: bool = False
   worker: Worker | None = None
   parent_task: 'Task | None' = None
@@ -133,7 +133,7 @@ class Task(_FutureLike[_T]):
     task = next(iter_tasks)
     assert isinstance(task, Task)
     for next_task in iter_tasks:
-      task = dataclasses.replace(next_task, parent_task=task)
+      task = dc.replace(next_task, parent_task=task)
     return task
 
   # The followings are to implement the _FutureLike interfaces.
@@ -163,7 +163,7 @@ class Task(_FutureLike[_T]):
     return worker.is_alive
 
   def set(self, **kwargs) -> Self:
-    return dataclasses.replace(self, **kwargs)
+    return dc.replace(self, **kwargs)
 
   def add_task(
       self,
@@ -179,7 +179,7 @@ class Task(_FutureLike[_T]):
       )
     result = self
     for each_task in task.flatten():
-      result = dataclasses.replace(each_task, parent_task=result)
+      result = dc.replace(each_task, parent_task=result)
     return result
 
   def add_generator_task(
@@ -202,7 +202,7 @@ class Task(_FutureLike[_T]):
     return self.parent_task.flatten() + [self]
 
 
-@dataclasses.dataclass(kw_only=True, frozen=True)
+@dc.dataclass(kw_only=True, frozen=True)
 class GeneratorTask(Task):
   """Courier worker communication for generator.
 
@@ -288,55 +288,45 @@ def wait(
   return MaybeDoneTasks(done_tasks, not_done_tasks)
 
 
-@dataclasses.dataclass(frozen=True)
-class RemoteObject(Generic[_T]):
+@dc.dataclass(frozen=True)
+class RemoteObject(Generic[_T], lazy_fns.LazyObject[lazy_fns.LazyObject[_T]]):
   """Remote object holds remote reference that behaves like a local object."""
 
-  worker_address: str
-  lazy_object: lazy_fns.LazyObject[_T] | lazy_fns.LazyFn[_T]
+  worker_addr: str
+
+  @classmethod
+  def new(cls, value, *, worker: str | Worker) -> Self:
+    if not isinstance(value, lazy_fns.LazyObject):
+      value = lazy_fns.LazyObject.new(value)
+    worker_addr = worker.server_name if isinstance(worker, Worker) else worker
+    return cls(value=value, worker_addr=worker_addr)
 
   @property
-  def _worker(self) -> Worker:
-    return _cached_worker(self.worker_address)
+  def id(self):
+    assert (v := self.value) is not None
+    return v.id
+
+  @property
+  def worker(self) -> Worker:
+    return _cached_worker(self.worker_addr)
 
   def deref_(self) -> futures.Future[Any]:
-    return self._worker.call(self.lazy_object)
+    return self.worker.call(self.value)
 
-  def value_(self) -> Any:
+  def result_(self) -> Any:
     return lazy_fns.pickler.loads(self.deref_().result())
-
-  def set_(self, **kwargs):
-    return dataclasses.replace(
-        self, lazy_object=self.lazy_object.set_(**kwargs)
-    )
-
-  def __hash__(self):
-    return hash(self.lazy_object.id)
-
-  def __eq__(self, other):
-    return self.lazy_object.id == other.lazy_object.id
 
   def __call__(self, *args, **kwargs) -> Self:
     """Calling a LazyFn records a lazy result of the call."""
-    return dataclasses.replace(
-        self, lazy_object=self.lazy_object(*args, **kwargs)
+    return RemoteObject.new(
+        self.value(*args, **kwargs), worker=self.worker_addr
     )
 
   def __getattr__(self, name) -> Self:
-    return dataclasses.replace(
-        self, lazy_object=getattr(self.lazy_object, name)
-    )
+    return RemoteObject.new(getattr(self.value, name), worker=self.worker_addr)
 
   def __getitem__(self, key) -> Self:
-    return dataclasses.replace(self, lazy_object=self.lazy_object[key])
-
-  # Overrides to support pickling when getattr is overridden.
-  def __getstate__(self):
-    return dict(self.__dict__)
-
-  # Overrides to support pickling when getattr is overridden.
-  def __setstate__(self, state):
-    self.__dict__.update(state)
+    return RemoteObject.new(self.value[key], worker=self.worker_addr)
 
 
 def _is_queue_full(e: Exception) -> bool:
@@ -354,11 +344,11 @@ _InputAndFuture = collections.namedtuple(
 )
 
 
-@dataclasses.dataclass(slots=True)
+@dc.dataclass(slots=True)
 class RemoteQueues:
   """Combine multiple remote queues into one as iterators when en/dequeueing."""
 
-  remote_queues: set[RemoteObject[queue.Queue[Any]]] = dataclasses.field(
+  remote_queues: set[RemoteObject[queue.Queue[Any]]] = dc.field(
       default_factory=set
   )
   timeout_secs: int | None = None
@@ -502,9 +492,7 @@ class Worker:
   _client: courier.Client
   _pendings: list[futures.Future[Any]]
   _heartbeat_client: courier.Client
-  _heartbeat: futures.Future[Any] | None = dataclasses.field(
-      default=None, init=False
-  )
+  _heartbeat: futures.Future[Any] | None = dc.field(default=None, init=False)
   _last_heartbeat: float
 
   def __init__(
@@ -655,9 +643,9 @@ class Worker:
     self._pendings.append(state)
     return state
 
-  def submit(self, task: Task | lazy_fns.LazyFn) -> Task:
+  def submit(self, task: Task | lazy_fns.LazyObject) -> Task:
     """Runs tasks sequentially and returns the task."""
-    if isinstance(task, lazy_fns.LazyFn):
+    if isinstance(task, lazy_fns.LazyObject):
       task = Task.new(task)
     result = []
     for task in task.flatten():
@@ -925,7 +913,7 @@ class WorkerPool:
 
   def as_completed(
       self,
-      task_iterator: Iterable[Task | lazy_fns.LazyFn],
+      task_iterator: Iterable[Task | lazy_fns.LazyObject],
       ignore_failures: bool = False,
   ) -> Iterator[Task]:
     """Run tasks within the worker pool."""

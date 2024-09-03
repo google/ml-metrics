@@ -34,7 +34,7 @@ def setUpModule():
   testutil.SetupMockBNS()
 
 
-def lazy_q_fn(n, stop=True):
+def lazy_q_fn(n, stop=False):
   q = queue.SimpleQueue()
   for i in range(n):
     q.put(i)
@@ -86,46 +86,114 @@ class RemoteObjectTest(parameterized.TestCase):
     self.server_thread.join()
     super().tearDown()
 
-  def test_remote_object_self(self):
-    remote_value = self.worker.submit(
-        lazy_fns.trace(len)([1, 2, 3], lazy_result_=True)
-    ).result()
-    self.assertIsInstance(remote_value, courier_worker.RemoteObject)
-    self.assertEqual(3, remote_value.value_())
-    # TODO: b/349174267 - Re-enable remote GC when it is supported.
-    # remote_value = remote_value.value_(gc=True)
-    # self.assertEqual(3, remote_value.value_())
-    # self.assertIsNone(remote_value.value_())
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='self',
+          value=[1, 2, 3],
+          fn=lambda remote_value: remote_value,
+          expected=[1, 2, 3],
+      ),
+      dict(
+          testcase_name='with_index',
+          value=[1, 2, 3],
+          fn=lambda remote_value: remote_value[0],
+          expected=1,
+      ),
+      dict(
+          testcase_name='call',
+          value=len,
+          fn=lambda remote_value: remote_value([1, 2, 3]),
+          expected=3,
+      ),
+      dict(
+          testcase_name='attribute',
+          value=[1, 2, 3],
+          fn=lambda remote_value: remote_value.count(2),
+          expected=1,
+      ),
+      dict(
+          testcase_name='queue',
+          value=lazy_q_fn(3),
+          fn=lambda remote_value: remote_value.qsize(),
+          expected=3,
+      ),
+      dict(
+          testcase_name='traced_self',
+          value=lazy_fns.trace([1, 2, 3]),
+          fn=lambda remote_value: remote_value,
+          expected=[1, 2, 3],
+      ),
+      dict(
+          testcase_name='traced_with_index',
+          value=lazy_fns.trace([1, 2, 3]),
+          fn=lambda remote_value: remote_value[0],
+          expected=1,
+      ),
+      dict(
+          testcase_name='traced_call',
+          value=lazy_fns.trace(len),
+          fn=lambda remote_value: remote_value([1, 2, 3]),
+          expected=3,
+      ),
+      dict(
+          testcase_name='traced_attribute',
+          value=lazy_fns.trace([1, 2, 3]),
+          fn=lambda remote_value: remote_value.count(2),
+          expected=1,
+      ),
+      dict(
+          testcase_name='remote_self',
+          submit=True,
+          value=lazy_fns.trace([1, 2, 3], lazy_result=True),
+          fn=lambda remote_value: remote_value,
+          expected=[1, 2, 3],
+      ),
+      dict(
+          testcase_name='remote_with_index',
+          submit=True,
+          value=lazy_fns.trace([1, 2, 3], lazy_result=True),
+          fn=lambda remote_value: remote_value[0],
+          expected=1,
+      ),
+      dict(
+          testcase_name='remote_call',
+          submit=True,
+          value=lazy_fns.trace(len)([1, 2, 3], lazy_result_=True),
+          fn=lambda remote_value: remote_value,
+          expected=3,
+      ),
+      dict(
+          testcase_name='remote_attribute',
+          submit=True,
+          value=lazy_fns.trace([1, 2, 3], lazy_result=True),
+          fn=lambda remote_value: remote_value.count(2),
+          expected=1,
+      ),
+  ])
+  def test_maybe_make_remote_object(self, value, fn, expected, submit=False):
+    lazy_fns.clear_object()
+    self.assertEqual(lazy_fns.object_info().currsize, 0)
+    if submit:
+      remote_value = self.worker.submit(value).result()
+    else:
+      remote_value = courier_worker.RemoteObject.new(value, worker=self.worker)
+      if isinstance(value, lazy_fns.LazyObject):
+        self.assertEqual(remote_value.id, value.id)
 
-  def test_remote_object_with_index(self):
-    remote_value = self.worker.submit(
-        lazy_fns.trace(tuple)([1, 2, 3], lazy_result_=True)
-    ).result()
     self.assertIsInstance(remote_value, courier_worker.RemoteObject)
-    self.assertIsInstance(remote_value[1], courier_worker.RemoteObject)
-    self.assertEqual(2, remote_value[1].value_())
-
-  def test_remote_object_with_attr(self):
-    remote_value = self.worker.submit(
-        lazy_fns.trace(list)([1, 2, 3], lazy_result_=True)
-    ).result()
-    self.assertIsInstance(remote_value, courier_worker.RemoteObject)
-    self.assertIsInstance(remote_value.pop(), courier_worker.RemoteObject)
-    self.assertEqual(3, remote_value.pop().value_())
-
-  def test_remote_object_queue(self):
-    remote_queue = self.worker.submit(
-        lazy_fns.trace(lazy_q_fn)(3, lazy_result_=True)
-    ).result()
-    actual = []
-    while not iter_utils.is_stop_iteration(
-        value := remote_queue.get_nowait().value_()
-    ):
-      actual.append(value)
-    self.assertEqual(actual, [0, 1, 2])
+    self.assertEqual(lazy_fns.object_info().hits, 0)
+    self.assertIsInstance(fn(remote_value), courier_worker.RemoteObject)
+    self.assertEqual(expected, lazy_fns.maybe_make(fn(remote_value)))
+    # These are scenario that the local object is cached and a remote value only
+    # holds a reference.
+    if not isinstance(value, lazy_fns.LazyObject) or value.lazy_result:
+      self.assertEqual(lazy_fns.object_info().hits, 1)
 
   def test_remote_queue_dequeue_normal(self):
-    fns = [lazy_fns.trace(lazy_q_fn)(2, lazy_result_=True) for _ in range(3)]
+    fns = [
+        lazy_fns.trace(lazy_q_fn)(2, stop=True, lazy_result_=True)
+        for _ in range(3)
+    ]
     remote_qs = courier_worker.RemoteQueues(
         self.worker.submit(fn).result() for fn in fns
     )
@@ -133,10 +201,7 @@ class RemoteObjectTest(parameterized.TestCase):
     self.assertCountEqual(actual, [0, 0, 0, 1, 1, 1])
 
   def test_remote_queue_dequeue_timeout(self):
-    fns = [
-        lazy_fns.trace(lazy_q_fn)(2, stop=False, lazy_result_=True)
-        for _ in range(3)
-    ]
+    fns = [lazy_fns.trace(lazy_q_fn)(2, lazy_result_=True) for _ in range(3)]
     remote_qs = courier_worker.RemoteQueues(
         (self.worker.submit(fn).result() for fn in fns), timeout_secs=1
     )
@@ -191,7 +256,7 @@ class RemoteObjectTest(parameterized.TestCase):
 
   # TODO: b/349174267 - Re-enable the tests when remote_iterator_pipe is
   # available.
-  # def test_remote_object_iterator_pipe_with_datasource(self):
+  # def test_iterator_pipe_with_datasource(self):
   #   t = (
   #       transform_lib.TreeTransform.new()
   #       .data_source(range(10))
@@ -205,9 +270,9 @@ class RemoteObjectTest(parameterized.TestCase):
   #   remote_queues = courier_worker.RemoteQueues([remote_pipe.output_queue])
   #   actual = list(remote_queues.dequeue())
   #   self.assertEqual(list(range(1, 11)), actual)
-  #   self.assertEqual(10, remote_pipe.progress.cnt.value_())
+  #   self.assertEqual(10, remote_pipe.progress.cnt.result_())
 
-  # def test_remote_object_iterator_pipe_without_datasource(self):
+  # def test_iterator_pipe_without_datasource(self):
   #   t = transform_lib.TreeTransform.new().apply(fn=lambda x: x + 1)
   #   deferred_pipe = (
   #       lazy_fns.trace(t, lazy_result=True).make().iterator_pipe(timeout=1)
@@ -219,7 +284,7 @@ class RemoteObjectTest(parameterized.TestCase):
   #   output_queues = courier_worker.RemoteQueues([remote_pipe.output_queue])
   #   actual = list(output_queues.dequeue())
   #   self.assertEqual(list(range(1, 11)), actual)
-  #   self.assertEqual(10, remote_pipe.progress.cnt.value_())
+  #   self.assertEqual(10, remote_pipe.progress.cnt.result_())
 
 
 class CourierWorkerTest(absltest.TestCase):

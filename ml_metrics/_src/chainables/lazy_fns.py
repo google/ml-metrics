@@ -296,14 +296,20 @@ class LazyObject(Generic[_ValueT]):
       value: _ValueT,
       *,
       cache_result: bool = True,
+      lazy_result: bool = False,
   ):
     """Creates and LazyObject, optionally with the value stored locally."""
+    if lazy_result and cache_result:
+      raise ValueError(
+          'The result of a traced call cannot be both lazy and cached.'
+          f'calling: {value=}'
+      )
     if cache_result:
       result = cls(value=None, _cache_result=True)
       # Direct insert to the cache without retrieving.
       result.result_.cache_add(result, value)
       return result
-    return cls(value=value, _cache_result=False)
+    return cls(value=value, _lazy_result=lazy_result)
 
   @property
   def id(self):
@@ -359,7 +365,7 @@ class LazyObject(Generic[_ValueT]):
       cache_result_: bool = False,
       lazy_result_: bool = False,
       **kwargs,
-  ) -> LazyFn:
+  ) -> LazyObject:
     """Calling a LazyFn records a lazy result of the call."""
     if lazy_result_ and cache_result_:
       raise ValueError(
@@ -374,7 +380,7 @@ class LazyObject(Generic[_ValueT]):
         cache_result=cache_result_,
     )
 
-  def __getattr__(self, name) -> LazyFn:
+  def __getattr__(self, name) -> LazyObject:
     if name.startswith('__') and name.endswith('__'):
       raise AttributeError
     return LazyFn.new(
@@ -382,7 +388,7 @@ class LazyObject(Generic[_ValueT]):
         args=(self, name),
     )
 
-  def __getitem__(self, key) -> LazyFn:
+  def __getitem__(self, key) -> LazyObject:
     return LazyFn.new(
         value=operator.getitem,
         args=(self, key),
@@ -485,6 +491,7 @@ def trace(
     value: _ValueT,
     *,
     use_cache: bool = False,
+    lazy_result: bool = False,
 ) -> LazyObject[_ValueT]:
   """Traces a callable to record the function and its arguments.
 
@@ -523,6 +530,7 @@ def trace(
   Args:
     value: The value to be dereferenced or called lazily.
     use_cache: Deprecated, uses cache_result instead.
+    lazy_result: If True, return a LazyObject instead of the actual result.
 
   Returns:
     A function that records the fn and its arguments to be called later.
@@ -534,14 +542,17 @@ def trace(
         'traced value: %s',
         value,
     )
-  return LazyObject.new(value, cache_result=False)
+  # This purely just trace the value, which means the value is included in
+  # the object. Unlike LazyObject.new(value) that stores the value locally
+  # and can only be derefernced later.
+  return LazyObject.new(value, cache_result=False, lazy_result=lazy_result)
 
 
 @dc.dataclass(frozen=True)
 class MakeableLazyFn(base_types.Makeable[_ValueT]):
   """Wraps a LazyFn to be used as a Makeable."""
 
-  lazy_fn: LazyFn[_ValueT]
+  lazy_fn: LazyObject[_ValueT]
 
   def make(self) -> _ValueT:
     return maybe_make(self.lazy_fn)

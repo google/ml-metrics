@@ -61,7 +61,7 @@ class CourierServerWrapper:
     def pickled_maybe_make(maybe_lazy):
       result = lazy_fns.maybe_make(maybe_lazy)
       if isinstance(result, lazy_fns.LazyObject):
-        result = courier_worker.RemoteObject(self.address, result)
+        result = courier_worker.RemoteObject.new(result, worker=self.address)
       return pickler.dumps(result)
 
     def pickled_init_iterator(maybe_lazy):
