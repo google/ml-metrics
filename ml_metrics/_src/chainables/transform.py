@@ -544,7 +544,7 @@ class TreeTransform(Generic[TreeFnT]):
   """
 
   name: str = ''
-  input_iterator: Iterable[Any] | lazy_fns.LazyFn | None = None
+  input_iterator: Iterable[Any] | lazy_fns.LazyObject | None = None
   input_transform: TreeTransform | None = None
   fns: tuple[TreeFnT, ...] = dataclasses.field(default_factory=tuple)
   use_cache: bool = dataclasses.field(default=False, repr=False)
@@ -572,7 +572,7 @@ class TreeTransform(Generic[TreeFnT]):
       *,
       name: str = '',
       use_cache: bool = False,
-      input_iterator: Iterable[Any] | lazy_fns.LazyFn | None = None,
+      input_iterator: Iterable[Any] | lazy_fns.LazyObject | None = None,
       input_transform: TreeTransformT | None = None,
   ) -> Self:
     return cls(
@@ -638,7 +638,7 @@ class TreeTransform(Generic[TreeFnT]):
       self,
       output_keys: TreeMapKey | TreeMapKeys = (),
       *,
-      fn: lazy_fns.LazyFn | Callable[..., Any] | None = None,
+      fn: lazy_fns.LazyObject | Callable[..., Any] | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       fn_batch_size: int = 0,
       batch_size: int = 0,
@@ -678,7 +678,7 @@ class TreeTransform(Generic[TreeFnT]):
       self,
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       *,
-      fn: lazy_fns.LazyFn | aggregates.Aggregatable | None = None,
+      fn: lazy_fns.LazyObject | aggregates.Aggregatable | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
   ) -> AggregateTransform:
     """Create an aggregate transform on the previous transform."""
@@ -697,7 +697,7 @@ class TreeTransform(Generic[TreeFnT]):
       self,
       *,
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      fn: lazy_fns.LazyFn | Callable[..., Any] | None = None,
+      fn: lazy_fns.LazyObject | Callable[..., Any] | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       fn_batch_size: int = 0,
       batch_size: int = 0,
@@ -776,7 +776,7 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
       self,
       *,
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      fn: lazy_fns.LazyFn | aggregates.Aggregatable | None = None,
+      fn: lazy_fns.LazyObject | aggregates.Aggregatable | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
   ) -> 'AggregateTransform':
     """Adds a aggregate and stack it on the existing aggregates."""
