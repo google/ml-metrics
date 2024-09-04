@@ -15,7 +15,6 @@
 
 import dataclasses
 import math
-from typing import Any
 
 from absl.testing import parameterized
 from ml_metrics._src.aggregates import rolling_stats
@@ -40,7 +39,9 @@ def get_expected_stats_state(batches, batch_score_fn=None):
 class StatsStateTest(parameterized.TestCase):
 
   def assertDataclassAlmostEqual(
-      self, expected: dict[str, Any], got: dict[str, Any]
+      self,
+      expected: 'dataclasses.DataclassInstance',
+      got: 'dataclasses.DataclassInstance',
   ):
     """Helper function for using assertAlmostEquals in dictionaries."""
     expected = dataclasses.asdict(expected)

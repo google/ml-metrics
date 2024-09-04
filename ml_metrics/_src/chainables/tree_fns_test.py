@@ -37,6 +37,9 @@ class TestAverageFn:
   def update_state(self, state, inputs, default_value=0):
     return state[0] + sum(inputs) + default_value, state[1] + len(inputs)
 
+  def merge_states(self, states):
+    raise NotImplementedError()
+
   def get_result(self, state):
     result = state[0] / state[1]
     result = [result] if self.batch_output else result
@@ -205,7 +208,7 @@ class TreeFnTest(parameterized.TestCase):
     self.assertEqual(expected, tree_fn(data))
 
   def test_tree_aggfn_iterate_not_implemented(self):
-    data = [1, 2, 3]
+    data = [[1, 2, 3], [1, 2, 3]]
     tree_fn = tree_fns.TreeAggregateFn.new(fn=TestAverageFn())
     with self.assertRaises(NotImplementedError):
       list(tree_fn.iterate(data))

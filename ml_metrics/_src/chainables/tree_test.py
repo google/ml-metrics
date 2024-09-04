@@ -67,15 +67,15 @@ class TreeMapViewTest(parameterized.TestCase):
 
   def assert_nested_sequence_equal(self, a, b):
     self.assertEqual(type(a), type(b))
-    if isinstance(a, dict):
+    if isinstance(a, dict) and isinstance(b, dict):
       for (k_a, v_a), (k_b, v_b) in zip(
           sorted(a.items()), sorted(b.items()), strict=True
       ):
         self.assertEqual(k_a, k_b)
         self.assert_nested_sequence_equal(v_a, v_b)
-    elif isinstance(a, str):
+    elif isinstance(a, str) and isinstance(b, str):
       self.assertEqual(a, b)
-    elif isinstance(a, Iterable):
+    elif isinstance(a, Iterable) and isinstance(b, Iterable):
       for a_elem, b_elem in zip(a, b, strict=True):
         self.assert_nested_sequence_equal(a_elem, b_elem)
     else:

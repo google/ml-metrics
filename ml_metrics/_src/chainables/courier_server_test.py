@@ -38,6 +38,7 @@ class TestServer(courier_server.CourierServerWrapper):
     def plus_one(x: int):
       return pickler.dumps(x + 1)
 
+    assert self._server is not None
     self._server.Bind('plus_one', plus_one)
 
 

@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import abc
 import asyncio
 import collections
 from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
@@ -25,7 +26,7 @@ import inspect
 import itertools as it
 import json
 import operator
-from typing import Any, Generic, Self, TypeVar
+from typing import Any, Protocol, Self, TypeVar, runtime_checkable
 import uuid
 
 from absl import logging
@@ -34,8 +35,20 @@ from ml_metrics._src import base_types
 from ml_metrics._src.utils import func_utils
 
 _KeyT = TypeVar('_KeyT')
-_ValueT = TypeVar('_ValueT')
-Fn = Callable[..., _ValueT]
+_T = TypeVar('_T')
+Fn = Callable[..., _T]
+
+
+@runtime_checkable
+class Resolvable(Protocol[_T]):
+  """All Resolvlables implements a `result_` to resolve the underlying value."""
+
+  @abc.abstractmethod
+  def result_(self) -> _T:
+    """Interface to get the result of the underlying value."""
+
+
+MaybeResolvable = Resolvable[_T] | _T
 
 
 def _lru_cache(maxsize: int):
@@ -44,7 +57,7 @@ def _lru_cache(maxsize: int):
   def decorator(fn: Callable[..., Any]):
     lazy_obj_cache = func_utils.LruCache(maxsize=maxsize)
 
-    def wrapped_fn(x: LazyObject[_ValueT]) -> _ValueT:
+    def wrapped_fn(x: LazyObject[_T]) -> _T:
       if x.cache_result:
         try:
           return lazy_obj_cache[x]
@@ -154,17 +167,17 @@ class _Makers(collections.UserDict):
 makeables = _Makers()
 
 
-def _maybe_make(maybe_lazy: _ValueT | LazyObject[_ValueT]) -> _ValueT:
-  if isinstance(maybe_lazy, LazyObject):
+def _maybe_make(maybe_lazy: MaybeResolvable[_T]) -> MaybeResolvable[_T]:
+  if isinstance(maybe_lazy, Resolvable):
     return maybe_lazy.result_()
-  elif maker := makeables[type(maybe_lazy)]:
+  if maker := makeables[type(maybe_lazy)]:
     return maker(maybe_lazy)
   return maybe_lazy
 
 
 def maybe_make(
-    maybe_lazy: LazyObject[_ValueT] | bytes,
-) -> _ValueT | LazyObject[_ValueT]:
+    maybe_lazy: MaybeResolvable[_T] | bytes,
+) -> MaybeResolvable[_T]:
   """Dereference a lazy object or lazy function when applicable."""
   if isinstance(maybe_lazy, bytes):
     maybe_lazy = pickler.loads(maybe_lazy)
@@ -209,7 +222,7 @@ def async_iterate_fn(fn):
   return wrapped_fun
 
 
-def iterate_fn(fn) -> Callable[..., tuple[_ValueT, ...] | _ValueT]:
+def iterate_fn(fn) -> Callable[..., tuple[_T, ...] | _T]:
   """Wraps a callable to apply it on each item in an iterable.
 
   Note that, we assume only the positional arguments are consuming the
@@ -223,7 +236,7 @@ def iterate_fn(fn) -> Callable[..., tuple[_ValueT, ...] | _ValueT]:
   """
 
   @functools.wraps(fn)
-  def wrapped_fun(*inputs, **kwargs) -> tuple[_ValueT, ...] | _ValueT:
+  def wrapped_fun(*inputs, **kwargs) -> tuple[_T, ...] | _T:
     outputs = [fn(*row_inputs, **kwargs) for row_inputs in zip(*inputs)]
     # Only transpose when multiple items returned.
     if outputs and isinstance(outputs[0], tuple):
@@ -274,7 +287,7 @@ class FnConfig:
 
 
 @dc.dataclass(kw_only=True, frozen=True)
-class LazyObject(Generic[_ValueT]):
+class LazyObject(Resolvable[_T]):
   """A remote object that can be pickled.
 
   Attributes:
@@ -285,7 +298,7 @@ class LazyObject(Generic[_ValueT]):
     lazy_result: If True, return a LazyObject instead of the actual result.
   """
 
-  value: _ValueT | None = None
+  value: _T | None = None
   _cache_result: bool = False
   _lazy_result: bool = False
   _id: int = dc.field(default_factory=lambda: next(_increment_id), init=False)
@@ -293,7 +306,7 @@ class LazyObject(Generic[_ValueT]):
   @classmethod
   def new(
       cls,
-      value: _ValueT,
+      value: _T,
       *,
       cache_result: bool = True,
       lazy_result: bool = False,
@@ -312,7 +325,7 @@ class LazyObject(Generic[_ValueT]):
     return cls(value=value, _lazy_result=lazy_result)
 
   @property
-  def id(self):
+  def id(self) -> int:
     return self._id
 
   @property
@@ -343,7 +356,7 @@ class LazyObject(Generic[_ValueT]):
     return dc.replace(self, **kwargs)
 
   @_lru_cache(maxsize=128)
-  def result_(self) -> _ValueT:
+  def result_(self) -> _T:
     """Dereference the lazy object."""
     result = self.value
     if self._lazy_result:
@@ -365,7 +378,7 @@ class LazyObject(Generic[_ValueT]):
       cache_result_: bool = False,
       lazy_result_: bool = False,
       **kwargs,
-  ) -> LazyObject:
+  ) -> LazyFn:
     """Calling a LazyFn records a lazy result of the call."""
     if lazy_result_ and cache_result_:
       raise ValueError(
@@ -373,30 +386,24 @@ class LazyObject(Generic[_ValueT]):
           f'calling: {self} with {args=}, {kwargs=}'
       )
     return LazyFn.new(
-        value=self,
+        self,
         args=args,
         kwargs=kwargs,
         lazy_result=lazy_result_,
         cache_result=cache_result_,
     )
 
-  def __getattr__(self, name) -> LazyObject:
+  def __getattr__(self, name) -> LazyFn:
     if name.startswith('__') and name.endswith('__'):
       raise AttributeError
-    return LazyFn.new(
-        value=getattr,
-        args=(self, name),
-    )
+    return LazyFn.new(getattr, args=(self, name))
 
-  def __getitem__(self, key) -> LazyObject:
-    return LazyFn.new(
-        value=operator.getitem,
-        args=(self, key),
-    )
+  def __getitem__(self, key) -> LazyFn:
+    return LazyFn.new(operator.getitem, args=(self, key))
 
 
 @dc.dataclass(kw_only=True, frozen=True)
-class LazyFn(LazyObject[_ValueT]):
+class LazyFn(LazyObject[_T]):
   """A lazy function that has all the information to be called later.
 
   Attributes:
@@ -414,7 +421,7 @@ class LazyFn(LazyObject[_ValueT]):
   @classmethod
   def new(
       cls,
-      value: Callable[..., _ValueT] | None = None,
+      value: Callable[..., _T] | None = None,
       *,
       args: Sequence[Hashable] = (),
       kwargs: Mapping[str, Hashable] | None = None,
@@ -483,16 +490,16 @@ def clear_object():
   return LazyObject.result_.cache_clear()
 
 
-def is_makeable(obj: Any):
-  return isinstance(obj, LazyObject) or makeables[type(obj)] is not None
+def is_resolvable(obj: Any):
+  return isinstance(obj, Resolvable) or makeables[type(obj)] is not None
 
 
 def trace(
-    value: _ValueT,
+    value: _T,
     *,
     use_cache: bool = False,
     lazy_result: bool = False,
-) -> LazyObject[_ValueT]:
+) -> LazyObject[_T]:
   """Traces a callable to record the function and its arguments.
 
   A lazy function is the lazy counterpart of the actual function. We can convert
@@ -549,10 +556,10 @@ def trace(
 
 
 @dc.dataclass(frozen=True)
-class MakeableLazyFn(base_types.Makeable[_ValueT]):
+class MakeableLazyFn(base_types.Makeable[_T]):
   """Wraps a LazyFn to be used as a Makeable."""
 
-  lazy_fn: LazyObject[_ValueT]
+  lazy_fn: Resolvable[_T]
 
-  def make(self) -> _ValueT:
+  def make(self) -> _T:
     return maybe_make(self.lazy_fn)

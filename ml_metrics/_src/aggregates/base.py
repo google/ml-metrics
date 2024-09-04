@@ -97,23 +97,25 @@ class AggregateFn(Aggregatable):
 class MergeableMetricAggFn(AggregateFn):
   """MergeableMetricAggFn."""
 
-  metric_maker: base_types.Makeable[Metric]
+  metric_maker: base_types.Makeable[MergeableMetric]
 
-  def create_state(self) -> Metric:
+  def create_state(self) -> MergeableMetric:
     return self.metric_maker.make()
 
-  def update_state(self, state: Metric, *args, **kwargs) -> Metric:
+  def update_state(
+      self, state: MergeableMetric, *args, **kwargs
+  ) -> MergeableMetric:
     state.add(*args, **kwargs)
     return state
 
-  def merge_states(self, states: Iterable[MergeableMetric]) -> Any:
+  def merge_states(self, states: Iterable[MergeableMetric]) -> MergeableMetric:
     iter_states = iter(states)
     result = next(iter_states)
     for state in iter_states:
       result.merge(state)
     return result
 
-  def get_result(self, state: Metric) -> Any:
+  def get_result(self, state: MergeableMetric) -> Any:
     return state.result()
 
 

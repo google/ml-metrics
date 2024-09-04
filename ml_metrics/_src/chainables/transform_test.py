@@ -204,17 +204,17 @@ class TransformTest(parameterized.TestCase):
     )
     pipe = t.make().iterator_pipe(timeout=3)
     self.assertIsNone(pipe.input_queue)
-    self.assertIsNotNone(pipe.output_queue)
-    actual = list(pipe.output_queue.dequeue_as_iterator())
+    assert (output_queue := pipe.output_queue) is not None
+    actual = list(output_queue.dequeue_as_iterator())
     self.assertEqual([1, 2, 3], actual)
 
   def test_transform_iterator_pipe_normal(self):
     t = transform.TreeTransform.new().apply(fn=lambda x: x + 1)
     pipe = t.make().iterator_pipe(timeout=3)
-    self.assertIsNotNone(pipe.input_queue)
-    self.assertIsNotNone(pipe.output_queue)
-    pipe.input_queue.enqueue_from_iterator(range(3))
-    actual = list(pipe.output_queue.dequeue_as_iterator())
+    assert (input_queue := pipe.input_queue) is not None
+    input_queue.enqueue_from_iterator(range(3))
+    assert (output_queue := pipe.output_queue) is not None
+    actual = list(output_queue.dequeue_as_iterator())
     self.assertEqual([1, 2, 3], actual)
 
   def test_transform_unique_ids_with_each_op(self):
@@ -228,7 +228,7 @@ class TransformTest(parameterized.TestCase):
     t = t.assign('b', fn=lambda x: x + 1)
     seen_ids.add(t.id)
     t = dataclasses.replace(t, name='')
-    t = t.aggregate(output_keys='c', fn=lambda x: x + 1)
+    t = t.aggregate(output_keys='c', fn=MockAverageFn())
     seen_ids.add(t.id)
     t = t.add_aggregate(output_keys='d', fn=MockAverageFn()).add_slice('a')
     seen_ids.add(t.id)
@@ -1034,7 +1034,9 @@ class TransformTest(parameterized.TestCase):
         )
         .aggregate(
             output_keys=('precision', 'recall'),
-            fn=aggretates.MergeableMetricAggFn(MockPrecisionRecall()),
+            fn=lazy_fns.trace(aggretates.MergeableMetricAggFn)(
+                MockPrecisionRecall()
+            ),
             # Provide matched result directly to bypass internal matcher.
             input_keys=dict(
                 matched_pred='pred_matched', matched_label='label_matched'
@@ -1080,6 +1082,7 @@ class TransformTest(parameterized.TestCase):
     result = transform.get_generator_returned(
         actual_fn.iterate(with_agg_result=True)
     )
+    assert result is not None
     self.assertEqual([13.5], result.agg_result)
 
     result = transform.get_generator_returned(
@@ -1087,6 +1090,7 @@ class TransformTest(parameterized.TestCase):
             input_iterator=MockGenerator(input_iterator), with_agg_result=True
         )
     )
+    assert result is not None
     self.assertEqual([13.5], result.agg_result)
 
   def test_input_iterator_aggregate_incorrect_states_count_raises_error(self):

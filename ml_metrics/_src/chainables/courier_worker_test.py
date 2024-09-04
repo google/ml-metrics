@@ -65,6 +65,7 @@ class TimeoutServer(courier_server.CourierServerWrapper):
       del x
       time.sleep(60)
 
+    assert self._server is not None
     self._server.Unbind('maybe_make')
     self._server.Bind('maybe_make', timeout)
     self._server.Unbind('init_iterator')
@@ -79,7 +80,7 @@ class RemoteObjectTest(parameterized.TestCase):
     self.server.build_server()
     self.server_thread = self.server.start(daemon=True)
     self.worker = courier_worker.Worker(self.server.address)
-    self.worker.wait_until_alive(deadline_secs=6, sleep_interval_secs=0.1)
+    self.worker.wait_until_alive(deadline_secs=6, sleep_interval_secs=1)
 
   def tearDown(self):
     self.worker.shutdown()
@@ -195,7 +196,7 @@ class RemoteObjectTest(parameterized.TestCase):
         for _ in range(3)
     ]
     remote_qs = courier_worker.RemoteQueues(
-        self.worker.submit(fn).result() for fn in fns
+        set(self.worker.submit(fn).result() for fn in fns)
     )
     actual = list(remote_qs.dequeue())
     self.assertCountEqual(actual, [0, 0, 0, 1, 1, 1])
@@ -203,7 +204,7 @@ class RemoteObjectTest(parameterized.TestCase):
   def test_remote_queue_dequeue_timeout(self):
     fns = [lazy_fns.trace(lazy_q_fn)(2, lazy_result_=True) for _ in range(3)]
     remote_qs = courier_worker.RemoteQueues(
-        (self.worker.submit(fn).result() for fn in fns), timeout_secs=1
+        set(self.worker.submit(fn).result() for fn in fns), timeout_secs=1
     )
     with self.assertRaisesRegex(TimeoutError, 'Dequeue timeout'):
       list(remote_qs.dequeue())
@@ -235,7 +236,7 @@ class RemoteObjectTest(parameterized.TestCase):
         for q_size in q_sizes
     ]
     remote_qs = courier_worker.RemoteQueues(
-        (self.worker.submit(fn).result() for fn in fns), timeout_secs=1
+        set(self.worker.submit(fn).result() for fn in fns), timeout_secs=1
     )
     if queue_total_size >= input_size + num_queues:
       remote_qs.enqueue(range(input_size))
@@ -249,7 +250,7 @@ class RemoteObjectTest(parameterized.TestCase):
         for q_size in [1, 1, 1]
     ]
     remote_qs = courier_worker.RemoteQueues(
-        (self.worker.submit(fn).result() for fn in fns), timeout_secs=1
+        set(self.worker.submit(fn).result() for fn in fns), timeout_secs=1
     )
     with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout'):
       remote_qs.enqueue(range(3))
@@ -321,9 +322,9 @@ class CourierWorkerTest(absltest.TestCase):
     )
     result = self.worker.submit(task)
     self.assertEqual(2, result.result())
-    self.assertEqual(
-        'echo', lazy_fns.maybe_make(result.parent_task.state.result())
-    )
+    assert (task := result.parent_task) is not None
+    assert (state := task.state) is not None
+    self.assertEqual('echo', lazy_fns.maybe_make(state.result()))
 
   def test_wait_timeout(self):
     task = Task.new(lazy_fns.trace(time.sleep)(0.1))
@@ -436,6 +437,7 @@ class TestServer(courier_server.CourierServerWrapper):
         x = lazy_fns.pickler.loads(x)
       return lazy_fns.pickler.dumps(x + 1)
 
+    assert self._server is not None
     self._server.Bind('plus_one', plus_one)
 
 

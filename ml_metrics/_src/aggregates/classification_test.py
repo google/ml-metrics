@@ -757,6 +757,7 @@ class ClassificationTest(parameterized.TestCase):
     )
     actual = confusion_matrix.merge_states([state1, state2])
     expected = {"precision": utils.MeanState(4, 6)}
+    assert isinstance(actual, classification.SamplewiseClassification)
     self.assertDictEqual(expected, actual.state)
 
   def test_confusion_matrix_add(self):

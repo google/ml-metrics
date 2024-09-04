@@ -289,17 +289,23 @@ def wait(
 
 
 @dc.dataclass(frozen=True)
-class RemoteObject(Generic[_T], lazy_fns.LazyObject[lazy_fns.LazyObject[_T]]):
+class RemoteObject(Generic[_T], lazy_fns.Resolvable[lazy_fns.LazyObject[_T]]):
   """Remote object holds remote reference that behaves like a local object."""
-
-  worker_addr: str
+  value: lazy_fns.LazyObject[_T]
+  worker_addr: str = dc.field(kw_only=True)
 
   @classmethod
   def new(cls, value, *, worker: str | Worker) -> Self:
     if not isinstance(value, lazy_fns.LazyObject):
       value = lazy_fns.LazyObject.new(value)
     worker_addr = worker.server_name if isinstance(worker, Worker) else worker
-    return cls(value=value, worker_addr=worker_addr)
+    return cls(value, worker_addr=worker_addr)
+
+  def __hash__(self) -> int:
+    return hash(self.value)
+
+  def __eq__(self, other: Self) -> bool:
+    return self.value == other.value
 
   @property
   def id(self):
@@ -316,6 +322,15 @@ class RemoteObject(Generic[_T], lazy_fns.LazyObject[lazy_fns.LazyObject[_T]]):
   def result_(self) -> Any:
     return lazy_fns.pickler.loads(self.deref_().result())
 
+  # Overrides to support pickling when getattr is overridden.
+  def __getstate__(self):
+    return dict(self.__dict__)
+
+  # Overrides to support pickling when getattr is overridden.
+  def __setstate__(self, state):
+    self.__dict__.update(state)
+
+  # The following are remote builtin methods.
   def __call__(self, *args, **kwargs) -> Self:
     """Calling a LazyFn records a lazy result of the call."""
     return RemoteObject.new(
@@ -483,9 +498,9 @@ class Worker:
 
   server_name: str
   max_parallelism: int = 1
-  heartbeat_threshold_secs: int = 180
+  heartbeat_threshold_secs: float = 180.0
   iterate_batch_size: int = 1
-  _call_timeout: int = 60
+  _call_timeout: float = 60.0
   _lock: threading.Lock = threading.Lock()
   _worker_pool: WorkerPool | None
   _shutdown_requested: bool = False
@@ -499,9 +514,9 @@ class Worker:
       self,
       server_name: str | None = '',
       *,
-      call_timeout: int = 60,
+      call_timeout: float = 60,
       max_parallelism: int = 1,
-      heartbeat_threshold_secs: int = 180,
+      heartbeat_threshold_secs: float = 180,
       iterate_batch_size: int = 1,
   ):
     self.server_name = server_name or ''
@@ -521,11 +536,11 @@ class Worker:
     self._last_heartbeat = 0.0
 
   @property
-  def call_timeout(self):
+  def call_timeout(self) -> float:
     return self._call_timeout
 
   @property
-  def worker_pool(self):
+  def worker_pool(self) -> WorkerPool | None:
     return self._worker_pool
 
   def __hash__(self):
@@ -536,10 +551,10 @@ class Worker:
     return self.server_name == other.server_name
 
   @call_timeout.setter
-  def call_timeout(self, call_timeout: int):
+  def call_timeout(self, call_timeout: float):
     self.set_timeout(call_timeout)
 
-  def set_timeout(self, call_timeout: int):
+  def set_timeout(self, call_timeout: float):
     self._call_timeout = call_timeout
     self._client = _cached_client(
         self.server_name, call_timeout=self.call_timeout
@@ -595,7 +610,7 @@ class Worker:
       self,
       deadline_secs: int = 180,
       *,
-      sleep_interval_secs: int = 1,
+      sleep_interval_secs: float = 1.0,
   ):
     """Waits for the worker to be alive with retries."""
     sleep_interval_secs = max(sleep_interval_secs, 0.1)
@@ -643,9 +658,9 @@ class Worker:
     self._pendings.append(state)
     return state
 
-  def submit(self, task: Task | lazy_fns.LazyObject) -> Task:
+  def submit(self, task: Task[_T] | lazy_fns.Resolvable[_T]) -> Task[_T]:
     """Runs tasks sequentially and returns the task."""
-    if isinstance(task, lazy_fns.LazyObject):
+    if isinstance(task, lazy_fns.Resolvable):
       task = Task.new(task)
     result = []
     for task in task.flatten():
@@ -744,7 +759,7 @@ class WorkerPool:
       self,
       names_or_workers: Iterable[str] | Iterable[Worker] = (),
       *,
-      call_timeout: int = 0,
+      call_timeout: float = 0,
       max_parallelism: int = 0,
       heartbeat_threshold_secs: int = 0,
       iterate_batch_size: int = 0,
@@ -804,10 +819,10 @@ class WorkerPool:
 
   def wait_until_alive(
       self,
-      deadline_secs: int = 180,
+      deadline_secs: float = 180.0,
       *,
       minimum_num_workers: int = 1,
-      sleep_interval_secs: int = 1,
+      sleep_interval_secs: float = 1.0,
   ):
     """Waits for the workers to be alive with retries."""
     sleep_interval_secs = max(sleep_interval_secs, 0.1)
