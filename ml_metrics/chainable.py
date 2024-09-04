@@ -22,6 +22,7 @@ from ml_metrics._src.chainables.lazy_fns import cache_info
 from ml_metrics._src.chainables.lazy_fns import clear_cache
 from ml_metrics._src.chainables.lazy_fns import iterate_fn
 from ml_metrics._src.chainables.lazy_fns import LazyFn
+from ml_metrics._src.chainables.lazy_fns import LazyObject
 from ml_metrics._src.chainables.lazy_fns import makeables
 from ml_metrics._src.chainables.lazy_fns import maybe_make
 from ml_metrics._src.chainables.lazy_fns import pickler
