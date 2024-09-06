@@ -54,6 +54,22 @@ def token_count(text: str, tokenizer: Callable[[str], Sequence[Any]]) -> int:
   return len(tokenizer(text))
 
 
+def token_match_rate(
+    sample: str, reference: str, tokenizer: Callable[[str], Sequence[Any]]
+) -> float:
+  """Computes the token match rate between sample and reference."""
+  sample_tokens = tokenizer(sample)
+  reference_tokens = tokenizer(reference)
+  matched = 0
+  for t1, t2 in zip(sample_tokens, reference_tokens):
+    if t1 == t2:
+      matched += 1
+  length = max(len(sample_tokens), len(reference_tokens))
+  if length == 0:
+    return 0
+  return matched / length
+
+
 def exact_match(sample: str, reference: str | Sequence[str]) -> bool:
   """Computes the exact match between sample and reference."""
   references = _maybe_tuple(reference)

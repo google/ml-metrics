@@ -209,6 +209,35 @@ class TextTest(parameterized.TestCase):
   def test_average_word_length(self, text_input, expected_count):
     self.assertAlmostEqual(expected_count, text.average_word_length(text_input))
 
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='token_match_perfect',
+          sample='hello world',
+          reference='hello world',
+          expected_result=1.0,
+      ),
+      dict(
+          testcase_name='token_match_partial_with_longer_sample',
+          sample='hello a world',
+          reference='hello world',
+          expected_result=1.0 / 3.0,
+      ),
+      dict(
+          testcase_name='token_match_partial_with_longer_reference',
+          sample='hello world',
+          reference='hello a world',
+          expected_result=1.0 / 3.0,
+      ),
+  )
+  def test_token_match_rate(self, sample, reference, expected_result):
+    def tokenizer(x):
+      return x.split(' ')
+
+    self.assertAlmostEqual(
+        expected_result,
+        text.token_match_rate(sample, reference, tokenizer),
+    )
+
 
 if __name__ == '__main__':
   absltest.main()
