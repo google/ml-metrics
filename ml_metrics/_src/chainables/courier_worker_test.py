@@ -202,6 +202,37 @@ class RemoteObjectTest(parameterized.TestCase):
     if not isinstance(value, lazy_fns.LazyObject) or value.lazy_result:
       self.assertEqual(lazy_fns.object_info().hits, 1)
 
+  def test_remote_iterator_iterate_elemnwise(self):
+    remote_iterable = self.worker.submit(
+        lazy_fns.trace(range)(3, lazy_result_=True)
+    ).result()
+    self.assertIsInstance(remote_iterable, courier_worker.RemoteObject)
+    remote_iterator = iter(remote_iterable)
+    self.assertIsInstance(remote_iterator, courier_worker.RemoteIterator)
+    self.assertIs(iter(remote_iterator), remote_iterator)
+    self.assertEqual([0, 1, 2], list(remote_iterator))
+    # 2nd iteration on an exhausted iterator.
+    self.assertEqual([], list(remote_iterator))
+
+    self.assertEqual([0, 1, 2], list(remote_iterable))
+    # Iterable allows repeated traversing.
+    self.assertEqual([0, 1, 2], list(remote_iterable))
+
+  def test_remote_iterator_iterate_remotely(self):
+    remote_iterable = self.worker.submit(
+        lazy_fns.trace(range)(3, lazy_result_=True)
+    ).result()
+    actual = self.worker.submit(lazy_fns.trace(list)(remote_iterable)).result()
+    self.assertEqual([0, 1, 2], actual)
+
+  def test_remote_iterator_direct(self):
+    # Reconstruct the iterator directly
+    remote_iterable = courier_worker.RemoteObject.new(
+        range(3), worker=self.worker
+    )
+    actual = self.worker.submit(lazy_fns.trace(list)(remote_iterable)).result()
+    self.assertEqual([0, 1, 2], actual)
+
   def test_remote_queue_dequeue_normal(self):
     fns = [
         lazy_fns.trace(lazy_q_fn)(2, stop=True, lazy_result_=True)

@@ -58,8 +58,13 @@ class CourierServerWrapper:
     def shutdown():
       self._shutdown_requested[_DEFAULT] = True
 
-    def pickled_maybe_make(maybe_lazy):
-      result = lazy_fns.maybe_make(maybe_lazy)
+    def pickled_maybe_make(maybe_lazy, return_exception: bool = False):
+      try:
+        result = lazy_fns.maybe_make(maybe_lazy)
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        if not return_exception:
+          raise e
+        result = e
       if isinstance(result, lazy_fns.LazyObject):
         result = courier_worker.RemoteObject.new(result, worker=self.address)
       return pickler.dumps(result)
@@ -140,7 +145,10 @@ class CourierServerWrapper:
       if self._generator:
         self._generator.prefetch()
       time.sleep(0)
-    logging.info('Chainables: Shutdown requested, shutting down server.')
+    logging.info(
+        'Chainables: Shutdown requested, shutting down server %s',
+        self._server.address,
+    )
     self._server.Stop()
 
   def start(self, daemon: bool = None) -> threading.Thread:
