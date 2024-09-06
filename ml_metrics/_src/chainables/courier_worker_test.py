@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import functools
 import queue
 import threading
 import time
@@ -29,9 +30,27 @@ import portpicker
 Task = courier_worker.Task
 
 
+@functools.cache
+def cached_server(name: str):
+  del name
+  result = courier_server.CourierServerWrapper()
+  result.build_server()
+  result.start(daemon=True)
+  return result
+
+
 # Required for BNS resolution.
 def setUpModule():
   testutil.SetupMockBNS()
+  cached_server('RemoteObject')
+  cached_server('CourierWorker')
+  cached_server('WorkerGroup')
+
+
+def tearDownModule():
+  for name in ['RemoteObject', 'CourierWorker', 'WorkerGroup']:
+    server = cached_server(name)
+    assert not courier_worker._cached_worker(server.address).shutdown().result()
 
 
 def lazy_q_fn(n, stop=False):
@@ -76,16 +95,9 @@ class RemoteObjectTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server = courier_server.CourierServerWrapper()
-    self.server.build_server()
-    self.server_thread = self.server.start(daemon=True)
-    self.worker = courier_worker.Worker(self.server.address)
-    self.worker.wait_until_alive(deadline_secs=6, sleep_interval_secs=1)
-
-  def tearDown(self):
-    self.worker.shutdown()
-    self.server_thread.join()
-    super().tearDown()
+    self.server = cached_server('RemoteObject')
+    self.worker = courier_worker._cached_worker(self.server.address)
+    self.worker.wait_until_alive(deadline_secs=6, sleep_interval_secs=0)
 
   @parameterized.named_parameters([
       dict(
@@ -292,16 +304,9 @@ class CourierWorkerTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server = courier_server.CourierServerWrapper()
-    self.server.build_server()
-    self.server_thread = self.server.start(daemon=True)
-    self.worker = courier_worker.Worker(self.server.address)
-    self.worker.wait_until_alive(deadline_secs=6, sleep_interval_secs=0.1)
-
-  def tearDown(self):
-    self.worker.shutdown()
-    self.server_thread.join()
-    super().tearDown()
+    self.server = cached_server('CourierWorker')
+    self.worker = courier_worker._cached_worker(self.server.address)
+    self.worker.wait_until_alive(deadline_secs=6, sleep_interval_secs=0)
 
   def test_worker_call(self):
     self.assertEqual(
@@ -390,6 +395,8 @@ class CourierWorkerTest(absltest.TestCase):
     self.assertEmpty(self.worker.pendings)
 
   def test_worker_idle(self):
+    while not self.worker.has_capacity:
+      time.sleep(0)
     self.assertTrue(self.worker.has_capacity)
     self.worker.call(lazy_fns.trace(time.sleep)(0.3))
     self.assertFalse(self.worker.has_capacity)
@@ -445,20 +452,13 @@ class CourierWorkerGroupTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server = courier_server.CourierServerWrapper()
-    self.server.build_server()
-    self.server_thread = self.server.start(daemon=True)
+    self.server = cached_server('WorkerGroup')
     self.always_timeout_server = TimeoutServer()
     self.always_timeout_server.build_server()
     self.invalid_server_thread = self.always_timeout_server.start(daemon=True)
     self.worker_pool = courier_worker.WorkerPool([self.server.address])
     self.unreachable_address = f'localhost:{portpicker.pick_unused_port()}'
-    self.worker_pool.wait_until_alive(deadline_secs=12)
-
-  def tearDown(self):
-    self.worker_pool.shutdown()
-    self.server_thread.join()
-    super().tearDown()
+    self.worker_pool.wait_until_alive(deadline_secs=12, sleep_interval_secs=0)
 
   def test_worker_group_call(self):
     actual = self.worker_pool.call_and_wait('echo')
@@ -471,7 +471,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
     thread = server.start(daemon=True)
     tasks = [courier_worker.Task.new(1, courier_method='plus_one')]
     worker_pool = courier_worker.WorkerPool([server.address])
-    worker_pool.wait_until_alive(deadline_secs=12)
+    worker_pool.wait_until_alive(deadline_secs=12, sleep_interval_secs=0)
     states = list(worker_pool.as_completed(tasks))
     # We only have one task, so just return the first element.
     self.assertEqual(2, courier_worker.get_results(states)[0])
