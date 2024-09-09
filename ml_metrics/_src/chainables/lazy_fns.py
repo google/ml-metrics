@@ -60,9 +60,12 @@ def _lru_cache(maxsize: int):
     def wrapped_fn(x: LazyObject[_T]) -> _T:
       if x.cache_result:
         try:
-          return lazy_obj_cache[x]
+          result = lazy_obj_cache[x]
+          logging.info('chainable: cache hit for type %s.', type(result))
+          return result
         except KeyError as e:
           if isinstance(x, LazyFn):
+            logging.info('chainable: cache miss for type %s', type(x))
             result = fn(x)
             lazy_obj_cache[x] = result
             return result
@@ -356,7 +359,7 @@ class LazyObject(Resolvable[_T]):
     return dc.replace(self, **kwargs)
 
   @_lru_cache(maxsize=128)
-  def result_(self) -> _T:
+  def result_(self) -> _T | LazyObject[_T]:
     """Dereference the lazy object."""
     result = self.value
     if self._lazy_result:
@@ -441,7 +444,6 @@ class LazyFn(LazyObject[_T]):
     try:
       return hash((self.value, self.args, self.kwargs))
     except TypeError:
-      # logging.exception('chainables: hashing failed, fall back to id.')
       return hash(self.id)
 
   def __eq__(self, other: Self):
