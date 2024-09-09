@@ -47,12 +47,6 @@ def setUpModule():
   cached_server('WorkerGroup')
 
 
-def tearDownModule():
-  for name in ['RemoteObject', 'CourierWorker', 'WorkerGroup']:
-    server = cached_server(name)
-    assert not courier_worker._cached_worker(server.address).shutdown().result()
-
-
 def lazy_q_fn(n, stop=False):
   q = queue.SimpleQueue()
   for i in range(n):
