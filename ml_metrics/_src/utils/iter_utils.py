@@ -44,11 +44,23 @@ class Progress:
 class IteratorQueue(Generic[_ValueT]):
   """Enqueue elements from an iterator and record exhausted and returned."""
 
-  queue: QueueLike[_ValueT]
+  _queue: QueueLike[_ValueT] | None = None
+  maxsize: dc.InitVar[int] = dc.field(default=0, kw_only=True)
   timeout: float | None = dc.field(default=None, kw_only=True)
   progress: Progress = dc.field(default_factory=Progress, init=False)
   exhausted: bool = dc.field(default=False, init=False)
   returned: Any = dc.field(default=None, init=False)
+
+  def __post_init__(self, maxsize: int):
+    if self._queue is not None:
+      return
+    if maxsize:
+      self._queue = queue.Queue(maxsize=maxsize)
+    else:
+      self._queue = queue.SimpleQueue()
+
+  def qsize(self) -> int:
+    return self._queue.qsize()
 
   def set_exhausted(self, value=None):
     self.exhausted = True
@@ -57,7 +69,7 @@ class IteratorQueue(Generic[_ValueT]):
   def enqueue_from_iterator(self, iterator: Iterable[_ValueT]):
     """Iterates through a generator while enqueue its elements."""
     iterator = iter(iterator)
-    output_queue = self.queue
+    output_queue = self._queue
     exhausted = False
     i = 0
     while not exhausted:
@@ -66,7 +78,7 @@ class IteratorQueue(Generic[_ValueT]):
       except StopIteration as e:
         self.exhausted = True
         self.returned = e.value
-        return e.value
+        return
       ticker = time.time()
       enqueued = False
       while not enqueued:
@@ -91,7 +103,8 @@ class IteratorQueue(Generic[_ValueT]):
     while run_until_exhausted or i < num_steps:
       ticker = ticker or time.time()
       try:
-        value = self.queue.get_nowait()
+        assert (q := self._queue) is not None
+        value = q.get_nowait()
       except (queue.Empty, asyncio.QueueEmpty) as e:
         if self.exhausted:
           return self.returned

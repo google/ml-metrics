@@ -105,7 +105,7 @@ class UtilsTest(parameterized.TestCase):
     )
     self.assertIsNotNone(iter_pipe.output_queue)
     self.assertIsNotNone(iter_pipe.input_queue)
-    iter_pipe.input_queue.queue.put(0)
+    iter_pipe.input_queue._queue.put(0)
     with self.assertRaisesRegex(TimeoutError, '(De|En)queue timeout'):
       iter_pipe._state.result()
 
@@ -116,19 +116,19 @@ class UtilsTest(parameterized.TestCase):
     self.assertSequenceEqual(expected, actual)
 
   def test_iterator_queue_enqueue_dequeue(self):
-    q = iter_utils.IteratorQueue(queue.SimpleQueue())
+    q = iter_utils.IteratorQueue()
     q.enqueue_from_iterator(range(10))
     actual = list(q.dequeue_as_iterator())
     self.assertSequenceEqual(list(range(10)), actual)
 
   def test_enqueue_from_generator_timeout(self):
-    q = iter_utils.IteratorQueue(queue.Queue(maxsize=1), timeout=0.1)
+    q = iter_utils.IteratorQueue(maxsize=1, timeout=0.1)
     with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout'):
       q.enqueue_from_iterator(range(2))
 
   def test_dequeue_from_generator_timeout(self):
-    q = iter_utils.IteratorQueue(queue.Queue(maxsize=1), timeout=0.1)
-    q.queue.put(1)
+    q = iter_utils.IteratorQueue(maxsize=1, timeout=0.1)
+    q._queue.put(1)
     with self.assertRaisesRegex(TimeoutError, 'Dequeue timeout'):
       mit.last(q.dequeue_as_iterator())
 
