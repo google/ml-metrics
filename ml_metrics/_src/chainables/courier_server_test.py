@@ -46,16 +46,9 @@ class CourierServerTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server = courier_server.CourierServerWrapper()
-    self.server.build_server()
-    self.thread = self.server.start()
+    self.server = courier_server._cached_server()
     self.client = courier_worker.Worker(self.server.address)
     self.client.wait_until_alive(deadline_secs=12)
-
-  def tearDown(self):
-    self.client.shutdown()
-    self.thread.join()
-    super().tearDown()
 
   def test_courier_server_maybe_make(self):
     client = courier.Client(self.server.address, call_timeout=1)

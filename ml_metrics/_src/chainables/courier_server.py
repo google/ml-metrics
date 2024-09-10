@@ -23,12 +23,21 @@ import courier
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
+from ml_metrics._src.utils import func_utils
 from ml_metrics._src.utils import iter_utils
 
 
 _DEFAULT = 'default'
 _T = TypeVar('_T')
 pickler = lazy_fns.pickler
+
+
+@func_utils.cache_without_kwargs
+def _cached_server(name: str | None = None, *, timeout_secs: float = 10200):
+  result = CourierServerWrapper(name, timeout_secs=timeout_secs)
+  result.build_server()
+  result.start(daemon=True)
+  return result
 
 
 @dataclasses.dataclass
@@ -38,7 +47,7 @@ class CourierServerWrapper:
   server_name: str | None = None
   port: int | None = None
   prefetch_size: int = 2
-  timeout_secs: int = 10200
+  timeout_secs: float = 10200
   _server: courier.Server | None = None
   _stats: dict[str, float] = dataclasses.field(default_factory=dict)
   _shutdown_requested: dict[str, bool] = dataclasses.field(
