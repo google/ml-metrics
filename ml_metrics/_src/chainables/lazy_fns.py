@@ -51,8 +51,17 @@ class Resolvable(Protocol[_T]):
 MaybeResolvable = Resolvable[_T] | _T
 
 
-def _lru_cache(maxsize: int):
-  """A function decorator to makes it lru cached with the cached dict."""
+def _maybe_lru_cache(maxsize: int):
+  """Decorator to add LRU cache for LazyObject inputs.
+
+  This only caches the result when `cache_result` in the LazyObject is True.
+
+  Args:
+    maxsize: the maximum size of the LRU Cache.
+
+  Returns:
+    A decorator that can lru cache function with LazyObject inputs.
+  """
 
   def decorator(fn: Callable[..., Any]):
     lazy_obj_cache = func_utils.LruCache(maxsize=maxsize)
@@ -358,7 +367,7 @@ class LazyObject(Resolvable[_T]):
   def set_(self, **kwargs):
     return dc.replace(self, **kwargs)
 
-  @_lru_cache(maxsize=128)
+  @_maybe_lru_cache(maxsize=128)
   def result_(self) -> _T | LazyObject[_T]:
     """Dereference the lazy object."""
     result = self.value
@@ -455,7 +464,7 @@ class LazyFn(LazyObject[_T]):
         and self.kwargs == other.kwargs
     )
 
-  @_lru_cache(maxsize=128)
+  @_maybe_lru_cache(maxsize=128)
   def result_(self):
     """Instantiate a lazy fn to a actual fn when applicable."""
     if self.value is None:
