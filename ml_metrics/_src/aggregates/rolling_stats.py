@@ -140,7 +140,62 @@ class MeanAndVarianceAggFn(base.MergeableMetricAggFn):
   )
 
 
-# TODO(b/345249574): Implement MinMax class.
+# TODO(b/345249574): Add a preprocessing function of len per row.
+@dataclasses.dataclass(slots=True)
+class MinMaxAndCount(base.MergeableMetric):
+  """Computes the Min, Max, and Count.
+
+  Given a batch of inputs, MinMaxAndCount computes the following statistics:
+    count: The total the number of input values across all the batches.
+    min: The number of inputs in the batch that has the least number of inputs.
+    max: The number of inputs in the batch that has the most number of inputs.
+  """
+
+  batch_score_fn: Callable[..., types.NumbersT] | None = None
+  axis: int | None = None
+  _count: int = 0
+  _min: int = np.inf
+  _max: int = 0
+
+  def __eq__(self, other: 'MinMaxAndCount') -> bool:
+    return (
+        self._count == other.count
+        and self._min == other.min
+        and self._max == other.max
+    )
+
+  @property
+  def count(self) -> int:
+    return self._count
+
+  @property
+  def min(self) -> int:
+    return self._min
+
+  @property
+  def max(self) -> int:
+    return self._max
+
+  def add(self, inputs: types.NumbersT) -> 'MinMaxAndCount':
+    self._count += np.asarray(inputs).size
+
+    if self.batch_score_fn is not None:
+      inputs = self.batch_score_fn(inputs)
+
+    self._min = np.minimum(self._min, np.min(inputs, axis=self.axis))
+    self._max = np.maximum(self._max, np.max(inputs, axis=self.axis))
+
+    return self
+
+  def merge(self, other: 'MinMaxAndCount') -> 'MinMaxAndCount':
+    self._count += other.count
+    self._min = np.min((self._min, other.min), axis=self.axis)
+    self._max = np.max((self._max, other.max), axis=self.axis)
+
+    return self
+
+  def result(self) -> 'MinMaxAndCount':
+    return self
 
 
 @dataclasses.dataclass(slots=True)

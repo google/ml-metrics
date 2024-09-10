@@ -238,6 +238,195 @@ class StatsStateTest(parameterized.TestCase):
     self.assertDataclassAlmostEqual(get_expected_stats_state(batches), actual)
 
 
+class MinMaxAndCountTest(parameterized.TestCase):
+  def test_min_max_and_count_merge(self):
+    batch_1 = (1, 2, 3, 4, 5, 6, 7, 8, 9)  # len(batch_1) = 9
+    batch_2 = (8, 6, 7, 5, 3, 0, 9)  # len(batch_2) = 7
+    batch_3 = (5, 4, 3, 2, 1)  # len(batch_3) = 5
+
+    expected_result = rolling_stats.MinMaxAndCount(
+        _count=21,  # len(batch_1) + len(batch_2) + len(batch_3)
+        _min=5,  # min(len(batch_1), len(batch_2), len(batch_3))
+        _max=9,  # max(len(batch_1), len(batch_2), len(batch_3))
+    )
+
+    state_1 = rolling_stats.MinMaxAndCount(batch_score_fn=len).add(batch_1)
+    state_2 = rolling_stats.MinMaxAndCount(batch_score_fn=len).add(batch_2)
+    state_3 = rolling_stats.MinMaxAndCount(batch_score_fn=len).add(batch_3)
+
+    self.assertEqual(state_1.merge(state_2).merge(state_3), expected_result)
+
+  def test_min_max_and_count_len(self):
+    batch_1 = (1, 2, 3, 4, 5, 6, 7, 8, 9)  # len(batch_1) = 9
+    batch_2 = (8, 6, 7, 5, 3, 0, 9)  # len(batch_2) = 7
+    batch_3 = (5, 4, 3, 2, 1)  # len(batch_3) = 5
+
+    expected_properties_dict = {
+        'count': 21,  # len(batch_1) + len(batch_2) + len(batch_3)
+        'min': 5,  # min(len(batch_1), len(batch_2), len(batch_3))
+        'max': 9,  # max(len(batch_1), len(batch_2), len(batch_3))
+    }
+
+    state = rolling_stats.MinMaxAndCount(batch_score_fn=len)
+    for batch in (batch_1, batch_2, batch_3):
+      state.add(batch)
+
+    for property_name, value in expected_properties_dict.items():
+      self.assertEqual(getattr(state, property_name), value)
+
+  def test_min_max_and_count_custom_batch_score_fn(self):
+    batch_1 = ((1, 2, 3, 4, 5, 6, 7, 8, 9), (2, 4, 6, 8, 10, 12, 14, 16, 18))
+    batch_2 = ((1, 2, 3, 4, 5, 6, 7), (8, 6, 7, 5, 3, 0, 9))
+    batch_3 = ((1, 2, 3, 4, 5), (5, 4, 3, 2, 1))
+
+    expected_properties_dict = {
+        'count': 42,  # 2 * 9 + 2 * 7 + 2 * 5 = 42
+        'min': 10,  # min(2 * 9, 2 * 7, 2 * 5) = 2 * 5 = 10
+        'max': 18,  # max(2 * 9, 2 * 7, 2 * 5) = 2 * 9 = 18
+    }
+
+    num_elem = lambda input: sum([len(batch) for batch in input])
+    state = rolling_stats.MinMaxAndCount(batch_score_fn=num_elem)
+    for batch in (batch_1, batch_2, batch_3):
+      state.add(batch)
+
+    for property_name, value in expected_properties_dict.items():
+      self.assertEqual(getattr(state, property_name), value)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='mo_batch_score_fn',
+          batch_score_fn=None,
+          expected_min=0,  # min(batch_1, batch_2, batch_3) = 0
+          expected_max=18,  # max(batch_1, batch_2, batch_3) = 18
+      ),
+      dict(
+          testcase_name='np_sum',
+          batch_score_fn=np.sum,
+          # min(sum(batch_1), sum(batch_2), sum(batch_3)) = min(135, 38, 30)
+          expected_min=30,
+          # max(sum(batch_1), sum(batch_2), sum(batch_3)) = max(135, 38, 30)
+          expected_max=135,
+      ),
+  )
+  def test_min_max_and_count_mixed_dim_inputs_np_sum(
+      self, batch_score_fn, expected_min, expected_max
+  ):
+    batch_1 = ((1, 2, 3, 4, 5, 6, 7, 8, 9), (2, 4, 6, 8, 10, 12, 14, 16, 18))
+    batch_2 = (8, 6, 7, 5, 3, 0, 9)
+    batch_3 = ((1, 2, 3, 4, 5), (5, 4, 3, 2, 1))
+
+    expected_properties_dict = {
+        'count': 35,  # 2 * 9 + 7 + 2 * 5 = 35
+        'min': expected_min,
+        'max': expected_max,
+    }
+
+    state = rolling_stats.MinMaxAndCount(batch_score_fn=batch_score_fn)
+    for batch in (batch_1, batch_2, batch_3):
+      state.add(batch)
+
+    for property_name, value in expected_properties_dict.items():
+      self.assertEqual(getattr(state, property_name), value)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='axis_none',
+          batch_score_fn=None,
+          axis=None,
+          expected_min=0,  # min of all elements
+          expected_max=18,  # max of all elements
+      ),
+      dict(
+          testcase_name='axis_0',
+          batch_score_fn=None,
+          axis=0,
+          # np.minimum.reduce((
+          # (1, 2, 3, 4, 5, 6, 7, 8, 9),
+          # (1, 2, 3, 4, 3, 0, 7, 0, 0),
+          # (1, 2, 3, 4, 4, 4, 3, 2, 1),
+          # ))
+          # = [1 2 3 4 3 0 3 0 0]
+          expected_min=(1, 2, 3, 4, 3, 0, 3, 0, 0),
+          # np.maximum.reduce((
+          # (2, 4, 6, 8, 10, 12, 14, 16, 18),
+          # (8, 6, 7, 5, 5, 6, 9, 9, 9),
+          # (4, 4, 4, 4, 5, 4, 4, 4, 4),
+          # ))
+          # = [ 8  6  7  8 10 12 14 16 18]
+          expected_max=(8, 6, 7, 8, 10, 12, 14, 16, 18),
+      ),
+      dict(
+          testcase_name='axis_1',
+          batch_score_fn=None,
+          axis=1,
+          # np.minimum.reduce(((1, 2), (0, 0), (1, 4))) = [0 0]
+          expected_min=(0, 0),
+          # np.maximum.reduce(((9, 18), (7, 9), (5, 4))) = [ 9 18]
+          expected_max=(9, 18),
+      ),
+  )
+  def test_min_max_and_count_axis(
+      self, batch_score_fn, axis, expected_min, expected_max
+  ):
+    batch_1 = ((1, 2, 3, 4, 5, 6, 7, 8, 9), (2, 4, 6, 8, 10, 12, 14, 16, 18))
+    batch_2 = ((1, 2, 3, 4, 5, 6, 7, 0, 0), (8, 6, 7, 5, 3, 0, 9, 9, 9))
+    batch_3 = ((1, 2, 3, 4, 5, 4, 3, 2, 1), (4, 4, 4, 4, 4, 4, 4, 4, 4))
+
+    state = rolling_stats.MinMaxAndCount(
+        batch_score_fn=batch_score_fn, axis=axis
+    )
+    for batch in (batch_1, batch_2, batch_3):
+      state.add(batch)
+
+    self.assertEqual(state.count, 54)  # 3 * 2 * 9
+    np.testing.assert_array_equal(state.min, expected_min)
+    np.testing.assert_array_equal(state.max, expected_max)
+
+  def test_min_max_and_count_one_large_batch(self):
+    num_inputs = 1000000
+
+    inputs = np.random.random_sample(size=num_inputs)
+
+    expected_properties = ('count', 'min', 'max')
+
+    actual_result = rolling_stats.MinMaxAndCount(batch_score_fn=len).add(inputs)
+
+    for property_name in expected_properties:
+      self.assertEqual(getattr(actual_result, property_name), num_inputs)
+
+  def test_min_max_and_count_many_batches(self):
+    num_batches = 1000
+    batch_size = 10000
+    inputs = np.random.random_sample(size=(num_batches, batch_size))
+
+    expected_properties_dict = {
+        'count': num_batches * batch_size,
+        'min': batch_size,
+        'max': batch_size,
+    }
+
+    state = rolling_stats.MinMaxAndCount(batch_score_fn=len)
+    for input_batch in inputs:
+      state.add(input_batch)
+
+    for property_name, value in expected_properties_dict.items():
+      self.assertEqual(getattr(state, property_name), value)
+
+  def test_min_max_and_count_empty_input(self):
+    empty_batch = ()
+
+    expected_properties = ('count', 'min', 'max')
+
+    actual_result = rolling_stats.MinMaxAndCount(batch_score_fn=len).add(
+        empty_batch
+    )
+
+    for property_name in expected_properties:
+      # All properties should be 0 for an empty batch.
+      self.assertEqual(getattr(actual_result, property_name), 0)
+
+
 class R2TjurTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
