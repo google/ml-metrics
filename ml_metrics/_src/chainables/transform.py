@@ -427,6 +427,7 @@ class CombinedTreeFn:
       )
       return AggregateResult(agg_state=state, agg_result=agg_result)
 
+  # TODO: b/356633410 - Deprecate iterator pipe in favor of RemoteIterator.
   def iterator_pipe(
       self, *, buffer_size: int = 0, timeout: float | None = None
   ):

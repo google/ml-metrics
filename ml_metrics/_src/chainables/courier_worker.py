@@ -315,17 +315,16 @@ class RemoteObject(Generic[_T], lazy_fns.Resolvable[_T]):
   def worker(self) -> Worker:
     return _cached_worker(self.worker_addr)
 
-  def future_(self, value=None) -> futures.Future[bytes]:
+  def future_(self) -> futures.Future[bytes]:
     # Remote object will forward any exception as the result.
-    value = self.value if value is None else value
-    return self.worker.call(value, return_exception=True)
+    return self.worker.call(self.value, return_exception=True)
 
-  def result_(self, value=None) -> _T:
-    result = lazy_fns.pickler.loads(self.future_(value).result())
-    if isinstance(result, Exception):
-      result.add_note(f'Raised on the remote worker: {self.worker_addr}')
-      raise result
-    return result
+  def result_(self) -> _T:
+    return self.worker.get_result(self.value)
+
+  # TODO: b/356633410 - implements async in process runner.
+  async def async_result_(self) -> _T:
+    return await self.worker.async_get_result(self.value)
 
   # Overrides to support pickling when getattr is overridden.
   def __getstate__(self):
@@ -349,10 +348,13 @@ class RemoteObject(Generic[_T], lazy_fns.Resolvable[_T]):
     return RemoteObject.new(self.value[key], worker=self.worker_addr)
 
   def __iter__(self) -> RemoteIterator:
-    remote_iterator = self.result_(
-        lazy_fns.trace(iter)(self.value, lazy_result_=True),
+    remote_iterator = self.worker.get_result(
+        lazy_fns.trace(iter)(self.value, lazy_result_=True)
     )
     return RemoteIterator(remote_iterator)
+
+  def __aiter__(self) -> RemoteIterator:
+    return self.__iter__()
 
 
 class RemoteIterator(Iterator[_T]):
@@ -364,10 +366,42 @@ class RemoteIterator(Iterator[_T]):
     self.iterator = iterator
 
   def __next__(self) -> _T:
-    return self.iterator.result_(lazy_fns.trace(next)(self.iterator.value))
+    return self.iterator.worker.get_result(
+        lazy_fns.trace(next)(self.iterator.value)
+    )
 
   def __iter__(self):
     return self
+
+  async def __anext__(self) -> _T:
+    return await self.iterator.worker.async_get_result(
+        lazy_fns.trace(next)(self.iterator.value)
+    )
+
+  def __aiter__(self):
+    return self
+
+
+async def async_remote_iter(
+    iterator: lazy_fns.MaybeResolvable[Iterable[_T]],
+    *,
+    worker: str | Worker | None = None,
+) -> RemoteIterator[_T]:
+  """Constructs a remote iterator given a maybe lazy iterator."""
+  if isinstance(iterator, RemoteObject):
+    remote_iterator = await iterator.worker.async_get_result(
+        lazy_fns.trace(iter)(iterator.value, lazy_result_=True)
+    )
+    return RemoteIterator(remote_iterator)
+  elif isinstance(iterator, lazy_fns.LazyObject):
+    # Constructs a iterator remotely and return it.
+    if not iterator.lazy_result:
+      iterator = iterator.set_(_lazy_result=True)
+    if not isinstance(worker, Worker):
+      worker = _cached_worker(worker)
+    return RemoteIterator(await worker.async_get_result(iterator))
+  else:
+    raise TypeError(f'Unsupported {type(iterator)}.')
 
 
 def _is_queue_full(e: Exception) -> bool:
@@ -602,6 +636,10 @@ class Worker:
 
   @property
   def has_capacity(self) -> bool:
+    # TODO: b/356633410 - Build a better capacity check than pendings.
+    # Limitation: recursive remote calls will cause deadlock. This is why
+    # capacity is not enforced at lower level calls, e.g., `call()` and
+    # `result()`, and `async_result()`.
     return len(self.pendings) < self.max_parallelism
 
   def _check_heartbeat(self) -> bool:
@@ -665,12 +703,39 @@ class Worker:
   def call(
       self, *args, courier_method: str = '', **kwargs
   ) -> futures.Future[Any]:
+    """Low level courier call ignoring capacity and lock."""
     args, kwargs = _normalize_args(args, kwargs)
     courier_method = courier_method or 'maybe_make'
     assert self._client is not None
     state = getattr(self._client.futures, courier_method)(*args, **kwargs)
     self._pendings.append(state)
     return state
+
+  def _result_or_exception(self, result: _T | Exception) -> _T | Exception:
+    if isinstance(result, Exception):
+      result.add_note(f'Raised on the remote worker: {self.server_name}')
+      raise result
+    return result
+
+  def get_result(self, lazy_obj: lazy_fns.Resolvable[_T]) -> _T:
+    """Low level blocking courier call to retrieve the result."""
+    future = self.call(lazy_obj, return_exception=True)
+    while not future.done():
+      time.sleep(0)
+    pickled = future.result()
+    return self._result_or_exception(lazy_fns.pickler.loads(pickled))
+
+  async def async_get_result(self, lazy_obj: lazy_fns.Resolvable[_T]) -> _T:
+    """Low level async courier call to retrieve the result."""
+    future = self.call(lazy_obj, return_exception=True)
+    pickled = await asyncio.wrap_future(future)
+    try:
+      return self._result_or_exception(lazy_fns.pickler.loads(pickled))
+    except StopIteration as e:
+      # Convert a StopIteration without return to StopAsyncIteration().
+      if (v := e.value) is not None:
+        logging.exception('Cannot convert StopIteration with return: %s.', v)
+      raise StopAsyncIteration() from e
 
   def submit(self, task: Task[_T] | lazy_fns.Resolvable[_T]) -> Task[_T]:
     """Runs tasks sequentially and returns the task."""
@@ -749,6 +814,21 @@ class Worker:
       raise e
     finally:
       generator_state.cancel()
+
+  async def async_iter(
+      self,
+      lazy_iterable: lazy_fns.LazyObject[Iterable[_T]],
+  ) -> AsyncIterator[_T]:
+    """Async iterates the generator task."""
+    batch_cnt = 0
+    async for batch in await async_remote_iter(lazy_iterable, worker=self):
+      yield batch
+      batch_cnt += 1
+    logging.info(
+        'chainables: worker %s generator exhausted after %d batches',
+        self.server_name,
+        batch_cnt,
+    )
 
   def clear_cache(self):
     return self.call(courier_method='clear_cache')

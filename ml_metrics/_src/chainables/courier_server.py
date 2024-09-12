@@ -40,6 +40,19 @@ def _cached_server(name: str | None = None, *, timeout_secs: float = 10200):
   return result
 
 
+def make_remote_iterator(
+    iterator: lazy_fns.MaybeResolvable[Iterable[_T]],
+    *,
+    server_addr: str,
+) -> courier_worker.RemoteIterator[_T]:
+  """Constructs a remote iterator given a maybe lazy iterator."""
+  iterator = lazy_fns.maybe_make(iterator)
+  # Creates a local iterator that can be served as remote iterator.
+  return courier_worker.RemoteIterator(
+      courier_worker.RemoteObject.new(iter(iterator), worker=server_addr)
+  )
+
+
 @dataclasses.dataclass
 class CourierServerWrapper:
   """Courier server that runs a chainable."""
@@ -49,6 +62,7 @@ class CourierServerWrapper:
   prefetch_size: int = 2
   timeout_secs: float = 10200
   _server: courier.Server | None = None
+  _thread: threading.Thread | None = None
   _stats: dict[str, float] = dataclasses.field(default_factory=dict)
   _shutdown_requested: dict[str, bool] = dataclasses.field(
       default_factory=lambda: {_DEFAULT: False}, init=False
@@ -166,4 +180,5 @@ class CourierServerWrapper:
         target=self.run_until_shutdown, daemon=daemon
     )
     server_thread.start()
+    self._thread = server_thread
     return server_thread
