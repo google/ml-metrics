@@ -18,10 +18,10 @@ from collections.abc import Callable, Iterable, Iterator
 from concurrent import futures
 import dataclasses as dc
 import functools
-import itertools as itt
 import queue
 import time
 from typing import Any, Generic, Self, TypeVar, cast
+
 from absl import logging
 import more_itertools as mit
 import numpy as np
@@ -400,14 +400,57 @@ def dequeue_as_iterator(
       progress.cnt = i
 
 
+def _dequeue_as_iterator_blocking(
+    input_queue: QueueLike[_ValueT | StopIteration],
+) -> Iterator[_ValueT]:
+  """Converts a queue to an iterator, stops when meeting StopIteration."""
+  while not is_stop_iteration(value := input_queue.get()):
+    yield value
+  return cast(StopIteration, value).value
+
+
+class _RecitableIterator(Iterator[_ValueT]):
+  """An iterator that recite its inputs."""
+
+  def __init__(self, iterator: Iterable[_ValueT], *, max_buffer_size: int = 0):
+    self._iterator = iter(iterator)
+    self._max_buffer_size = max_buffer_size
+    self.buffer = queue.SimpleQueue()
+
+  def __next__(self):
+    try:
+      value = next(self._iterator)
+    except StopIteration as e:
+      self.buffer.put(e)
+      raise e
+    self.buffer.put(value)
+    if self._max_buffer_size and self.buffer.qsize() > self._max_buffer_size:
+      raise ValueError(
+          f'Buffer overflow: {self.buffer.qsize()} > {self._max_buffer_size=}.'
+      )
+    return value
+
+  def __iter__(self):
+    return self
+
+  def recite_iterator(self) -> Iterator[_ValueT]:
+    return _dequeue_as_iterator_blocking(self.buffer)
+
+
 def processed_with_inputs(
     process_fn: Callable[[Iterable[_InputT]], Iterable[_ValueT]],
     input_iterator: Iterable[_InputT],
+    *,
+    max_buffer_size: int = 0,
 ) -> Iterator[tuple[_InputT, _ValueT]]:
   """Zips the processed outputs with its inputs."""
-  iter_input, iter_original = itt.tee(input_iterator, 2)
+  iter_input = _RecitableIterator(
+      input_iterator, max_buffer_size=max_buffer_size
+  )
   iter_output = process_fn(iter_input)
-  return zip(iter_output, iter_original)
+  # Note that recital iterator has to be put after the input iterator so that
+  # there are values to be recited.
+  return zip(iter_output, iter_input.recite_iterator())
 
 
 def _concat(data: list[Any]):

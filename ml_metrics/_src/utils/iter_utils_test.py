@@ -219,6 +219,13 @@ class UtilsTest(parameterized.TestCase):
           iter_utils.rebatched_tuples(iter(inputs), batch_size=4, num_columns=2)
       )
 
+  def test_recitable_iterator_normal(self):
+    inputs = range(3)
+    it_inputs = iter_utils._RecitableIterator(inputs)
+    it_outputs = map(lambda x: x + 1, it_inputs)
+    actual = list(zip(it_outputs, it_inputs.recite_iterator(), strict=True))
+    self.assertEqual([(1, 0), (2, 1), (3, 2)], actual)
+
   @parameterized.named_parameters([
       dict(
           testcase_name='to_larger_batch',
