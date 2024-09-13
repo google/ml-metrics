@@ -23,6 +23,154 @@ import numpy as np
 from absl.testing import absltest
 
 
+class HistogramTest(absltest.TestCase):
+
+  def test_histogram_merge(self):
+    bin_range = (0, 1)
+    bins = 5
+
+    input_1 = (0, 1, 0, 1, 1, 1, 0, 1)
+    input_2 = (0.2, 0.8, 0.5, -0.1, 0.5, 0.8, 0.2, 1.1)
+
+    histogram_1 = rolling_stats.Histogram(range=bin_range, bins=bins).add(
+        input_1
+    )
+    histogram_2 = rolling_stats.Histogram(range=bin_range, bins=bins).add(
+        input_2
+    )
+
+    actual_histogram = histogram_1.merge(histogram_2)
+    result = actual_histogram.result()
+
+    expected_histogram = (
+        # Input values in each bin:
+        3,  # (0, 0, 0)
+        2,  # (0.2, 0.2)
+        2,  # (0.5, 0.5)
+        0,  # (),
+        7,  # (0.8, 0.8, 1, 1, 1, 1, 1)
+    )
+    expected_bin_edges = (0, 0.2, 0.4, 0.6, 0.8, 1)
+
+    self.assertEqual(actual_histogram.bins, 5)
+    self.assertSequenceEqual(actual_histogram.range, bin_range)
+
+    np.testing.assert_equal(
+        actual_histogram.histogram, expected_histogram
+    )
+    np.testing.assert_equal(result.hist, expected_histogram)
+
+    np.testing.assert_allclose(
+        actual_histogram.bin_edges, expected_bin_edges
+    )
+    np.testing.assert_allclose(result.bin_edges, expected_bin_edges)
+
+  def test_histogram_simple(self):
+    bin_range = (0, 1)
+    bins = 5
+
+    input_1 = (0, 1, 0, 1, 1, 1, 0, 1)
+    input_2 = (0.2, 0.8, 0.5, -0.1, 0.5, 0.8, 0.2, 1.1)
+
+    actual_result = (
+        rolling_stats.Histogram(range=bin_range, bins=bins)
+        .add(input_1)
+        .add(input_2)
+        .result()
+    )
+
+    expected_histogram = (
+        # Input values in each bin:
+        3,  # (0, 0, 0)
+        2,  # (0.2, 0.2)
+        2,  # (0.5, 0.5)
+        0,  # (),
+        7,  # (0.8, 0.8, 1, 1, 1, 1, 1)
+    )
+    expected_bin_edges = (0, 0.2, 0.4, 0.6, 0.8, 1)
+
+    np.testing.assert_equal(actual_result.hist, expected_histogram)
+    np.testing.assert_allclose(
+        actual_result.bin_edges, expected_bin_edges
+    )
+
+  def test_histogram_one_large_batch(self):
+    np.random.seed(seed=0)
+
+    num_values = 1000000
+    bins = 10
+    left_boundary = -1e6
+    right_boundary = 1e6
+
+    inputs = np.random.uniform(
+        low=left_boundary, high=right_boundary, size=num_values
+    )
+
+    actual_result = (
+        rolling_stats.Histogram(
+            range=(left_boundary, right_boundary),
+            bins=bins,
+        )
+        .add(inputs)
+        .result()
+    )
+
+    expected_histogram, expected_bin_edges = np.histogram(
+        inputs, bins=bins, range=(left_boundary, right_boundary)
+    )
+
+    np.testing.assert_equal(actual_result.hist, expected_histogram)
+    np.testing.assert_equal(actual_result.bin_edges, expected_bin_edges)
+
+  def test_histogram_many_large_batches(self):
+    np.random.seed(seed=0)
+
+    batches = 1000
+    batch_size = 1000
+    bins = 10
+    left_boundary = -1e6
+    right_boundary = 1e6
+
+    inputs = np.random.uniform(
+        low=left_boundary, high=right_boundary, size=(batches, batch_size)
+    )
+
+    state = rolling_stats.Histogram(
+        range=(left_boundary, right_boundary),
+        bins=bins,
+    )
+    for test_values in inputs:
+      state.add(test_values)
+    actual_result = state.result()
+
+    expected_histogram, expected_bin_edges = np.histogram(
+        inputs, bins=bins, range=(left_boundary, right_boundary)
+    )
+
+    np.testing.assert_equal(actual_result.hist, expected_histogram)
+    np.testing.assert_equal(actual_result.bin_edges, expected_bin_edges)
+
+  def test_histogram_invalid_bin_edges(self):
+    place_holder_range = (0, 1)
+
+    original_bin_edges = np.array((0, 0.25, 0.5, 0.75, 1.0))
+    different_bin_edges = np.array((0, 0.5, 1.0))
+
+    place_holder_hist = np.array((1, 1, 1, 1))
+
+    hist_1 = rolling_stats.Histogram(
+        range=place_holder_range,
+        _hist=place_holder_hist,
+        _bin_edges=original_bin_edges,
+    )
+
+    with self.assertRaisesRegex(
+        ValueError,
+        'The bin edges of the two Histograms must be equal, but recieved'
+    ):
+      hist_1._merge(histogram=place_holder_hist, bin_edges=different_bin_edges)
+
+
 def get_expected_stats_state(batches, batch_score_fn=None):
   if batch_score_fn is not None:
     batches = [batch_score_fn(batch) for batch in batches]

@@ -14,6 +14,7 @@
 """Common statistics aggregations."""
 
 import abc
+import collections
 from collections.abc import Callable
 import dataclasses
 import math
@@ -24,6 +25,73 @@ from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.utils import math_utils
 import numpy as np
+
+
+HistogramResult = collections.namedtuple(
+    'HistogramResult', ['hist', 'bin_edges']
+)
+
+
+@dataclasses.dataclass(slots=True)
+class Histogram(base.MergeableMetric):
+  """Computes the Histogram of the inputs.
+
+  Attributes:
+    range: The lower and upper range of the bins. e.g. range = (0, 1).
+    bins: The number of buckets to use.
+    _hist: The values of the histogram.
+    _bin_edges: The bin edges of the histogram. All but the right-most bin are
+      half-open. I.e. if the bins_edges are (0, 1, 2, 3, ..., 8, 9, 10), then
+      the bin ranges are [0, 1), [1, 2), [2, 3), ... [8, 9), [9, 10].
+  """
+
+  range: tuple[float, float]
+  bins: int = 10
+  _hist: np.ndarray = dataclasses.field(default_factory=lambda: np.empty(0))
+  _bin_edges: np.ndarray = dataclasses.field(
+      default_factory=lambda: np.empty(0)
+  )
+
+  def __post_init__(self):
+    self._hist, self._bin_edges = np.histogram(
+        a=(), bins=self.bins, range=self.range
+    )
+
+  @property
+  def histogram(self) -> np.ndarray | None:
+    return self._hist
+
+  @property
+  def bin_edges(self) -> np.ndarray | None:
+    return self._bin_edges
+
+  def _merge(self, histogram: np.ndarray, bin_edges: np.ndarray) -> 'Histogram':
+    if not np.array_equal(bin_edges, self._bin_edges):
+      # Self histo and new histo have different bin edges.
+      raise ValueError(
+          'The bin edges of the two Histograms must be equal, but recieved'
+          f' self._bin_edges={self._bin_edges} and new_bin_edges={bin_edges}.'
+      )
+
+    self._hist += histogram
+    return self
+
+  def add(
+      self, inputs: types.NumbersT, weights: types.NumbersT | None = None
+  ) -> 'Histogram':
+    new_histogram, new_bin_edges = np.histogram(
+        inputs,
+        bins=self.bins,
+        range=self.range,
+        weights=weights,
+    )
+    return self._merge(new_histogram, new_bin_edges)
+
+  def merge(self, other: 'Histogram') -> 'Histogram':
+    return self._merge(other.histogram, other.bin_edges)
+
+  def result(self) -> HistogramResult:
+    return HistogramResult(self._hist.copy(), self._bin_edges.copy())
 
 
 @dataclasses.dataclass(kw_only=True)
