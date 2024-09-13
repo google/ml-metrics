@@ -56,7 +56,7 @@ class HistogramTest(absltest.TestCase):
     self.assertSequenceEqual(actual_histogram.range, bin_range)
 
     np.testing.assert_equal(
-        actual_histogram.histogram, expected_histogram
+        actual_histogram.hist, expected_histogram
     )
     np.testing.assert_equal(result.hist, expected_histogram)
 
@@ -158,17 +158,15 @@ class HistogramTest(absltest.TestCase):
 
     place_holder_hist = np.array((1, 1, 1, 1))
 
-    hist_1 = rolling_stats.Histogram(
-        range=place_holder_range,
-        _hist=place_holder_hist,
-        _bin_edges=original_bin_edges,
-    )
+    hist_1 = rolling_stats.Histogram(place_holder_range)
+    hist_1._hist = place_holder_hist
+    hist_1._bin_edges = original_bin_edges
 
     with self.assertRaisesRegex(
         ValueError,
         'The bin edges of the two Histograms must be equal, but recieved'
     ):
-      hist_1._merge(histogram=place_holder_hist, bin_edges=different_bin_edges)
+      hist_1._merge(place_holder_hist, different_bin_edges)
 
 
 def get_expected_stats_state(batches, batch_score_fn=None):

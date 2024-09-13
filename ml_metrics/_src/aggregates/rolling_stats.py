@@ -47,10 +47,8 @@ class Histogram(base.MergeableMetric):
 
   range: tuple[float, float]
   bins: int = 10
-  _hist: np.ndarray = dataclasses.field(default_factory=lambda: np.empty(0))
-  _bin_edges: np.ndarray = dataclasses.field(
-      default_factory=lambda: np.empty(0)
-  )
+  _hist: np.ndarray = dataclasses.field(init=False)
+  _bin_edges: np.ndarray = dataclasses.field(init=False)
 
   def __post_init__(self):
     self._hist, self._bin_edges = np.histogram(
@@ -58,14 +56,14 @@ class Histogram(base.MergeableMetric):
     )
 
   @property
-  def histogram(self) -> np.ndarray | None:
+  def hist(self) -> np.ndarray | None:
     return self._hist
 
   @property
   def bin_edges(self) -> np.ndarray | None:
     return self._bin_edges
 
-  def _merge(self, histogram: np.ndarray, bin_edges: np.ndarray) -> 'Histogram':
+  def _merge(self, hist: np.ndarray, bin_edges: np.ndarray) -> 'Histogram':
     if not np.array_equal(bin_edges, self._bin_edges):
       # Self histo and new histo have different bin edges.
       raise ValueError(
@@ -73,7 +71,7 @@ class Histogram(base.MergeableMetric):
           f' self._bin_edges={self._bin_edges} and new_bin_edges={bin_edges}.'
       )
 
-    self._hist += histogram
+    self._hist += hist
     return self
 
   def add(
@@ -88,7 +86,7 @@ class Histogram(base.MergeableMetric):
     return self._merge(new_histogram, new_bin_edges)
 
   def merge(self, other: 'Histogram') -> 'Histogram':
-    return self._merge(other.histogram, other.bin_edges)
+    return self._merge(other.hist, other.bin_edges)
 
   def result(self) -> HistogramResult:
     return HistogramResult(self._hist.copy(), self._bin_edges.copy())
