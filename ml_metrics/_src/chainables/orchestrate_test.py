@@ -16,14 +16,20 @@
 import queue
 
 from absl.testing import absltest
+from courier.python import testutil
 from ml_metrics import aggregates
 from ml_metrics import chainable
 from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import orchestrate
-import more_itertools
+import more_itertools as mit
 import numpy as np
+
+
+def setUpModule():
+  # Required for BNS resolution.
+  testutil.SetupMockBNS()
 
 
 def random_numbers_iterator(
@@ -100,7 +106,7 @@ class OrchestrateTest(absltest.TestCase):
     pipeline = (
         chainable.Pipeline.new()
         .data_source(
-            more_itertools.batched(range(1001), 32),
+            mit.batched(range(1001), 32),
         )
         .chain(
             chainable.Pipeline.new(name='apply')
@@ -127,27 +133,24 @@ class OrchestrateTest(absltest.TestCase):
             ),
         },
     )
-    runner_state.wait()
+    runner_state.wait_and_maybe_raise()
     self.assertTrue(runner_state.done() and not runner_state.exception())
-    cnt = 0
-    batch_or_result = None
-    for batch_or_result in chainable.iterate_with_returned(
-        runner_state.iterate()
-    ):
-      cnt += 1
-    assert isinstance(batch_or_result, chainable.AggregateResult)
-    results = batch_or_result.agg_result
+    result_queue = runner_state.result_queue
+    cnt = mit.ilen(result_queue.dequeue_as_iterator())
+    self.assertEqual(cnt, 32)  # ceil(1001/32) = 32 batches.
+    self.assertLen(result_queue.returned, 1)
+    agg_result = result_queue.returned[0]
+    self.assertIsInstance(agg_result, chainable.AggregateResult)
+    results = agg_result.agg_result
     self.assertIn('stats', results)
     self.assertIsInstance(results['stats'], rolling_stats.MeanAndVariance)
     self.assertEqual(results['stats'].count, 1001)
-    # ceil(1001/32) batches with one aggregateion result: ceil(1001/32)+1
-    self.assertEqual(cnt, 33)
 
   def test_run_pipelines_interleaved_raises(self):
     pipeline = (
         chainable.Pipeline.new()
         .data_source(
-            more_itertools.batched(range(5), 2),
+            mit.batched(range(5), 2),
         )
         .chain(
             chainable.Pipeline.new(name='apply')

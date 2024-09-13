@@ -158,8 +158,9 @@ class RunnerState:
         return_when=mode,
     )
 
-  def iterate(self) -> Iterator[Any]:
-    return self.stages[-1].result_queue.dequeue_as_iterator()
+  @property
+  def result_queue(self) -> iter_utils.IteratorQueue[Any]:
+    return self.stages[-1].result_queue
 
   def stage_progress(self) -> list[iter_utils.Progress | None]:
     return [s.progress for s in self.stages]
@@ -213,7 +214,7 @@ def _async_run_single_stage(
     raise ValueError(
         'chainables: AggregateTransform is not supported with worker_pool.'
     )
-  result_q = iter_utils.IteratorQueue(queue.Queue(maxsize=resource.buffer_size))
+  result_q = iter_utils.IteratorQueue(maxsize=resource.buffer_size)
   input_iterator = None
   if input_queue is not None:
     input_iterator = input_queue.dequeue_as_iterator()

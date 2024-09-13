@@ -14,7 +14,7 @@
 """Internal batching utils, not meant to be used by users."""
 
 import asyncio
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable, Iterator
 from concurrent import futures
 import dataclasses as dc
 import functools
@@ -44,41 +44,49 @@ class Progress:
 class IteratorQueue(Generic[_ValueT]):
   """Enqueue elements from an iterator and record exhausted and returned."""
 
-  _queue: QueueLike[_ValueT] | None = None
-  maxsize: dc.InitVar[int] = dc.field(default=0, kw_only=True)
+  maxsize: dc.InitVar[int] = 0
   timeout: float | None = dc.field(default=None, kw_only=True)
   progress: Progress = dc.field(default_factory=Progress, init=False)
-  exhausted: bool = dc.field(default=False, init=False)
-  returned: Any = dc.field(default=None, init=False)
+  returned: Any = dc.field(default_factory=list, init=False)
+  _queue: QueueLike[_ValueT] | None = dc.field(init=False, default=None)
+  _iterator_cnt: int | None = dc.field(init=False, default=None)
 
   def __post_init__(self, maxsize: int):
-    if self._queue is not None:
-      return
     if maxsize:
       self._queue = queue.Queue(maxsize=maxsize)
     else:
       self._queue = queue.SimpleQueue()
 
   def qsize(self) -> int:
-    return self._queue.qsize()
+    assert (q := self._queue) is not None
+    return q.qsize()
 
-  def set_exhausted(self, value=None):
-    self.exhausted = True
-    self.returned = value
+  @property
+  def enqueue_done(self) -> bool:
+    return self._iterator_cnt == 0
+
+  def _start_enqueue(self):
+    if self._iterator_cnt is None:
+      self._iterator_cnt = 0
+    self._iterator_cnt += 1
+
+  def _stop_enqueue(self, value=None):
+    self._iterator_cnt -= 1
+    assert self._iterator_cnt >= 0, f'{self._iterator_cnt=} cannot be negative.'
+    if value is not None:
+      self.returned.append(value)
 
   def enqueue_from_iterator(self, iterator: Iterable[_ValueT]):
     """Iterates through a generator while enqueue its elements."""
     iterator = iter(iterator)
     output_queue = self._queue
     exhausted = False
-    i = 0
+    self._start_enqueue()
     while not exhausted:
       try:
         value = next(iterator)
       except StopIteration as e:
-        self.exhausted = True
-        self.returned = e.value
-        return
+        return self._stop_enqueue(e.value)
       ticker = time.time()
       enqueued = False
       while not enqueued:
@@ -91,9 +99,7 @@ class IteratorQueue(Generic[_ValueT]):
           time.sleep(0)
           continue
         enqueued = True
-        i += 1
-        if self.progress is not None:
-          self.progress.cnt = i
+        self.progress.cnt += 1
 
   def dequeue_as_iterator(self, num_steps: int = -1) -> Iterator[_ValueT]:
     """Converts a queue to an iterator, stops when meeting StopIteration."""
@@ -106,8 +112,8 @@ class IteratorQueue(Generic[_ValueT]):
         assert (q := self._queue) is not None
         value = q.get_nowait()
       except (queue.Empty, asyncio.QueueEmpty) as e:
-        if self.exhausted:
-          return self.returned
+        if self.enqueue_done:
+          return
         timeout = self.timeout
         if timeout is not None and ticker and time.time() - ticker > timeout:
           raise TimeoutError(f'Dequeue timeout after {timeout} seconds.') from e
@@ -118,13 +124,46 @@ class IteratorQueue(Generic[_ValueT]):
       i += 1
 
 
-def _get_queue(
-    qsize: int = 0, timeout: int | None = None
-) -> IteratorQueue[Any]:
-  q = queue.Queue(maxsize=qsize) if qsize else queue.SimpleQueue()
-  return IteratorQueue(q, timeout=timeout)
+@dc.dataclass(repr=False, eq=False)
+class AsyncIteratorQueue(IteratorQueue[_ValueT]):
+  """A queue that can enqueue from and dequeue to an iterator."""
+
+  def __post_init__(self, maxsize: int):
+    self._queue = asyncio.Queue(maxsize=maxsize)
+
+  # TODO: b/322003863 - Re-enalbe aiter and anext pytype when it is supported.
+  async def async_enqueue_from_iterator(self, iterator: AsyncIterable[_ValueT]):
+    """Iterates through a generator while enqueue its elements."""
+    iterator = aiter(iterator)  # pytype: disable=name-error
+    self._start_enqueue()
+    while True:
+      try:
+        value = await asyncio.wait_for(anext(iterator), self.timeout)  # pytype: disable=name-error
+        await asyncio.wait_for(self._queue.put(value), self.timeout)
+      except StopAsyncIteration:
+        self._stop_enqueue()
+        return
+      if self.progress is not None:
+        self.progress.cnt += 1
+
+  async def async_dequeue_as_iterator(
+      self, num_steps: int = -1
+  ) -> AsyncIterator[_ValueT]:
+    """Converts a queue to an iterator, stops when meeting StopIteration."""
+    i = 0
+    run_until_exhausted = num_steps < 0
+    while run_until_exhausted or i < num_steps:
+      assert (q := self._queue) is not None
+      try:
+        yield await asyncio.wait_for(q.get(), self.timeout)
+      except TimeoutError as e:
+        if self.enqueue_done:
+          return
+        raise e
+      i += 1
 
 
+# TODO: b/356633410 - Deprecate iterator pipe in favor of RemoteIterator.
 @dc.dataclass(slots=True, kw_only=True, repr=False, eq=False, frozen=True)
 class IteratorPipe(Generic[_InputT, _ValueT]):
   """An async iterator with input and output queues."""
@@ -133,7 +172,6 @@ class IteratorPipe(Generic[_InputT, _ValueT]):
   fn: Callable[[Iterator[_ValueT]], Any] = mit.last
   input_queue: IteratorQueue[_InputT] | None = None
   output_queue: IteratorQueue[_ValueT] | None = None
-  progress: Progress
   _state: futures.Future[Any] | None = None
 
   def submit_to(self, thread_pool: futures.ThreadPoolExecutor) -> Self:
@@ -181,17 +219,16 @@ class IteratorPipe(Generic[_InputT, _ValueT]):
         raise ValueError('Both input and output are None.')
       case (int(input_qsize), None):
         # Input only, sink operations.
-        input_queue = _get_queue(input_qsize, timeout=timeout)
+        input_queue = IteratorQueue(input_qsize, timeout=timeout)
         return cls(
             iterator=input_queue.dequeue_as_iterator(),
             fn=iterator_maybe_fn,
             input_queue=input_queue,
             output_queue=None,
-            progress=input_queue.progress,
         )
       case (None, int(output_qsize)):
         # Output only, source operations.
-        output_queue = _get_queue(output_qsize, timeout=timeout)
+        output_queue = IteratorQueue(output_qsize, timeout=timeout)
         if isinstance(iterator_maybe_fn, Iterable):
           input_iterator = iter(iterator_maybe_fn)
         elif isinstance(iterator_maybe_fn, Callable):
@@ -206,11 +243,10 @@ class IteratorPipe(Generic[_InputT, _ValueT]):
             fn=output_queue.enqueue_from_iterator,
             input_queue=None,
             output_queue=output_queue,
-            progress=output_queue.progress,
         )
       case (int(input_qsize), int(output_qsize)):
-        input_queue = _get_queue(input_qsize, timeout=timeout)
-        output_queue = _get_queue(output_qsize, timeout=timeout)
+        input_queue = IteratorQueue(input_qsize, timeout=timeout)
+        output_queue = IteratorQueue(output_qsize, timeout=timeout)
         if not isinstance(iterator_maybe_fn, Callable):
           raise ValueError(
               'Process operation has to be an generator function, got'
@@ -222,7 +258,6 @@ class IteratorPipe(Generic[_InputT, _ValueT]):
             fn=output_queue.enqueue_from_iterator,
             input_queue=input_queue,
             output_queue=output_queue,
-            progress=output_queue.progress,
         )
       case _:
         raise ValueError(
