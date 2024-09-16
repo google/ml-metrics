@@ -14,7 +14,7 @@
 """Internal batching utils, not meant to be used by users."""
 
 import asyncio
-from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable, Iterator
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable, Iterator, Sequence
 from concurrent import futures
 import dataclasses as dc
 import functools
@@ -33,6 +33,47 @@ QueueLike = (
     queue.Queue[_ValueT] | asyncio.Queue[_ValueT] | queue.SimpleQueue[_ValueT]
 )
 STOP_ITERATION = StopIteration()
+
+
+class SequenceArray(Sequence):
+  """Impelements Python Sequence interfaces for a numpy array.
+
+  This is a drop-in replacement whenever np.tolist() is called.
+  Usage:
+    x = SequenceArray(np.zeros((3,3)))
+    # Use it as normal numpy array,
+    x[2, 0] = 3
+    # But also support Sequence interfaces.
+    x.count((0, 0))
+    x.index((0, 0))
+
+  Attr:
+    data: The underlying numpy array.
+  """
+
+  def __init__(self, value):
+    self.data = value
+
+  def __len__(self):
+    return self.data.shape[0]
+
+  def __getitem__(self, i):
+    return self.data[i]
+
+  def __setitem__(self, i, v):
+    self.data[i] = v
+
+  def __iter__(self):
+    return iter(self.data)
+
+  def count(self, value):
+    return mit.ilen(filter(lambda x: np.array_equal(x, value), self.data))
+
+  def index(self, value):
+    ixs = (i for i, elem in enumerate(self.data) if np.array_equal(elem, value))
+    if (result := mit.first(ixs, None)) is None:
+      raise ValueError(f'{value} is not in array')
+    return result
 
 
 @dc.dataclass(slots=True, eq=False)

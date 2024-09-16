@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+from collections.abc import Sequence
 from concurrent import futures
 import functools
 import itertools as it
@@ -59,6 +60,22 @@ class UtilsTest(parameterized.TestCase):
   def tearDown(self):
     self.thread_pool.shutdown()
     super().tearDown()
+
+  def test_sequence_array_normal(self):
+    a = iter_utils.SequenceArray(np.arange(10))
+    self.assertIsInstance(a, Sequence)
+    self.assertSequenceEqual(list(range(10)), a)
+    self.assertLen(a, 10)
+    self.assertEqual(a[9], 9)
+    a[9] = 0
+    self.assertEqual(a[9], 0)
+    self.assertEqual(a.count(0), 2)
+    self.assertEqual(a.index(1), 1)
+
+  def test_sequence_array_index_raises(self):
+    a = iter_utils.SequenceArray(np.arange(10))
+    with self.assertRaisesRegex(ValueError, 'not in array'):
+      a.index(10)
 
   def test_iterator_pipe_normal(self):
 
