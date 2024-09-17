@@ -21,12 +21,18 @@ import queue
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from courier.python import testutil
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import iter_utils
 import more_itertools as mit
 import numpy as np
+
+
+def setUpModule():
+  # Required for BNS resolution.
+  testutil.SetupMockBNS()
 
 
 def mock_range(n, batch_size, batch_fn=lambda x: x):
@@ -136,18 +142,25 @@ class UtilsTest(parameterized.TestCase):
     self.assertSequenceEqual(expected, actual)
 
   def test_iterator_queue_enqueue_dequeue(self):
+
+    def foo(n):
+      yield from range(n)
+      return n
+
     q = iter_utils.IteratorQueue()
-    q.enqueue_from_iterator(range(10))
+    q.enqueue_from_iterator(foo(10))
     actual = list(q.dequeue_as_iterator())
     self.assertSequenceEqual(list(range(10)), actual)
+    self.assertLen(q.returned, 1)
+    self.assertEqual(10, q.returned[0])
 
   def test_enqueue_from_generator_timeout(self):
-    q = iter_utils.IteratorQueue(maxsize=1, timeout=0.1)
+    q = iter_utils.IteratorQueue.from_queue(queue.Queue(1), timeout=0.1)
     with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout'):
       q.enqueue_from_iterator(range(2))
 
   def test_dequeue_from_generator_timeout(self):
-    q = iter_utils.IteratorQueue(maxsize=1, timeout=0.1)
+    q = iter_utils.IteratorQueue(q_or_size=1, timeout=0.1)
     q._queue.put(1)
     with self.assertRaisesRegex(TimeoutError, 'Dequeue timeout'):
       mit.last(q.dequeue_as_iterator())
