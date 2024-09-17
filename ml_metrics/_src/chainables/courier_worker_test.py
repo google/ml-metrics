@@ -219,7 +219,7 @@ class RemoteObjectTest(parameterized.TestCase):
     self.assertIsInstance(remote_iterable, courier_worker.RemoteObject)
 
     async def run():
-      remote_iterator = aiter(remote_iterable)  # pytype: disable=name-error
+      remote_iterator = aiter(remote_iterable)
       self.assertIsInstance(remote_iterator, courier_worker.RemoteIterator)
       self.assertIs(aiter(remote_iterator), remote_iterator)  # pytype: disable=name-error
       return [elem async for elem in remote_iterator]

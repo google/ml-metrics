@@ -175,7 +175,7 @@ class AsyncIteratorQueue(IteratorQueue[_ValueT]):
   # TODO: b/322003863 - Re-enalbe aiter and anext pytype when it is supported.
   async def async_enqueue_from_iterator(self, iterator: AsyncIterable[_ValueT]):
     """Iterates through a generator while enqueue its elements."""
-    iterator = aiter(iterator)  # pytype: disable=name-error
+    iterator = aiter(iterator)
     self._start_enqueue()
     while True:
       try:
