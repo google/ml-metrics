@@ -214,7 +214,7 @@ def _async_run_single_stage(
     raise ValueError(
         'chainables: AggregateTransform is not supported with worker_pool.'
     )
-  result_q = iter_utils.IteratorQueue(maxsize=resource.buffer_size)
+  result_q = iter_utils.IteratorQueue(resource.buffer_size)
   input_iterator = None
   if input_queue is not None:
     input_iterator = input_queue.dequeue_as_iterator()
