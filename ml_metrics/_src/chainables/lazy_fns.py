@@ -70,7 +70,7 @@ def _maybe_lru_cache(maxsize: int):
       if x.cache_result:
         try:
           result = lazy_obj_cache[x]
-          logging.info('chainable: cache hit for type %s.', type(result))
+          logging.debug('chainable: cache hit for type %s.', type(result))
           return result
         except KeyError as e:
           if isinstance(x, LazyFn):
@@ -348,6 +348,14 @@ class LazyObject(Resolvable[_T]):
   def lazy_result(self):
     return self._lazy_result
 
+  def __str__(self):
+    if self.value is None:
+      return f'LazyObject(id={self.id})'
+    elif isinstance(self.value, type):
+      return self.value.__name__
+    else:
+      return f'<{self.value.__class__.__name__} object>'
+
   def __hash__(self) -> int:
     if not self._cache_result:
       try:
@@ -448,6 +456,21 @@ class LazyFn(LazyObject[_T]):
         _cache_result=cache_result,
         _lazy_result=lazy_result,
     )
+
+  def __str__(self) -> str:
+    if self.value is getattr:
+      return f'{self.args[0]}.{self.args[1]}'
+    elif self.value is operator.getitem:
+      return f'{self.args[0]}[{self.args[1]}]'
+    args = ', '.join(f'{arg}' for arg in self.args)
+    kwargs = ', '.join(f'{k}={v}' for k, v in self.kwargs)
+    args_strs = []
+    if args:
+      args_strs.append(args)
+    if kwargs:
+      args_strs.append(kwargs)
+    args_str = ', '.join(args_strs)
+    return f'{self.value}({args_str})'
 
   def __hash__(self) -> int:
     try:

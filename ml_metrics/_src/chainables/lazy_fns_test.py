@@ -254,6 +254,56 @@ class LazyFnsTest(parameterized.TestCase):
       mock_cached_make.assert_called_once()
     self.assertEqual(lazy_fns.cache_info().hits, 1)
 
+  @parameterized.named_parameters([
+      dict(testcase_name='class', lazy_obj=lazy_fns.trace(Foo), expected='Foo'),
+      dict(
+          testcase_name='fn_arg',
+          lazy_obj=lazy_fns.trace(Foo)(1, 2),
+          expected='Foo(1, 2)',
+      ),
+      dict(
+          testcase_name='fn_kwarg',
+          lazy_obj=lazy_fns.trace(Foo)(a=1, b=2),
+          expected='Foo(a=1, b=2)',
+      ),
+      dict(
+          testcase_name='fn_arg_kwargs',
+          lazy_obj=lazy_fns.trace(Foo)(1, b=2).c[1],
+          expected='Foo(1, b=2).c[1]',
+      ),
+      dict(
+          testcase_name='lazy_object_instance',
+          lazy_obj=lazy_fns.trace(Foo(1)),
+          expected='<Foo object>',
+      ),
+      dict(
+          testcase_name='fn_attr',
+          lazy_obj=lazy_fns.trace(Foo)(1).a,
+          expected='Foo(1).a',
+      ),
+      dict(
+          testcase_name='fn_getitem',
+          lazy_obj=lazy_fns.trace(Foo)[0],
+          expected='Foo[0]',
+      ),
+      dict(
+          testcase_name='instance_getitem',
+          lazy_obj=lazy_fns.trace(Foo(1))[0],
+          expected='<Foo object>[0]',
+      ),
+      dict(
+          testcase_name='lazy_object_val',
+          lazy_obj=lazy_fns.LazyObject.new(Foo(1))[0],
+          expected='LazyObject\\(id=[0-9]+\\)',
+          is_regex=True,
+      ),
+  ])
+  def test_lazy_object_str(self, lazy_obj, expected, is_regex=False):
+    if is_regex:
+      self.assertRegex(str(lazy_obj), expected)
+    else:
+      self.assertEqual(expected, f'{lazy_obj}')
+
   def test_maybe_make_cached_by_id(self):
     lazy_fns.clear_cache()
     # list is not hashable, hash should fall back by id.
