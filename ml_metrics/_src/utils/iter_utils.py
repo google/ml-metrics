@@ -23,7 +23,6 @@ import time
 from typing import Any, Generic, Protocol, Self, TypeVar, cast
 
 from absl import logging
-from ml_metrics._src.chainables import lazy_fns
 import more_itertools as mit
 import numpy as np
 
@@ -127,7 +126,7 @@ class IteratorQueue(Generic[_ValueT]):
   @classmethod
   def from_queue(
       cls,
-      q_or_size: int | lazy_fns.MaybeResolvable[QueueLike[_ValueT]],
+      q_or_size: int | QueueLike[_ValueT],
       name='',
       timeout: float | None = None,
   ) -> Self:
@@ -213,7 +212,6 @@ class IteratorQueue(Generic[_ValueT]):
 @dc.dataclass(repr=False, eq=False)
 class AsyncIteratorQueue(IteratorQueue[_ValueT]):
   """A queue that can enqueue from and dequeue to an iterator."""
-  _queue: asyncio.Queue[_ValueT] = dc.field(init=False)
 
   @classmethod
   def _default_queue(cls, maxsize: int):

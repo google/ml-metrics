@@ -306,8 +306,11 @@ class RemoteObject(Generic[_T], lazy_fns.Resolvable[_T]):
   def __eq__(self, other: Self) -> bool:
     return self.value == other.value
 
+  def __str__(self) -> str:
+    return f'<@{self.worker_addr}:object(id={self.id})>'
+
   @property
-  def id(self):
+  def id(self) -> int:
     assert (v := self.value) is not None
     return v.id
 
@@ -355,6 +358,37 @@ class RemoteObject(Generic[_T], lazy_fns.Resolvable[_T]):
 
   def __aiter__(self) -> RemoteIterator:
     return self.__iter__()
+
+
+@dc.dataclass(repr=False, eq=False)
+class RemoteQueue(Generic[_T]):
+  """Remote iterator queue that implements AsyncIteratorQueue interfaces."""
+
+  queue: RemoteObject[iter_utils.IteratorQueue[_T]]
+
+  def get_nowait(self):
+    return self.queue.get_nowait().result_()
+
+  def put_nowait(self, value):
+    return self.queue.put_nowait(value).result_()
+
+  async def get(self):
+    return await self.queue.get().async_result_()
+
+  async def put(self, value):
+    return await self.queue.put(value).async_result_()
+
+  def qsize(self) -> int:
+    return self.queue.qsize().result_()
+
+
+class RemoteIteratorQueue(iter_utils.AsyncIteratorQueue[_T]):
+  """Remote iterator queue that implements AsyncIteratorQueue interfaces."""
+
+  @property
+  def enqueue_done(self):
+    assert isinstance(q := self._queue, RemoteQueue), f'{type(q)}'
+    return q.queue.enqueue_done.result_()
 
 
 class RemoteIterator(Iterator[_T]):
@@ -734,7 +768,7 @@ class Worker:
     except StopIteration as e:
       # Convert a StopIteration without return to StopAsyncIteration().
       if (v := e.value) is not None:
-        logging.exception('Cannot convert StopIteration with return: %s.', v)
+        logging.warning('Cannot convert StopIteration with return: %s.', v)
       raise StopAsyncIteration() from e
 
   def submit(self, task: Task[_T] | lazy_fns.Resolvable[_T]) -> Task[_T]:
@@ -764,6 +798,7 @@ class Worker:
   def next_from_generator(self) -> futures.Future[Any]:
     return self.call(courier_method='next_from_generator')
 
+  # TODO: b/356633410 - Deprecate async_iterate in favor of async_iter.
   async def async_iterate(
       self,
       task: GeneratorTask,
@@ -821,11 +856,13 @@ class Worker:
   ) -> AsyncIterator[_T]:
     """Async iterates the generator task."""
     batch_cnt = 0
-    async for batch in await async_remote_iter(lazy_iterable, worker=self):
+    remote_iterator = await async_remote_iter(lazy_iterable, worker=self)
+    logging.info('chainable: %s async iter constructed.', self.server_name)
+    async for batch in remote_iterator:
       yield batch
       batch_cnt += 1
     logging.info(
-        'chainables: worker %s generator exhausted after %d batches',
+        'chainables: remote iterator at %s exhausted after %d batches',
         self.server_name,
         batch_cnt,
     )
@@ -1117,7 +1154,7 @@ class WorkerPool:
     results = get_results(self.as_completed(fns, ignore_failures))
     return results[0] if signle_task else results
 
-  # TODO: b/311207032 - Provide gradual worker lock and unlock mechanism.
+  # TODO: b/356633410 - Deprecate iterate.
   def iterate(
       self,
       task_iterator: Iterable[GeneratorTask | lazy_fns.LazyFn],

@@ -53,6 +53,32 @@ def make_remote_iterator(
   )
 
 
+def make_remote_object(
+    q: lazy_fns.MaybeResolvable[iter_utils.IteratorQueue[_T]],
+    *,
+    server_addr: str,
+) -> courier_worker.RemoteObject[_T]:
+  """Constructs a remote queue given a maybe lazy queue."""
+  q = lazy_fns.maybe_make(q)
+  return courier_worker.RemoteObject.new(q, worker=server_addr)
+
+
+def make_remote_queue(
+    q: lazy_fns.MaybeResolvable[iter_utils.IteratorQueue[_T]],
+    *,
+    server_addr: str,
+) -> courier_worker.RemoteIteratorQueue[_T]:
+  """Constructs a remote queue given a maybe lazy queue."""
+  q = lazy_fns.maybe_make(q)
+  assert isinstance(q, iter_utils.IteratorQueue), f'got {type(q)}'
+  return courier_worker.RemoteIteratorQueue.from_queue(
+      courier_worker.RemoteQueue(
+          make_remote_object(q, server_addr=server_addr)
+      ),
+      name=q.name,
+  )
+
+
 @dataclasses.dataclass
 class CourierServerWrapper:
   """Courier server that runs a chainable."""
@@ -85,12 +111,26 @@ class CourierServerWrapper:
       try:
         result = lazy_fns.maybe_make(maybe_lazy)
       except Exception as e:  # pylint: disable=broad-exception-caught
+        lazy_obj = f'{lazy_fns.pickler.loads(maybe_lazy)}'
         if not return_exception:
           raise e
         result = e
+        if isinstance(e, (ValueError, TypeError, RuntimeError)):
+          logging.exception(
+              'chainable: server side exception for %s.', lazy_obj
+          )
       if isinstance(result, lazy_fns.LazyObject):
         result = courier_worker.RemoteObject.new(result, worker=self.address)
-      return pickler.dumps(result)
+      try:
+        return pickler.dumps(result)
+      except TypeError as e:
+        lazy_obj = f'{lazy_fns.pickler.loads(maybe_lazy)}'
+        logging.exception(
+            'chainable: server side pickle error for %s from %s',
+            type(result),
+            lazy_obj,
+        )
+        raise e
 
     def pickled_init_iterator(maybe_lazy):
       result = lazy_fns.maybe_make(maybe_lazy)

@@ -180,6 +180,7 @@ class RemoteObjectTest(parameterized.TestCase):
         self.assertEqual(remote_value.id, value.id)
 
     self.assertIsInstance(remote_value, courier_worker.RemoteObject)
+    self.assertRegex(str(remote_value), r'<@localhost.+\:object\(id=\d+\)>')
     self.assertEqual(lazy_fns.object_info().hits, 0)
     self.assertIsInstance(fn(remote_value), courier_worker.RemoteObject)
     self.assertEqual(expected, lazy_fns.maybe_make(fn(remote_value)))
@@ -347,6 +348,44 @@ class RemoteObjectTest(parameterized.TestCase):
     )
     with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout'):
       remote_qs.enqueue(range(3))
+
+  def test_remote_iterator_queue_async(self):
+    local_server = courier_server._cached_server('local')
+    remote_server = courier_server._cached_server('remote')
+    # Constructs a local queue and let remote worker dequeue from it.
+    local_queue = iter_utils.IteratorQueue(name='input')
+    num_elem = 20
+    local_queue.enqueue_from_iterator(range(num_elem))
+    # input_iterator is remote and lives in local server.
+    input_queue = courier_server.make_remote_queue(
+        local_queue, server_addr=local_server.address
+    )
+    # Remotely constructs an iteraotor as the input_iterator.
+    iterator_fn = functools.partial(map, lambda x: x + 1)
+    lazy_iterator = lazy_fns.trace(iterator_fn)(
+        lazy_fns.trace(input_queue).dequeue_as_iterator()
+    )
+    local_result_queue = iter_utils.AsyncIteratorQueue(timeout=1, name='output')
+
+    async def remote_iterate():
+      remote_iterator = await courier_worker.async_remote_iter(
+          lazy_iterator, worker=remote_server.address
+      )
+      await local_result_queue.async_enqueue_from_iterator(remote_iterator)
+
+    async def alist(iterator):
+      return [elem async for elem in iterator]
+
+    async def run(n):
+      aw_result = alist(local_result_queue.async_dequeue_as_iterator())
+      result, *_ = await asyncio.gather(
+          aw_result, *(remote_iterate() for _ in range(n))
+      )
+      return result
+
+    actual = asyncio.run(run(2))
+    self.assertEqual(0, local_queue.qsize())
+    self.assertCountEqual(list(range(1, num_elem + 1)), actual)
 
   # TODO: b/349174267 - Re-enable the tests when remote_iterator_pipe is
   # available.
