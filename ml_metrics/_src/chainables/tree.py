@@ -494,7 +494,9 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
       # Multiple key cases (even single key within a tuple).
       case (_, *_):
         data = self.data
-        values = values if isinstance(values, tuple) else (values,)
+        # Check exact type match because function multiple returns is a tuple.
+        # e.g., NamedTuple won't be considered multiple outputs.
+        values = values if type(values) is tuple else (values,)  # pylint: disable=unidiomatic-typecheck
         for key, value in zip(keys, values, strict=True):
           data = self._set_by_path(data, key, value, in_place)
       case _:
