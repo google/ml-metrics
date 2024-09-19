@@ -13,6 +13,7 @@
 # limitations under the License.
 """Test for tree library."""
 
+import collections
 from collections.abc import Iterable
 import types
 from absl.testing import absltest
@@ -310,6 +311,11 @@ class TreeMapViewTest(parameterized.TestCase):
     mapped = TreeMapView({}).copy_and_update(view.items())
     expected = dict(a=dict(b=2, c=4), e=6)
     self.assertEqual(expected, mapped.data)
+
+  def test_copy_and_set_values_is_named_tuple(self):
+    A = collections.namedtuple('A', ['a', 'b'])
+    result = (TreeMapView({}).copy_and_set(('output',), values=A(1, 2))).data
+    self.assertEqual({'output': A(1, 2)}, result)
 
   @parameterized.named_parameters(
       dict(
