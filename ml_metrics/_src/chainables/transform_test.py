@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for transform."""
 
 from collections.abc import Callable, Iterable
 import dataclasses
@@ -214,9 +213,17 @@ class TransformTest(parameterized.TestCase):
     # Each new transform should create a unique id.
     self.assertLen(seen_ids, 6)
 
+  def test_transform_name(self):
+    t = (
+        transform.TreeTransform.new(name='call')
+        .data_source(MockGenerator(range(3)))
+        .apply(fn=lambda x: x + 1)
+    )
+    self.assertEqual(t.make().name, 'call')
+
   def test_transform_call(self):
     t = (
-        transform.TreeTransform.new()
+        transform.TreeTransform.new(name='call')
         .data_source(MockGenerator(range(3)))
         .apply(fn=lambda x: x + 1)
     )

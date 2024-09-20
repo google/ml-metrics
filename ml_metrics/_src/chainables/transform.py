@@ -147,7 +147,9 @@ def _transform_make(
     transforms = [transform]
   input_nodes, output_nodes = [], []
   input_iterator, agg_node = None, None
+  name = ''
   for i, node in enumerate(transforms):
+    name = node.name or name
     if node.input_iterator is not None:
       if i == 0:
         input_iterator = node.input_iterator
@@ -197,6 +199,7 @@ def _transform_make(
     else:
       output_fns.extend([tree_fn.maybe_make() for tree_fn in node.fns])
   return CombinedTreeFn(
+      name=name,
       input_fns=input_fns,
       agg_fns=agg_fns,
       slicers=slice_fns,
@@ -243,6 +246,7 @@ class CombinedTreeFn:
       converted to a callable and translated as `output_fns`.
   """
 
+  name: str = ''
   input_fns: Sequence[tree_fns.TreeFn] = ()
   agg_fns: dict[TreeMapKeys | TreeMapKey, tree_fns.TreeAggregateFn] = (
       dataclasses.field(default_factory=dict)
@@ -411,7 +415,9 @@ class CombinedTreeFn:
         _call_fns_iterate(self.input_fns, input_iterator)
     ):
       if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SECS:
-        logging.info('chainables: calculating for batch %d.', batch_index)
+        logging.info(
+            'chainables: "%s" calculating for batch %d.', self.name, batch_index
+        )
         prev_ticker = ticker
       yield batch_output if with_result else None
       if with_agg_state:
@@ -421,7 +427,8 @@ class CombinedTreeFn:
     agg_result = self.get_result(state) if with_agg_result else None
     if with_agg_state:
       logging.info(
-          'chainables: returns aggregation after %d batches.',
+          'chainables: "%s" iterator returns after %d batches.',
+          self.name,
           batch_index + 1,
       )
       return AggregateResult(agg_state=state, agg_result=agg_result)
