@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import abc
 import asyncio
 import collections
 from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
@@ -26,7 +25,7 @@ import inspect
 import itertools as it
 import json
 import operator
-from typing import Any, Protocol, Self, TypeVar, runtime_checkable
+from typing import Any, Self, TypeVar
 import uuid
 
 from absl import logging
@@ -37,18 +36,6 @@ from ml_metrics._src.utils import func_utils
 _KeyT = TypeVar('_KeyT')
 _T = TypeVar('_T')
 Fn = Callable[..., _T]
-
-
-@runtime_checkable
-class Resolvable(Protocol[_T]):
-  """All Resolvlables implements a `result_` to resolve the underlying value."""
-
-  @abc.abstractmethod
-  def result_(self) -> _T:
-    """Interface to get the result of the underlying value."""
-
-
-MaybeResolvable = Resolvable[_T] | _T
 
 
 def _maybe_lru_cache(maxsize: int):
@@ -179,8 +166,10 @@ class _Makers(collections.UserDict):
 makeables = _Makers()
 
 
-def _maybe_make(maybe_lazy: MaybeResolvable[_T]) -> MaybeResolvable[_T]:
-  if isinstance(maybe_lazy, Resolvable):
+def _maybe_make(
+    maybe_lazy: base_types.MaybeResolvable[_T],
+) -> base_types.MaybeResolvable[_T]:
+  if isinstance(maybe_lazy, base_types.Resolvable):
     return maybe_lazy.result_()
   if maker := makeables[type(maybe_lazy)]:
     return maker(maybe_lazy)
@@ -188,8 +177,8 @@ def _maybe_make(maybe_lazy: MaybeResolvable[_T]) -> MaybeResolvable[_T]:
 
 
 def maybe_make(
-    maybe_lazy: MaybeResolvable[_T] | bytes,
-) -> MaybeResolvable[_T]:
+    maybe_lazy: base_types.MaybeResolvable[_T] | bytes,
+) -> base_types.MaybeResolvable[_T]:
   """Dereference a lazy object or lazy function when applicable."""
   if isinstance(maybe_lazy, bytes):
     maybe_lazy = pickler.loads(maybe_lazy)
@@ -299,7 +288,7 @@ class FnConfig:
 
 
 @dc.dataclass(kw_only=True, frozen=True)
-class LazyObject(Resolvable[_T]):
+class LazyObject(base_types.Resolvable[_T]):
   """A remote object that can be pickled.
 
   Attributes:
@@ -525,7 +514,9 @@ def clear_object():
 
 
 def is_resolvable(obj: Any):
-  return isinstance(obj, Resolvable) or makeables[type(obj)] is not None
+  return (
+      isinstance(obj, base_types.Resolvable) or makeables[type(obj)] is not None
+  )
 
 
 def trace(
@@ -589,11 +580,12 @@ def trace(
   return LazyObject.new(value, cache_result=False, lazy_result=lazy_result)
 
 
+# TODO: b/311207032 - Deprecate Makeable interface in favor of Resolvable.
 @dc.dataclass(frozen=True)
 class MakeableLazyFn(base_types.Makeable[_T]):
   """Wraps a LazyFn to be used as a Makeable."""
 
-  lazy_fn: Resolvable[_T]
+  lazy_fn: base_types.Resolvable[_T]
 
   def make(self) -> _T:
     return maybe_make(self.lazy_fn)

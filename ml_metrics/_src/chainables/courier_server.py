@@ -20,6 +20,7 @@ from typing import Any, Iterable, TypeVar
 
 from absl import logging
 import courier
+from ml_metrics._src import base_types
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
@@ -41,7 +42,7 @@ def _cached_server(name: str | None = None, *, timeout_secs: float = 10200):
 
 
 def make_remote_iterator(
-    iterator: lazy_fns.MaybeResolvable[Iterable[_T]],
+    iterator: base_types.MaybeResolvable[Iterable[_T]],
     *,
     server_addr: str,
 ) -> courier_worker.RemoteIterator[_T]:
@@ -54,7 +55,7 @@ def make_remote_iterator(
 
 
 def make_remote_object(
-    q: lazy_fns.MaybeResolvable[iter_utils.IteratorQueue[_T]],
+    q: base_types.MaybeResolvable[iter_utils.IteratorQueue[_T]],
     *,
     server_addr: str,
 ) -> courier_worker.RemoteObject[_T]:
@@ -64,7 +65,7 @@ def make_remote_object(
 
 
 def make_remote_queue(
-    q: lazy_fns.MaybeResolvable[iter_utils.IteratorQueue[_T]],
+    q: base_types.MaybeResolvable[iter_utils.IteratorQueue[_T]],
     *,
     server_addr: str,
 ) -> courier_worker.RemoteIteratorQueue[_T]:

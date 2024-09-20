@@ -18,16 +18,28 @@ import enum
 from typing import Any, Protocol, TypeVar, runtime_checkable
 from numpy import typing as npt
 
-MakeT = TypeVar('MakeT')
+_T = TypeVar('_T')
 
 
 @runtime_checkable
-class Makeable(Protocol[MakeT]):
+class Makeable(Protocol[_T]):
   """A config class that can make a Metric class."""
 
   @abc.abstractmethod
-  def make(self) -> MakeT:
+  def make(self) -> _T:
     """Makes a new Metric."""
+
+
+@runtime_checkable
+class Resolvable(Protocol[_T]):
+  """All Resolvlables implements a `result_` to resolve the underlying value."""
+
+  @abc.abstractmethod
+  def result_(self) -> _T:
+    """Interface to get the result of the underlying value."""
+
+
+MaybeResolvable = Resolvable[_T] | _T
 
 
 # TODO: b/312290886 - move this to Python StrEnum when moved to Python 3.11.

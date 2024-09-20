@@ -32,6 +32,7 @@ from typing import Any, Generic, NamedTuple, Protocol, Self, TypeVar
 
 from absl import logging
 import courier
+from ml_metrics._src import base_types
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
 from ml_metrics._src.utils import func_utils
@@ -288,7 +289,7 @@ def wait(
 
 
 @dc.dataclass(frozen=True)
-class RemoteObject(Generic[_T], lazy_fns.Resolvable[_T]):
+class RemoteObject(Generic[_T], base_types.Resolvable[_T]):
   """Remote object holds remote reference that behaves like a local object."""
   value: lazy_fns.LazyObject[_T]
   worker_addr: str = dc.field(kw_only=True)
@@ -417,7 +418,7 @@ class RemoteIterator(Iterator[_T]):
 
 
 async def async_remote_iter(
-    iterator: lazy_fns.MaybeResolvable[Iterable[_T]],
+    iterator: base_types.MaybeResolvable[Iterable[_T]],
     *,
     worker: str | Worker | None = None,
 ) -> RemoteIterator[_T]:
@@ -752,7 +753,7 @@ class Worker:
       raise result
     return result
 
-  def get_result(self, lazy_obj: lazy_fns.Resolvable[_T]) -> _T:
+  def get_result(self, lazy_obj: base_types.Resolvable[_T]) -> _T:
     """Low level blocking courier call to retrieve the result."""
     future = self.call(lazy_obj, return_exception=True)
     while not future.done():
@@ -760,7 +761,7 @@ class Worker:
     pickled = future.result()
     return self._result_or_exception(lazy_fns.pickler.loads(pickled))
 
-  async def async_get_result(self, lazy_obj: lazy_fns.Resolvable[_T]) -> _T:
+  async def async_get_result(self, lazy_obj: base_types.Resolvable[_T]) -> _T:
     """Low level async courier call to retrieve the result."""
     future = self.call(lazy_obj, return_exception=True)
     pickled = await asyncio.wrap_future(future)
@@ -772,9 +773,9 @@ class Worker:
         logging.warning('Cannot convert StopIteration with return: %s.', v)
       raise StopAsyncIteration() from e
 
-  def submit(self, task: Task[_T] | lazy_fns.Resolvable[_T]) -> Task[_T]:
+  def submit(self, task: Task[_T] | base_types.Resolvable[_T]) -> Task[_T]:
     """Runs tasks sequentially and returns the task."""
-    if isinstance(task, lazy_fns.Resolvable):
+    if isinstance(task, base_types.Resolvable):
       task = Task.new(task)
     result = []
     for task in task.flatten():

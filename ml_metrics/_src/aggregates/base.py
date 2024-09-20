@@ -97,10 +97,17 @@ class AggregateFn(Aggregatable):
 class MergeableMetricAggFn(AggregateFn):
   """MergeableMetricAggFn."""
 
-  metric_maker: base_types.Makeable[MergeableMetric]
+  # TODO: b/311207032 - Deprecate Makeable interface in favor of Resolvable.
+  metric_maker: (
+      base_types.Makeable[MergeableMetric]
+      | base_types.Resolvable[MergeableMetric]
+  )
 
   def create_state(self) -> MergeableMetric:
-    return self.metric_maker.make()
+    if isinstance(self.metric_maker, base_types.Resolvable):
+      return self.metric_maker.result_()
+    else:
+      return self.metric_maker.make()
 
   def update_state(
       self, state: MergeableMetric, *args, **kwargs
