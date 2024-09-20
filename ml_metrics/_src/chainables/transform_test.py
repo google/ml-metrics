@@ -196,27 +196,6 @@ class TransformTest(parameterized.TestCase):
     else:
       self.assertEqual(a, b)
 
-  def test_transform_iterator_pipe_with_data_source(self):
-    t = (
-        transform.TreeTransform.new()
-        .data_source(MockGenerator(range(3)))
-        .apply(fn=lambda x: x + 1)
-    )
-    pipe = t.make().iterator_pipe(timeout=3)
-    self.assertIsNone(pipe.input_queue)
-    assert (output_queue := pipe.output_queue) is not None
-    actual = list(output_queue.dequeue_as_iterator())
-    self.assertEqual([1, 2, 3], actual)
-
-  def test_transform_iterator_pipe_normal(self):
-    t = transform.TreeTransform.new().apply(fn=lambda x: x + 1)
-    pipe = t.make().iterator_pipe(timeout=3)
-    assert (input_queue := pipe.input_queue) is not None
-    input_queue.enqueue_from_iterator(range(3))
-    assert (output_queue := pipe.output_queue) is not None
-    actual = list(output_queue.dequeue_as_iterator())
-    self.assertEqual([1, 2, 3], actual)
-
   def test_transform_unique_ids_with_each_op(self):
     seen_ids = set()
     t = transform.TreeTransform.new()

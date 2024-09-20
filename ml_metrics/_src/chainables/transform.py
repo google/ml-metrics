@@ -60,7 +60,6 @@ from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
 from ml_metrics._src.chainables import tree_fns
-from ml_metrics._src.utils import iter_utils
 import more_itertools
 
 
@@ -426,17 +425,6 @@ class CombinedTreeFn:
           batch_index + 1,
       )
       return AggregateResult(agg_state=state, agg_result=agg_result)
-
-  # TODO: b/356633410 - Deprecate iterator pipe in favor of RemoteIterator.
-  def iterator_pipe(
-      self, *, buffer_size: int = 0, timeout: float | None = None
-  ):
-    return iter_utils.IteratorPipe.new(
-        self.iterate,
-        input_qsize=None if self.input_iterator is not None else buffer_size,
-        output_qsize=buffer_size,
-        timeout=timeout,
-    ).submit_to(_get_thread_pool())
 
   def update_state(
       self,
