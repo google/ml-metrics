@@ -110,6 +110,7 @@ class CourierServerTest(parameterized.TestCase):
     t = server.start()
     client = courier.Client(server.address, call_timeout=6)
     self.assertTrue(t.is_alive())
+    self.assertTrue(server.has_started)
     client.shutdown()
     t.join()
 

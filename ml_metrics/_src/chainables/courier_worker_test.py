@@ -82,7 +82,7 @@ class RemoteObjectTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     self.server = courier_server._cached_server('RemoteObject')
-    self.worker = courier_worker._cached_worker(self.server.address)
+    self.worker = courier_worker.cached_worker(self.server.address)
     self.worker.wait_until_alive(deadline_secs=6, sleep_interval_secs=0)
 
   @parameterized.named_parameters([
@@ -180,7 +180,8 @@ class RemoteObjectTest(parameterized.TestCase):
         self.assertEqual(remote_value.id, value.id)
 
     self.assertIsInstance(remote_value, courier_worker.RemoteObject)
-    self.assertRegex(str(remote_value), r'<@localhost.+\:object\(id=\d+\)>')
+    # "RemoteObject" is the server name in `setUpModule`.
+    self.assertRegex(str(remote_value), r'<@RemoteObject:object\(id=\d+\)>')
     self.assertEqual(lazy_fns.object_info().hits, 0)
     self.assertIsInstance(fn(remote_value), courier_worker.RemoteObject)
     self.assertEqual(expected, lazy_fns.maybe_make(fn(remote_value)))
@@ -425,7 +426,7 @@ class CourierWorkerTest(absltest.TestCase):
   def setUp(self):
     super().setUp()
     self.server = courier_server._cached_server('CourierWorker')
-    self.worker = courier_worker._cached_worker(self.server.address)
+    self.worker = courier_worker.cached_worker(self.server.address)
     self.worker.wait_until_alive(deadline_secs=6, sleep_interval_secs=0)
 
   def test_worker_call(self):

@@ -99,7 +99,14 @@ class CourierServerWrapper:
 
   @property
   def address(self) -> str:
-    return self._server.address if self._server else ''
+    if self.server_name:
+      return self.server_name
+    assert self._server is not None, 'Server is not built.'
+    return self._server.address
+
+  @property
+  def has_started(self) -> bool:
+    return self._server is not None and self._server.has_started
 
   def set_up(self) -> None:
     """Set up (e.g. binding to methods) at server build time."""
@@ -189,14 +196,16 @@ class CourierServerWrapper:
 
   def build_server(self) -> courier.Server:
     """Build and run a courier server."""
+    assert self.server_name != '', f'illegal {self.server_name=}'  # pylint: disable=g-explicit-bool-comparison
+    if self._server is not None:
+      return self._server
     self._server = courier.Server(self.server_name, port=self.port)
     self.set_up()
     return self._server
 
   def run_until_shutdown(self):
     """Run until shutdown requested."""
-    if self._server is None:
-      self.build_server()
+    self.build_server()
     assert self._server is not None, 'Server is not built.'
     if not self._server.has_started:
       self._server.Start()

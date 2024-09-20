@@ -50,7 +50,7 @@ def _cached_client(addr: str, call_timeout: int):
 
 
 @func_utils.cache_without_kwargs
-def _cached_worker(
+def cached_worker(
     addr: str,
     *,
     call_timeout: int = 60,
@@ -316,7 +316,7 @@ class RemoteObject(Generic[_T], lazy_fns.Resolvable[_T]):
 
   @property
   def worker(self) -> Worker:
-    return _cached_worker(self.worker_addr)
+    return cached_worker(self.worker_addr)
 
   def future_(self) -> futures.Future[bytes]:
     # Remote object will forward any exception as the result.
@@ -432,7 +432,7 @@ async def async_remote_iter(
     if not iterator.lazy_result:
       iterator = iterator.set_(_lazy_result=True)
     if not isinstance(worker, Worker):
-      worker = _cached_worker(worker)
+      worker = cached_worker(worker)
     return RemoteIterator(await worker.async_get_result(iterator))
   else:
     raise TypeError(f'Unsupported {type(iterator)}.')
@@ -610,6 +610,7 @@ class Worker:
     self._worker_pool = None
     self._shutdown_requested = True if server_name is None else False
     self._pendings = []
+    assert self.server_name, f'empty server_name: "{self.server_name}"'
     self._client = _cached_client(self.server_name, call_timeout=call_timeout)
     self._heartbeat_client = _cached_client(
         self.server_name, call_timeout=self.heartbeat_threshold_secs
@@ -896,7 +897,7 @@ class WorkerPool:
       iterate_batch_size: int = 0,
   ):
     if all(isinstance(name, str) for name in names_or_workers):
-      self._workers = [_cached_worker(name) for name in names_or_workers]
+      self._workers = [cached_worker(name) for name in names_or_workers]
     elif all(isinstance(worker, Worker) for worker in names_or_workers):
       self._workers = typing.cast(list[Worker], list(names_or_workers))
     else:
