@@ -100,7 +100,7 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
   # computed. (2) Remove score_batch_fn.
 
   batch_score_fn: Callable[..., types.NumbersT] | None = None
-  _count: int = 0
+  _count: int | types.NumbersT = 0
   _mean: types.NumbersT = np.nan
   _var: types.NumbersT = np.nan
 
@@ -126,7 +126,7 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
         length as the `batch`.
     """
 
-    if not self._count:
+    if isinstance(self._count, int) and self._count == 0:
       # This assumes the first dimension is the batch dimension.
       if self.batch_score_fn is not None:
         org_batch_size = len(batch)
@@ -138,6 +138,8 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
           )
 
       # Sufficient statistics for Mean, variance and standard deviation.
+      # If the data in some dimension is all nan, the mean and variance will be
+      # nan and the count will be 0.
       self._count = np.nansum(~np.isnan(batch), axis=0)
       self._mean = np.nanmean(batch, axis=0)
       self._var = np.nanvar(batch, axis=0)
@@ -166,26 +168,27 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
 
   @property
   def total(self) -> types.NumbersT:
-    return self._mean * self._count if self._count > 0 else 0.0
+    return 0.0 if np.all(self.count == 0) else self._count * self._mean
 
   def merge(self, other: 'MeanAndVariance'):
-    # TODO: b/311207032 - Support multi dimensional merge.
-    if other.count == 0:
+    if np.all(other.count == 0):
       return
 
-    if self.count == 0:
+    if np.all(self.count == 0):
       self._count = other.count
       self._mean = other.mean
       self._var = other.var
       return
 
-    prev_mean, prev_count = self._mean, self._count
+    prev_mean, prev_count = np.copy(self._mean), np.copy(self._count)
     self._count += other.count
-    self._mean += (other.mean - prev_mean) * (other.count / self._count)
+    self._mean += math_utils.safe_divide(
+        (other.mean - prev_mean) * other.count, self._count
+    )
     # Reference
     # (https://math.stackexchange.com/questions/2971315/how-do-i-combine-standard-deviations-of-two-groups)
-    prev_count_ratio = prev_count / self._count
-    other_count_ratio = other.count / self._count
+    prev_count_ratio = math_utils.safe_divide(prev_count, self._count)
+    other_count_ratio = math_utils.safe_divide(other.count, self._count)
     self._var = (
         prev_count_ratio * self._var
         + other_count_ratio * other.var
