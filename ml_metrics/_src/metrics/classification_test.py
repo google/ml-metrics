@@ -20,9 +20,158 @@ from ml_metrics._src.metrics import classification
 from ml_metrics._src.utils import math_utils
 import numpy as np
 
+from absl.testing import absltest
+
 
 InputType = classification.InputType
 ConfusionMatrixMetric = classification.ConfusionMatrixMetric
+
+
+class CalibrationHistogramTest(absltest.TestCase):
+
+  def test_calibration_histogram(self):
+    labels = (0, 1, 0, 1, 1, 1, 0, 1)
+    predictions = (0.2, 0.8, 0.5, -0.1, 0.5, 0.8, 0.2, 1.1)
+
+    result = (
+        classification.CalibrationHistogram(bins=5)
+        .add(labels, predictions)
+        .result()
+    )
+
+    expected_num_examples_hist = (
+        # Number of the input values in each bin:
+        3,  # len((0, 0, 0))
+        2,  # len((0.2, 0.2))
+        2,  # len((0.5, 0.5))
+        0,  # No values in this bucket.
+        7,  # len((0.8, 0.8, 1, 1, 1, 1, 1))
+    )
+    expected_labels_hist = (
+        # Sum of the input values in each bin:
+        0,  # sum((0, 0, 0))
+        0,  # No values in this bucket.
+        0,  # No values in this bucket.
+        0,  # No values in this bucket.
+        5,  # sum((1, 1, 1, 1, 1))
+    )
+    expected_predictions_hist = (
+        # Sum of the input values in each bin:
+        0,  # No values in this bucket.
+        0.4,  # sum((0.2, 0.2))
+        1,  # sum((0.5, 0.5))
+        0,  # No values in this bucket.
+        1.6,  # sum((0.8, 0.8))
+    )
+    expected_bin_edges = (0, 0.2, 0.4, 0.6, 0.8, 1)
+
+    np.testing.assert_allclose(
+        result.num_examples_hist, expected_num_examples_hist
+    )
+    np.testing.assert_allclose(result.labels_hist, expected_labels_hist)
+    np.testing.assert_allclose(
+        result.predictions_hist, expected_predictions_hist
+    )
+
+    np.testing.assert_allclose(result.bin_edges, expected_bin_edges)
+
+  def test_calibration_histogram_one_large_batch(self):
+    np.random.seed(seed=0)
+
+    num_values = 1000000
+    bins = 10
+    left_boundary = -1e6
+    right_boundary = 1e6
+
+    labels = np.random.uniform(
+        low=left_boundary, high=right_boundary, size=num_values
+    )
+    predictions = np.random.uniform(
+        low=left_boundary, high=right_boundary, size=num_values
+    )
+
+    result = (
+        classification.CalibrationHistogram(
+            range=(left_boundary, right_boundary),
+            bins=bins,
+        )
+        .add(labels, predictions)
+        .result()
+    )
+
+    expected_num_examples_hist, expected_bin_edges = np.histogram(
+        np.concatenate((labels, predictions)),
+        bins=bins,
+        range=(left_boundary, right_boundary),
+    )
+    expected_labels_hist, _ = np.histogram(
+        labels, bins=bins, range=(left_boundary, right_boundary), weights=labels
+    )
+    expected_predictions_hist, _ = np.histogram(
+        predictions,
+        bins=bins,
+        range=(left_boundary, right_boundary),
+        weights=predictions,
+    )
+
+    np.testing.assert_allclose(
+        result.num_examples_hist, expected_num_examples_hist
+    )
+    np.testing.assert_allclose(result.labels_hist, expected_labels_hist)
+    np.testing.assert_allclose(
+        result.predictions_hist, expected_predictions_hist
+    )
+
+    np.testing.assert_allclose(result.bin_edges, expected_bin_edges)
+
+  def test_calibration_histogram_many_large_batches(self):
+    np.random.seed(seed=0)
+
+    batches = 1000
+    batch_size = 1000
+    bins = 10
+    left_boundary = -1e6
+    right_boundary = 1e6
+
+    labels = np.random.uniform(
+        low=left_boundary, high=right_boundary, size=(batches, batch_size)
+    )
+    predictions = np.random.uniform(
+        low=left_boundary, high=right_boundary, size=(batches, batch_size)
+    )
+
+    state = classification.CalibrationHistogram(
+        range=(left_boundary, right_boundary),
+        bins=bins,
+    )
+    for label, prediction in zip(labels, predictions):
+      state.add(label, prediction)
+    result = state.result()
+
+    expected_num_examples_hist, expected_bin_edges = np.histogram(
+        np.concatenate((labels, predictions)),
+        bins=bins,
+        range=(left_boundary, right_boundary),
+    )
+    expected_labels_hist, _ = np.histogram(
+        labels, bins=bins, range=(left_boundary, right_boundary), weights=labels
+    )
+    expected_predictions_hist, _ = np.histogram(
+        predictions,
+        bins=bins,
+        range=(left_boundary, right_boundary),
+        weights=predictions,
+    )
+
+    np.testing.assert_allclose(
+        result.num_examples_hist, expected_num_examples_hist
+    )
+    np.testing.assert_allclose(result.labels_hist, expected_labels_hist)
+    np.testing.assert_allclose(
+        result.predictions_hist, expected_predictions_hist
+    )
+
+    np.testing.assert_allclose(result.bin_edges, expected_bin_edges)
 
 
 class ClassificationTest(parameterized.TestCase):

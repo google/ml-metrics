@@ -13,13 +13,17 @@
 # limitations under the License.
 """Individual Classification based metrics."""
 
+import collections
 from collections.abc import Sequence
+import dataclasses
 from typing import Any
 
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import classification
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.metrics import utils
+import numpy as np
+
 
 InputType = types.InputType
 AverageType = types.AverageType
@@ -55,6 +59,124 @@ _METRIC_PYDOC_POSTFIX = """
   Returns:
     Tuple with metric value(s)
 """
+
+CalibrationHistogramResult = collections.namedtuple(
+    'CalibrationHistogramResult',
+    ('num_examples_hist', 'labels_hist', 'predictions_hist', 'bin_edges'),
+)
+
+
+# TODO: b/368067018 - Inherit from
+# ml_metrics._src.aggregates.rolling_stats.Histogram.
+@dataclasses.dataclass
+class CalibrationHistogram(base.MergeableMetric):
+  """Computes the Histogram of the inputs.
+
+  Attributes:
+    range: The lower and upper range of the bins. e.g. range = (0, 1).
+    bins: The number of buckets to use.
+    _hist: The values of the histogram.
+    _bin_edges: The bin edges of the histogram. All but the right-most bin are
+      half-open. I.e. if the bins_edges are (0, 1, 2, 3, ..., 8, 9, 10), then
+      the bin ranges are [0, 1), [1, 2), [2, 3), ... [8, 9), [9, 10].
+  """
+
+  range: tuple[float, float] = (0, 1)
+  bins: int = 10000
+  _num_examples_hist: np.ndarray = dataclasses.field(init=False)
+  _labels_hist: np.ndarray = dataclasses.field(init=False)
+  _predictions_hist: np.ndarray = dataclasses.field(init=False)
+  _bin_edges: np.ndarray = dataclasses.field(init=False)
+
+  def __post_init__(self):
+    default_hist, self._bin_edges = np.histogram(
+        a=(), bins=self.bins, range=self.range
+    )
+
+    self._num_examples_hist = self._labels_hist = self._predictions_hist = (
+        default_hist
+    )
+
+  @property
+  def num_examples_hist(self) -> np.ndarray:
+    return self._num_examples_hist
+
+  @property
+  def labels_hist(self) -> np.ndarray:
+    return self._labels_hist
+
+  @property
+  def predictions_hist(self) -> np.ndarray:
+    return self._predictions_hist
+
+  @property
+  def bin_edges(self) -> np.ndarray:
+    return self._bin_edges
+
+  # TODO: b/366063413 - Replace this with a batch_weights_fn.
+  def _get_histograms_and_bin_edges(
+      self, labels: types.NumbersT, predictions: types.NumbersT
+  ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    num_examples_hist, bin_edges = np.histogram(
+        np.concatenate((labels, predictions)),
+        bins=self.bins,
+        range=self.range,
+    )
+
+    labels_hist, _ = np.histogram(labels, bins=bin_edges, weights=labels)
+    predictions_hist, _ = np.histogram(
+        predictions, bins=bin_edges, weights=predictions
+    )
+
+    return num_examples_hist, labels_hist, predictions_hist, bin_edges
+
+  def _merge(
+      self,
+      num_examples_hist: np.ndarray,
+      labels_hist: np.ndarray,
+      predictions_hist: np.ndarray,
+      bin_edges: np.ndarray,
+  ) -> 'CalibrationHistogram':
+    if not np.array_equal(bin_edges, self._bin_edges):
+      # Self histo and new histo have different bin edges.
+      raise ValueError(
+          'The bin edges of the two Histograms must be equal, but recieved'
+          f' self._bin_edges={self._bin_edges} and new_bin_edges={bin_edges}.'
+      )
+
+    self._num_examples_hist = self._num_examples_hist + num_examples_hist
+    self._labels_hist = self._labels_hist + labels_hist
+    self._predictions_hist = self._predictions_hist + predictions_hist
+
+    return self
+
+  def add(
+      self, labels: types.NumbersT, predictions: types.NumbersT
+  ) -> 'CalibrationHistogram':
+    num_examples_hist, labels_hist, predictions_hist, new_bin_edges = (
+        self._get_histograms_and_bin_edges(
+            labels=labels, predictions=predictions
+        )
+    )
+    return self._merge(
+        num_examples_hist, labels_hist, predictions_hist, new_bin_edges
+    )
+
+  def merge(self, other: 'CalibrationHistogram') -> 'CalibrationHistogram':
+    return self._merge(
+        other.num_examples_hist,
+        other.labels_hist,
+        other.predictions_hist,
+        other.bin_edges,
+    )
+
+  def result(self) -> CalibrationHistogramResult:
+    return CalibrationHistogramResult(
+        num_examples_hist=self._num_examples_hist.copy(),
+        labels_hist=self._labels_hist.copy(),
+        predictions_hist=self._predictions_hist.copy(),
+        bin_edges=self._bin_edges.copy(),
+    )
 
 
 class ClassificationAggFn(base.AggregateFn):
