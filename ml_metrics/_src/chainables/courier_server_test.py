@@ -106,13 +106,14 @@ class CourierServerTest(parameterized.TestCase):
 
   def test_courier_server_shutdown(self):
     server = courier_server.CourierServerWrapper()
-    server.build_server()
-    t = server.start()
-    client = courier.Client(server.address, call_timeout=6)
-    self.assertTrue(t.is_alive())
+    server.start()
+    assert server._thread is not None
+    worker = courier_worker.Worker(server.address)
+    worker.wait_until_alive(deadline_secs=12)
+    self.assertTrue(server._thread.is_alive())
     self.assertTrue(server.has_started)
-    client.shutdown()
-    t.join()
+    worker.shutdown()
+    server._thread.join()
 
   def test_courier_exception_during_prefetch(self):
     client = courier.Client(self.server.address, call_timeout=1)
