@@ -267,6 +267,149 @@ class StatsStateTest(parameterized.TestCase):
 
   @parameterized.named_parameters([
       dict(
+          testcase_name='1_batch_1_element_1_dim',
+          num_batch=1,
+          num_elements_per_batch=1,
+          num_dimension=1,
+      ),
+      dict(
+          testcase_name='1_batch_1_element_10_dim',
+          num_batch=1,
+          num_elements_per_batch=1,
+          num_dimension=10,
+      ),
+      dict(
+          testcase_name='1_batch_10_element_1_dim',
+          num_batch=1,
+          num_elements_per_batch=10,
+          num_dimension=1,
+      ),
+      dict(
+          testcase_name='1_batch_10_element_10_dim',
+          num_batch=1,
+          num_elements_per_batch=10,
+          num_dimension=10,
+      ),
+      dict(
+          testcase_name='10_batch_1_element_1_dim',
+          num_batch=10,
+          num_elements_per_batch=1,
+          num_dimension=1,
+      ),
+      dict(
+          testcase_name='10_batch_1_element_10_dim',
+          num_batch=10,
+          num_elements_per_batch=1,
+          num_dimension=10,
+      ),
+      dict(
+          testcase_name='10_batch_10_element_1_dim',
+          num_batch=10,
+          num_elements_per_batch=10,
+          num_dimension=1,
+      ),
+      dict(
+          testcase_name='10_batch_10_element_10_dim',
+          num_batch=10,
+          num_elements_per_batch=10,
+          num_dimension=10,
+      ),
+  ])
+  def test_stats_state_multi_dimension(
+      self, num_batch, num_elements_per_batch, num_dimension
+  ):
+    batches = np.random.randn(num_batch, num_elements_per_batch, num_dimension)
+    state = rolling_stats.MeanAndVariance()
+
+    for batch in batches:
+      state.add(batch)
+
+    self.assertLen(state.mean, num_dimension)
+    self.assertLen(state.var, num_dimension)
+    self.assertLen(state.stddev, num_dimension)
+    self.assertLen(state.count, num_dimension)
+    self.assertLen(state.total, num_dimension)
+    batches = np.reshape(batches, (-1, num_dimension))
+    np.testing.assert_array_equal(
+        state.count, num_batch * num_elements_per_batch
+    )
+    np.testing.assert_allclose(state.total, np.sum(batches, axis=0))
+    np.testing.assert_allclose(state.mean, np.mean(batches, axis=0))
+    np.testing.assert_allclose(state.var, np.var(batches, axis=0))
+    np.testing.assert_allclose(state.stddev, np.std(batches, axis=0))
+
+  def test_stats_state_multi_dimension_with_nan(self):
+    # Create batches with shape (2, 3, 4)
+    batches = np.asarray([
+        [[1, 2, 3, np.nan], [np.nan, 5, 6, np.nan], [7, 8, 9, np.nan]],
+        [
+            [np.nan, 11, 12, np.nan],
+            [13, np.nan, 15, np.nan],
+            [16, 17, 18, np.nan],
+        ],
+    ])
+
+    state = rolling_stats.MeanAndVariance()
+
+    for batch in batches:
+      state.add(batch)
+
+    self.assertLen(state.mean, 4)
+    self.assertLen(state.var, 4)
+    self.assertLen(state.stddev, 4)
+    self.assertLen(state.count, 4)
+    self.assertLen(state.total, 4)
+    array1_with_no_nan = np.asarray([1.0, 7.0, 13.0, 16.0])
+    array2_with_no_nan = np.asarray([2.0, 5.0, 8.0, 11.0, 17.0])
+    array3_with_no_nan = np.asarray([3.0, 6.0, 9.0, 12.0, 15.0, 18.0])
+    np.testing.assert_array_equal(
+        state.count,
+        [
+            len(array1_with_no_nan),
+            len(array2_with_no_nan),
+            len(array3_with_no_nan),
+            0,
+        ],
+    )
+    np.testing.assert_allclose(
+        state.mean,
+        np.asarray([
+            np.mean(array1_with_no_nan),
+            np.mean(array2_with_no_nan),
+            np.mean(array3_with_no_nan),
+            np.nan,
+        ]),
+    )
+    np.testing.assert_allclose(
+        state.var,
+        np.asarray([
+            np.var(array1_with_no_nan),
+            np.var(array2_with_no_nan),
+            np.var(array3_with_no_nan),
+            np.nan,
+        ]),
+    )
+    np.testing.assert_allclose(
+        state.stddev,
+        np.asarray([
+            np.std(array1_with_no_nan),
+            np.std(array2_with_no_nan),
+            np.std(array3_with_no_nan),
+            np.nan,
+        ]),
+    )
+    np.testing.assert_allclose(
+        state.total,
+        np.asarray([
+            np.sum(array1_with_no_nan),
+            np.sum(array2_with_no_nan),
+            np.sum(array3_with_no_nan),
+            0.0,
+        ]),
+    )
+
+  @parameterized.named_parameters([
+      dict(
           testcase_name='all_nan',
           partial_nan=False,
       ),
