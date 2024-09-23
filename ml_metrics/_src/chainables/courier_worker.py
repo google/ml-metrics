@@ -612,8 +612,8 @@ class Worker:
     self._shutdown_requested = True if server_name is None else False
     self._pendings = []
     assert self.server_name, f'empty server_name: "{self.server_name}"'
-    self._client = _cached_client(self.server_name, call_timeout=call_timeout)
-    self._heartbeat_client = _cached_client(
+    self._client = courier.Client(self.server_name, call_timeout=call_timeout)
+    self._heartbeat_client = courier.Client(
         self.server_name, call_timeout=self.heartbeat_threshold_secs
     )
     self._heartbeat = None
