@@ -226,6 +226,7 @@ class CourierServerWrapper:
 
   def start(self, daemon: bool = None) -> threading.Thread:
     """Start the server from a different thread."""
+    self.build_server()
     server_thread = threading.Thread(
         target=self.run_until_shutdown, daemon=daemon
     )
