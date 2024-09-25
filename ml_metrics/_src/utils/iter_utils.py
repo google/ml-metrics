@@ -109,6 +109,7 @@ class IteratorQueue(Generic[_ValueT]):
   timeout: float | None = dc.field(default=None, kw_only=True)
   progress: Progress = dc.field(default_factory=Progress, init=False)
   returned: Any = dc.field(default_factory=list, init=False)
+  _exception: Exception | None = dc.field(default=None, init=False)
   _iterator_cnt: int | None = dc.field(init=False, default=None)
 
   def __post_init__(self, q_or_size: int | QueueLike[_ValueT]):
@@ -132,7 +133,18 @@ class IteratorQueue(Generic[_ValueT]):
   ) -> Self:
     return cls(q_or_size, name=name, timeout=timeout)
 
+  @property
+  def exhausted(self) -> bool:
+    has_exception = self.exception is not None
+    return (self._iterator_cnt == 0 or has_exception) and not self.qsize()
+
+  @property
+  def exception(self) -> Exception | None:
+    return self._exception
+
   def get_nowait(self) -> _ValueT:
+    if self.exhausted:
+      raise self.exception or StopIteration()
     return self._queue.get_nowait()
 
   def put_nowait(self, value: _ValueT) -> None:
@@ -140,10 +152,6 @@ class IteratorQueue(Generic[_ValueT]):
 
   def qsize(self) -> int:
     return self._queue.qsize()
-
-  @property
-  def enqueue_done(self) -> bool:
-    return self._iterator_cnt == 0
 
   def _start_enqueue(self):
     if self._iterator_cnt is None:
@@ -155,8 +163,8 @@ class IteratorQueue(Generic[_ValueT]):
     assert self._iterator_cnt >= 0, f'{self._iterator_cnt=} cannot be negative.'
     if value is not None:
       self.returned.append(value)
-    if self.enqueue_done:
-      logging.info('chainable: %s enqueue done.', self.name)
+    if self._iterator_cnt == 0 or self.exception is not None:
+      logging.info('chainable:"%s" enqueue done.', self.name)
 
   def enqueue_from_iterator(self, iterator: Iterable[_ValueT]):
     """Iterates through a generator while enqueue its elements."""
@@ -168,6 +176,12 @@ class IteratorQueue(Generic[_ValueT]):
         value = next(iterator)
       except StopIteration as e:
         return self._stop_enqueue(e.value)
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        e.add_note(f'Search ""{self.name}" enqueue failed".')
+        logging.exception('chainables: "%s" enqueue failed.', self.name)
+        self._exception = e
+        self._stop_enqueue()
+        raise e
       ticker = time.time()
       enqueued = False
       while not enqueued:
@@ -185,6 +199,9 @@ class IteratorQueue(Generic[_ValueT]):
             'chainable: "%s" enqueued %d.', self.name, self.progress.cnt
         )
 
+  def __iter__(self):
+    return self.dequeue_as_iterator()
+
   def dequeue_as_iterator(self, num_steps: int = -1) -> Iterator[_ValueT]:
     """Converts a queue to an iterator, stops when meeting StopIteration."""
     i = 0
@@ -195,15 +212,18 @@ class IteratorQueue(Generic[_ValueT]):
       try:
         value = self.get_nowait()
         logging.debug('chainable: "%s" dequeued %s.', self.name, type(value))
+      except StopIteration:
+        logging.info('chainable: %s dequeue exhausted.', self.name)
+        return
       except (queue.Empty, asyncio.QueueEmpty) as e:
-        if self.enqueue_done:
-          logging.info('chainable: %s dequeue exhausted.', self.name)
-          return
         timeout = self.timeout
         if timeout is not None and ticker and time.time() - ticker > timeout:
           raise TimeoutError(f'Dequeue timeout after {timeout} seconds.') from e
         time.sleep(0)
         continue
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        logging.exception('chainables: "%s" dequeue failed.', self.name)
+        raise e
       ticker = None
       yield value
       i += 1
@@ -218,10 +238,34 @@ class AsyncIteratorQueue(IteratorQueue[_ValueT]):
     return asyncio.Queue(maxsize=maxsize)
 
   async def get(self):
-    return await self._queue.get()
+    """Gets an element from the queue."""
+    ticker = time.time()
+    run_forever = self.timeout is None
+    while run_forever or time.time() - ticker < self.timeout:
+      try:
+        return self._queue.get_nowait()
+      except StopIteration as e:
+        raise StopAsyncIteration() from e
+      except (queue.Empty, asyncio.QueueEmpty) as e:
+        if self.exhausted:
+          raise self.exception or StopAsyncIteration() from e
+      await asyncio.sleep(0)
+    raise asyncio.QueueEmpty(
+        f'Dequeue "{self.name}" timeout after {self.timeout}s.'
+    )
 
   async def put(self, value: _ValueT):
-    return await self._queue.put(value)
+    run_forever = self.timeout is None
+    ticker = time.time()
+    while run_forever or time.time() - ticker < self.timeout:
+      try:
+        return self._queue.put_nowait(value)
+      except (queue.Full, asyncio.QueueFull):
+        await asyncio.sleep(0)
+    delta_time = time.time() - ticker
+    raise asyncio.QueueFull(
+        f'Enqueue "{self.name}" timeout after {delta_time}s, {self.qsize()}'
+    )
 
   # TODO: b/322003863 - Re-enalbe aiter and anext pytype when it is supported.
   async def async_enqueue_from_iterator(self, iterator: AsyncIterable[_ValueT]):
@@ -232,10 +276,16 @@ class AsyncIteratorQueue(IteratorQueue[_ValueT]):
     while True:
       try:
         value = await asyncio.wait_for(anext(iterator), self.timeout)  # pytype: disable=name-error
-        await asyncio.wait_for(self.put(value), self.timeout)
+        await self.put(value)
       except StopAsyncIteration:
         self._stop_enqueue()
         return
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        e.add_note(f'Exception during enqueueing {self.name}')
+        logging.exception('chainables: %s enqueue failed.', self.name)
+        self._exception = e
+        self._stop_enqueue()
+        raise e
       if self.progress is not None:
         self.progress.cnt += 1
         logging.debug(
@@ -251,17 +301,16 @@ class AsyncIteratorQueue(IteratorQueue[_ValueT]):
     i = 0
     run_until_exhausted = num_steps < 0
     while run_until_exhausted or i < num_steps:
-      if self.enqueue_done and not self.qsize():
-        break
       try:
-        value = await asyncio.wait_for(self.get(), self.timeout)
+        value = await self.get()
         yield value
         i += 1
-      except TimeoutError as e:
-        if self.enqueue_done:
-          break
-        raise e
+      except StopAsyncIteration:
+        break
     logging.info('chainable: %s async_dequeue exhausted', self.name)
+
+  def __aiter__(self):
+    return self.async_dequeue_as_iterator()
 
 
 # TODO: b/356633410 - Deprecate iterator pipe in favor of RemoteIterator.

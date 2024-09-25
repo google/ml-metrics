@@ -374,10 +374,10 @@ class RemoteQueue(Generic[_T]):
     return self.queue.put_nowait(value).result_()
 
   async def get(self):
-    return await self.queue.get().async_result_()
+    return await self.queue.get_nowait().async_result_()
 
   async def put(self, value):
-    return await self.queue.put(value).async_result_()
+    return await self.queue.put_nowait(value).async_result_()
 
   def qsize(self) -> int:
     return self.queue.qsize().result_()
@@ -387,9 +387,14 @@ class RemoteIteratorQueue(iter_utils.AsyncIteratorQueue[_T]):
   """Remote iterator queue that implements AsyncIteratorQueue interfaces."""
 
   @property
-  def enqueue_done(self):
+  def exception(self) -> Exception | None:
     assert isinstance(q := self._queue, RemoteQueue), f'{type(q)}'
-    return q.queue.enqueue_done.result_()
+    return q.queue.exception.result_()
+
+  @property
+  def exhausted(self):
+    assert isinstance(q := self._queue, RemoteQueue), f'{type(q)}'
+    return q.queue.exhausted.result_()
 
 
 class RemoteIterator(Iterator[_T]):
@@ -421,22 +426,32 @@ async def async_remote_iter(
     iterator: base_types.MaybeResolvable[Iterable[_T]],
     *,
     worker: str | Worker | None = None,
-) -> RemoteIterator[_T]:
+    buffer_size: int = 0,
+    timeout: float | None = None,
+    name: str = '',
+) -> RemoteIteratorQueue[_T]:
   """Constructs a remote iterator given a maybe lazy iterator."""
   if isinstance(iterator, RemoteObject):
-    remote_iterator = await iterator.worker.async_get_result(
-        lazy_fns.trace(iter)(iterator.value, lazy_result_=True)
-    )
-    return RemoteIterator(remote_iterator)
+    worker = iterator.worker
+    iterator = iterator.value
   elif isinstance(iterator, lazy_fns.LazyObject):
-    # Constructs a iterator remotely and return it.
-    if not iterator.lazy_result:
-      iterator = iterator.set_(_lazy_result=True)
     if not isinstance(worker, Worker):
       worker = cached_worker(worker)
-    return RemoteIterator(await worker.async_get_result(iterator))
   else:
     raise TypeError(f'Unsupported {type(iterator)}.')
+  # Create a queue at the worker, this returns a remote object.
+  lazy_output_q = await worker.async_get_result(
+      lazy_fns.trace(iter_utils.IteratorQueue)(
+          buffer_size,
+          timeout=timeout,
+          name=name,
+          lazy_result_=True,
+      )
+  )
+  # Start the remote worker to enqueue the input_iterator.
+  _ = worker.call(lazy_output_q.enqueue_from_iterator(iterator))
+  # Wrap this queue to behave like a normal queue.
+  return RemoteIteratorQueue(RemoteQueue(lazy_output_q))
 
 
 def _is_queue_full(e: Exception) -> bool:
@@ -747,7 +762,8 @@ class Worker:
     self._pendings.append(state)
     return state
 
-  def _result_or_exception(self, result: _T | Exception) -> _T | Exception:
+  def _result_or_exception(self, pickled: bytes) -> Any | Exception:
+    result = lazy_fns.pickler.loads(pickled)
     if isinstance(result, Exception):
       result.add_note(f'Raised on the remote worker: {self.server_name}')
       raise result
@@ -758,15 +774,13 @@ class Worker:
     future = self.call(lazy_obj, return_exception=True)
     while not future.done():
       time.sleep(0)
-    pickled = future.result()
-    return self._result_or_exception(lazy_fns.pickler.loads(pickled))
+    return self._result_or_exception(future.result())
 
   async def async_get_result(self, lazy_obj: base_types.Resolvable[_T]) -> _T:
     """Low level async courier call to retrieve the result."""
     future = self.call(lazy_obj, return_exception=True)
-    pickled = await asyncio.wrap_future(future)
     try:
-      return self._result_or_exception(lazy_fns.pickler.loads(pickled))
+      return self._result_or_exception(await asyncio.wrap_future(future))
     except StopIteration as e:
       # Convert a StopIteration without return to StopAsyncIteration().
       if (v := e.value) is not None:
@@ -855,10 +869,20 @@ class Worker:
   async def async_iter(
       self,
       lazy_iterable: lazy_fns.LazyObject[Iterable[_T]],
+      *,
+      buffer_size: int = 0,
+      timeout: float | None = None,
+      name: str = '',
   ) -> AsyncIterator[_T]:
     """Async iterates the generator task."""
     batch_cnt = 0
-    remote_iterator = await async_remote_iter(lazy_iterable, worker=self)
+    remote_iterator = await async_remote_iter(
+        lazy_iterable,
+        worker=self,
+        timeout=timeout,
+        buffer_size=buffer_size,
+        name=name,
+    )
     logging.info('chainable: %s async iter constructed.', self.server_name)
     async for batch in remote_iterator:
       yield batch

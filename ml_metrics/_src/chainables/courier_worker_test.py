@@ -363,10 +363,8 @@ class RemoteObjectTest(parameterized.TestCase):
     )
     # Remotely constructs an iteraotor as the input_iterator.
     iterator_fn = functools.partial(map, lambda x: x + 1)
-    lazy_iterator = lazy_fns.trace(iterator_fn)(
-        lazy_fns.trace(input_queue).dequeue_as_iterator()
-    )
-    local_result_queue = iter_utils.AsyncIteratorQueue(timeout=1, name='output')
+    lazy_iterator = lazy_fns.trace(iterator_fn)(lazy_fns.trace(input_queue))
+    local_result_queue = iter_utils.AsyncIteratorQueue(timeout=9, name='output')
 
     async def remote_iterate():
       remote_iterator = await courier_worker.async_remote_iter(
@@ -378,7 +376,7 @@ class RemoteObjectTest(parameterized.TestCase):
       return [elem async for elem in iterator]
 
     async def run(n):
-      aw_result = alist(local_result_queue.async_dequeue_as_iterator())
+      aw_result = alist(local_result_queue)
       result, *_ = await asyncio.gather(
           aw_result, *(remote_iterate() for _ in range(n))
       )

@@ -15,7 +15,6 @@
 import asyncio
 from collections.abc import Sequence
 from concurrent import futures
-import functools
 import itertools as it
 import queue
 
@@ -28,6 +27,10 @@ from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import iter_utils
 import more_itertools as mit
 import numpy as np
+
+
+async def alist(iterator):
+  return [elem async for elem in iterator]
 
 
 def setUpModule():
@@ -94,7 +97,7 @@ class UtilsTest(parameterized.TestCase):
     iter_pipe = iter_pipe.submit_to(self.thread_pool)
     iter_pipe.input_queue.enqueue_from_iterator(range(10))
     self.assertIsNone(iter_pipe.state.result())
-    actual = list(iter_pipe.output_queue.dequeue_as_iterator())
+    actual = list(iter_pipe.output_queue)
     self.assertEqual(list(range(1, 11)), actual)
 
   def test_iterator_pipe_source_only(self):
@@ -103,7 +106,7 @@ class UtilsTest(parameterized.TestCase):
     ).submit_to(self.thread_pool)
     self.assertIsNone(iter_pipe.input_queue)
     self.assertIsNone(iter_pipe.state.result())
-    actual = list(iter_pipe.output_queue.dequeue_as_iterator())
+    actual = list(iter_pipe.output_queue)
     self.assertEqual(list(range(10)), actual)
 
   def test_iterator_pipe_sink_only(self):
@@ -141,6 +144,12 @@ class UtilsTest(parameterized.TestCase):
     actual = list(iter_utils.dequeue_as_iterator(q))
     self.assertSequenceEqual(expected, actual)
 
+  def test_enqueue_dequeue_raises(self):
+    q = iter_utils.IteratorQueue()
+    q._exception = ValueError('foo')
+    with self.assertRaises(ValueError):
+      _ = list(q)
+
   def test_iterator_queue_enqueue_dequeue(self):
 
     def foo(n):
@@ -149,7 +158,7 @@ class UtilsTest(parameterized.TestCase):
 
     q = iter_utils.IteratorQueue()
     q.enqueue_from_iterator(foo(10))
-    actual = list(q.dequeue_as_iterator())
+    actual = list(q)
     self.assertSequenceEqual(list(range(10)), actual)
     self.assertLen(q.returned, 1)
     self.assertEqual(10, q.returned[0])
@@ -163,7 +172,34 @@ class UtilsTest(parameterized.TestCase):
     q = iter_utils.IteratorQueue(queue_or_size=1, timeout=0.1)
     q._queue.put(1)
     with self.assertRaisesRegex(TimeoutError, 'Dequeue timeout'):
-      mit.last(q.dequeue_as_iterator())
+      mit.last(q)
+
+  def test_async_dequeue_from_generator_timeout(self):
+    q = iter_utils.AsyncIteratorQueue(queue_or_size=1, timeout=0.1)
+    with self.assertRaises(asyncio.QueueEmpty):
+      asyncio.run(q.get())
+    with self.assertRaises(asyncio.QueueEmpty):
+      asyncio.run(alist(q.async_dequeue_as_iterator()))
+
+  def test_async_enqueue_from_generator_raises(self):
+    q = iter_utils.AsyncIteratorQueue(timeout=0.1)
+
+    async def async_iter():
+      await asyncio.sleep(10)
+      yield 1
+
+    with self.assertRaises(TimeoutError):
+      asyncio.run(q.async_enqueue_from_iterator(async_iter()))
+
+  def test_async_enqueue_full_raises(self):
+    q = iter_utils.AsyncIteratorQueue(1, timeout=1)
+
+    async def async_iter():
+      for i in range(2):
+        yield i
+
+    with self.assertRaises(asyncio.QueueFull):
+      asyncio.run(q.async_enqueue_from_iterator(async_iter()))
 
   def test_iterator_queue_async(self):
     local_server = courier_server._cached_server('local')
@@ -173,26 +209,21 @@ class UtilsTest(parameterized.TestCase):
     num_elem = 20
     local_queue.enqueue_from_iterator(range(num_elem))
     # input_iterator is remote and lives in local server.
-    input_iterator = courier_server.make_remote_iterator(
-        local_queue.dequeue_as_iterator(), server_addr=local_server.address
+    input_iterator = courier_server.make_remote_queue(
+        local_queue, server_addr=local_server.address
     )
-    iterator_fn = functools.partial(map, lambda x: x + 1)
-    lazy_iterator = lazy_fns.trace(iterator_fn)(input_iterator)
-    local_result_queue = iter_utils.AsyncIteratorQueue(timeout=3)
+    lazy_iterator = lazy_fns.trace(map)(lambda x: x + 1, input_iterator)
+    local_result_queue = iter_utils.AsyncIteratorQueue(timeout=3, name='output')
 
     async def remote_iterate():
       remote_iterator = await courier_worker.async_remote_iter(
-          lazy_iterator, worker=remote_server.address
+          lazy_iterator, worker=remote_server.address, name='remote'
       )
       await local_result_queue.async_enqueue_from_iterator(remote_iterator)
 
-    async def alist(iterator):
-      return [elem async for elem in iterator]
-
     async def run(n):
-      aw_result = alist(local_result_queue.async_dequeue_as_iterator())
       result, *_ = await asyncio.gather(
-          aw_result, *(remote_iterate() for _ in range(n))
+          alist(local_result_queue), *(remote_iterate() for _ in range(n))
       )
       return result
 
