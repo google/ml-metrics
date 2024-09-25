@@ -28,7 +28,7 @@ import numpy as np
 
 
 HistogramResult = collections.namedtuple(
-    'HistogramResult', ['hist', 'bin_edges']
+    'HistogramResult', ('hist', 'bin_edges'),
 )
 
 
@@ -56,22 +56,36 @@ class Histogram(base.MergeableMetric):
     )
 
   @property
-  def hist(self) -> np.ndarray | None:
+  def hist(self) -> np.ndarray:
     return self._hist
 
   @property
-  def bin_edges(self) -> np.ndarray | None:
+  def bin_edges(self) -> np.ndarray:
     return self._bin_edges
 
   def _merge(self, hist: np.ndarray, bin_edges: np.ndarray) -> 'Histogram':
     if not np.array_equal(bin_edges, self._bin_edges):
-      # Self histo and new histo have different bin edges.
-      raise ValueError(
-          'The bin edges of the two Histograms must be equal, but recieved'
-          f' self._bin_edges={self._bin_edges} and new_bin_edges={bin_edges}.'
-      )
 
-    self._hist += hist
+      # Self hist and new hist have different bin edges.
+      if self._bin_edges.shape == bin_edges.shape:
+        # Self hist and new hist have the same shape of bin edges.
+        raise ValueError(
+            'The bin edges of the two Histograms must be equal, but recieved'
+            f' self._bin_edges={self._bin_edges} and new_bin_edges={bin_edges}'
+            ' which have different elements at indices'
+            f' {np.where(self._bin_edges != bin_edges)}.'
+        )
+
+      else:
+        # Self hist and new hist have different shapes of bin edges.
+        raise ValueError(
+            'The bin edges of the two Histograms must be equal, but recieved'
+            f' self._bin_edges={self._bin_edges} and new_bin_edges={bin_edges}'
+            f' which have shapes {self._bin_edges.shape} and {bin_edges.shape},'
+            ' respectively.'
+        )
+
+    self._hist = self._hist + hist
     return self
 
   def add(
@@ -89,7 +103,9 @@ class Histogram(base.MergeableMetric):
     return self._merge(other.hist, other.bin_edges)
 
   def result(self) -> HistogramResult:
-    return HistogramResult(self._hist.copy(), self._bin_edges.copy())
+    return HistogramResult(
+        hist=self._hist.copy(), bin_edges=self._bin_edges.copy()
+    )
 
 
 @dataclasses.dataclass(kw_only=True)

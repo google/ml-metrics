@@ -11,8 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for rolling_stats.py."""
-
 import dataclasses
 import math
 
@@ -23,7 +21,7 @@ import numpy as np
 from absl.testing import absltest
 
 
-class HistogramTest(absltest.TestCase):
+class HistogramTest(parameterized.TestCase):
 
   def test_histogram_merge(self):
     bin_range = (0, 1)
@@ -150,23 +148,33 @@ class HistogramTest(absltest.TestCase):
     np.testing.assert_equal(actual_result.hist, expected_histogram)
     np.testing.assert_equal(actual_result.bin_edges, expected_bin_edges)
 
-  def test_histogram_invalid_bin_edges(self):
+  @parameterized.named_parameters(
+      [
+          dict(
+              testcase_name='same_bin_edges_shape',
+              bin_edges_1=(0, 0.25, 0.5, 0.75, 1.0),
+              bin_edges_2=(0, 0.2, 0.5, 0.8, 1.0),
+          ),
+          dict(
+              testcase_name='different_bin_edges_shapes',
+              bin_edges_1=(0, 0.25, 0.5, 0.75, 1.0),
+              bin_edges_2=(0, 0.5, 1.0),
+          ),
+      ],
+  )
+  def test_histogram_invalid_bin_edges(self, bin_edges_1, bin_edges_2):
     place_holder_range = (0, 1)
-
-    original_bin_edges = np.array((0, 0.25, 0.5, 0.75, 1.0))
-    different_bin_edges = np.array((0, 0.5, 1.0))
-
     place_holder_hist = np.array((1, 1, 1, 1))
 
     hist_1 = rolling_stats.Histogram(place_holder_range)
     hist_1._hist = place_holder_hist
-    hist_1._bin_edges = original_bin_edges
+    hist_1._bin_edges = np.array(bin_edges_1)
 
     with self.assertRaisesRegex(
         ValueError,
         'The bin edges of the two Histograms must be equal, but recieved'
     ):
-      hist_1._merge(place_holder_hist, different_bin_edges)
+      hist_1._merge(place_holder_hist, np.array(bin_edges_2))
 
 
 def get_expected_stats_state(batches, batch_score_fn=None):
