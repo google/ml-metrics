@@ -11,8 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""test for orchestrate."""
-
 import queue
 
 from absl.testing import absltest
@@ -27,9 +25,17 @@ import more_itertools as mit
 import numpy as np
 
 
+SERVER_ADDRS = [f'server_{i}' for i in range(2)]
+
+
 def setUpModule():
   # Required for BNS resolution.
   testutil.SetupMockBNS()
+  _ = [courier_server._cached_server(addr) for addr in SERVER_ADDRS]
+
+
+def tearDownModule():
+  courier_worker.WorkerPool(SERVER_ADDRS).shutdown()
 
 
 def random_numbers_iterator(
@@ -51,19 +57,8 @@ class OrchestrateTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.threads = []
-    self.servers = []
-    for _ in range(2):
-      server_wrapper = courier_server.CourierServerWrapper()
-      self.servers.append(server_wrapper.build_server().address)
-      self.threads.append(server_wrapper.start())
-    self.worker_pool = courier_worker.WorkerPool(self.servers)
+    self.worker_pool = courier_worker.WorkerPool(SERVER_ADDRS)
     self.worker_pool.wait_until_alive(deadline_secs=12)
-
-  def tearDown(self):
-    self.worker_pool.shutdown()
-    _ = [t.join() for t in self.threads]
-    super().tearDown()
 
   def test_sharded_pipelines_as_iterator(self):
 
@@ -104,7 +99,7 @@ class OrchestrateTest(absltest.TestCase):
 
   def test_run_pipelines_interleaved_default(self):
     pipeline = (
-        chainable.Pipeline.new()
+        chainable.Pipeline.new(name='datasource')
         .data_source(
             mit.batched(range(1001), 32),
         )
@@ -125,18 +120,20 @@ class OrchestrateTest(absltest.TestCase):
     )
     runner_state = orchestrate.run_pipeline_interleaved(
         pipeline,
+        master_server=courier_server.CourierServerWrapper('master_interleaved'),
         ignore_failures=False,
         resources={
+            'datasource': orchestrate.RunnerResource(buffer_size=6),
             'apply': orchestrate.RunnerResource(
                 worker_pool=self.worker_pool,
-                buffer_size=1,
+                buffer_size=6,
             ),
+            'agg': orchestrate.RunnerResource(timeout=15),
         },
     )
-    runner_state.wait_and_maybe_raise()
-    self.assertTrue(runner_state.done() and not runner_state.exception())
     result_queue = runner_state.result_queue
     cnt = mit.ilen(result_queue.dequeue_as_iterator())
+    runner_state.wait_and_maybe_raise()
     self.assertEqual(cnt, 32)  # ceil(1001/32) = 32 batches.
     self.assertLen(result_queue.returned, 1)
     agg_result = result_queue.returned[0]
@@ -159,8 +156,10 @@ class OrchestrateTest(absltest.TestCase):
         )
     )
     with self.assertRaises(ValueError):
+      master_server = courier_server.CourierServerWrapper('master_raises')
       runner_state = orchestrate.run_pipeline_interleaved(
           pipeline,
+          master_server=master_server,
           ignore_failures=False,
           resources={
               'apply': orchestrate.RunnerResource(

@@ -15,19 +15,26 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Iterator
 from concurrent import futures
+import copy
 import dataclasses
 import queue
+import random
 import threading
 import time
 from typing import Any, cast
 
 from absl import logging
+from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform as transform_lib
 from ml_metrics._src.utils import iter_utils
+
+_MASTER = 'master'
+_LOGGING_INTERVAL_SECS = 10.0
 
 
 def sharded_pipelines_as_iterator(
@@ -147,16 +154,24 @@ class RunnerState:
   """The overall runner state."""
 
   stages: list[StageState]
+  event_loop: asyncio.AbstractEventLoop
+  master_server: courier_server.CourierServerWrapper
 
   @property
   def progress(self) -> iter_utils.Progress | None:
     return self.stages[-1].progress if self.stages else None
 
   def wait(self, mode=futures.FIRST_EXCEPTION):
-    return futures.wait(
+    result = futures.wait(
         (s.state for s in self.stages),
         return_when=mode,
     )
+    self.event_loop.call_soon_threadsafe(self.event_loop.stop)
+    if self.master_server.has_started:
+      courier_worker.cached_worker(self.master_server.address).shutdown()
+    stage_names = ','.join(f'"{s.name}"' for s in self.stages)
+    logging.info('chainable: pipeline with stages %s finished.', stage_names)
+    return result
 
   @property
   def result_queue(self) -> iter_utils.IteratorQueue[Any]:
@@ -193,18 +208,24 @@ class RunnerResource:
   """The resource for the runner."""
 
   worker_pool: courier_worker.WorkerPool | None = None
-  buffer_size: int = 0
+  buffer_size: int = 256
+  timeout: float = 1800
+  num_workers: int = 999999
 
 
 def _async_run_single_stage(
     transform: transform_lib.TreeTransform,
     *,
+    event_loop: asyncio.AbstractEventLoop,
     thread_pool: futures.ThreadPoolExecutor,
     resource: RunnerResource,
+    master_server: courier_server.CourierServerWrapper,
     input_queue: iter_utils.IteratorQueue[Any] | None = None,
     ignore_failures: bool = False,
 ) -> StageState:
   """Asyncronously runs a single stage."""
+  # TODO: b/356633410 - Support ignore_failures.
+  del ignore_failures
   worker_pool = resource.worker_pool
   if worker_pool and transform.input_iterator is not None:
     raise ValueError(
@@ -214,30 +235,91 @@ def _async_run_single_stage(
     raise ValueError(
         'chainables: AggregateTransform is not supported with worker_pool.'
     )
-  result_q = iter_utils.IteratorQueue(resource.buffer_size)
-  input_iterator = None
-  if input_queue is not None:
-    input_iterator = input_queue.dequeue_as_iterator()
+  result_q = iter_utils.AsyncIteratorQueue(
+      resource.buffer_size, timeout=resource.timeout, name=transform.name
+  )
 
-  def _iterate_with_worker_pool():
+  def iterate_with_worker_pool():
+    logging.debug('chainable: "%s" started with worker pool', transform.name)
     assert worker_pool is not None
-    completed_tasks = worker_pool.as_completed(
-        (
-            lazy_fns.trace(transform).make(recursive=False)(batch)
-            for batch in input_iterator
-        ),
-        ignore_failures=ignore_failures,
+    input_iterator = None
+    if input_queue is not None:
+      if not master_server.has_started:
+        logging.debug('chainable: starting master %s', master_server.address)
+        master_server.start(daemon=True)
+      remote_input_q = courier_server.make_remote_queue(
+          input_queue, server_addr=master_server.address
+      )
+      input_iterator = remote_input_q
+    lazy_iterator = (
+        lazy_fns.trace(transform).make(recursive=False).iterate(input_iterator)
     )
-    result_q.enqueue_from_iterator((task.result() for task in completed_tasks))
+    iterating = {}
+    min_workers, max_workers = 1, resource.num_workers
+    worker_pool.wait_until_alive(deadline_secs=600)
+    ticker = time.time()
+    while not result_q.exhausted or iterating:
+      # Check the workerpool requirements and set up a new one when needed.
+      # No input_queue is considered has input because the transform itself is
+      # a datasource operation.
+      has_input = input_queue is None or input_queue.qsize()
+      num_workers = len(iterating)
+      # At least schedule min_workers and maximum max_workers when there are
+      # still input left.
+      if num_workers < min_workers or (has_input and num_workers < max_workers):
+        workers = list(set(worker_pool.workers) - set(iterating))
+        random.shuffle(workers)
+        worker = worker_pool.next_idle_worker(workers, maybe_acquire=True)
+        if worker is not None:
+          remote_iterator = worker.async_iter(lazy_iterator)
+          state = asyncio.run_coroutine_threadsafe(
+              result_q.async_enqueue_from_iterator(remote_iterator),
+              event_loop,
+          )
+          iterating[worker] = state
+          logging.info('chainable: iterating with %d workers.', len(iterating))
 
-  def _iterate_in_process():
-    result_q.enqueue_from_iterator(
-        transform.make(recursive=False).iterate(input_iterator=input_iterator)
+      # Check the states of the workers, release when done or crashed.
+      for worker, state in copy.copy(iterating).items():
+        if state.done():
+          del iterating[worker]
+          worker.release()
+          if exc := state.exception():
+            logging.exception(
+                'chainables: worker %s failed with exception: %s, %s',
+                worker.server_name,
+                type(exc),
+                exc,
+            )
+            raise exc
+          logging.info(
+              'chainable: worker %s released, remaining %d.',
+              worker.server_name,
+              len(iterating),
+          )
+      if time.time() - ticker > _LOGGING_INTERVAL_SECS:
+        logging.info('chainable: async_iter progress %d', result_q.progress.cnt)
+        ticker = time.time()
+      time.sleep(0)
+    logging.info('chainable: "%s" finished with worker pool', transform.name)
+
+  def iterate_in_process():
+    input_iterator = None
+    if input_queue is not None:
+      input_iterator = iter(input_queue)
+    iterator = transform.make(recursive=False).iterate(
+        input_iterator=input_iterator
     )
+    result_q.enqueue_from_iterator(iterator)
 
-  iterate_fn = _iterate_with_worker_pool if worker_pool else _iterate_in_process
+  iter_fn = iterate_with_worker_pool if worker_pool else iterate_in_process
+  logging.info(
+      'chainable: "%s" started %s.',
+      transform.name,
+      'with worker pool' if worker_pool else 'in process',
+  )
   return StageState(
-      state=thread_pool.submit(iterate_fn),
+      state=thread_pool.submit(iter_fn),
       result_queue=result_q,
       name=transform.name,
       progress=result_q.progress,
@@ -246,22 +328,32 @@ def _async_run_single_stage(
 
 def run_pipeline_interleaved(
     pipeline: transform_lib.TreeTransform,
+    master_server: courier_server.CourierServerWrapper,
     resources: dict[str, RunnerResource] | None = None,
     ignore_failures: bool = False,
 ) -> RunnerState:
   """Run a pipeline with stages running interleaved."""
   input_queue = None
   resources = resources or {}
+  master_server.build_server()
+  logging.info('chainable: resolved master address: %s', master_server.address)
   thread_pool = futures.ThreadPoolExecutor()
+  event_loop = asyncio.new_event_loop()
+  event_loop_thread = threading.Thread(target=event_loop.run_forever)
+  event_loop_thread.start()
   stages = []
   for k, p in pipeline.named_transforms().items():
     runner = _async_run_single_stage(
         p,
         thread_pool=thread_pool,
+        event_loop=event_loop,
         input_queue=input_queue,
         resource=resources.get(k, RunnerResource()),
         ignore_failures=ignore_failures,
+        master_server=master_server,
     )
     stages.append(runner)
     input_queue = runner.result_queue
-  return RunnerState(stages=stages)
+  return RunnerState(
+      stages=stages, event_loop=event_loop, master_server=master_server
+  )
