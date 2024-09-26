@@ -54,7 +54,7 @@ def cached_worker(
     *,
     call_timeout: float | None = None,
     max_parallelism: int = 1,
-    heartbeat_threshold_secs: int = 180,
+    heartbeat_threshold_secs: float = 180,
     iterate_batch_size: int = 1,
 ):
   return Worker(
@@ -542,7 +542,9 @@ class Worker:
     assert self.server_name, f'empty server_name: "{self.server_name}"'
     self._client = courier.Client(self.server_name, call_timeout=call_timeout)
     self._heartbeat_client = courier.Client(
-        self.server_name, call_timeout=self.heartbeat_threshold_secs
+        self.server_name,
+        call_timeout=self.heartbeat_threshold_secs,
+        wait_for_ready=False,
     )
     self._heartbeat = None
     self._last_heartbeat = 0.0
@@ -618,7 +620,7 @@ class Worker:
     if not self._heartbeat:
       self._heartbeat = self._heartbeat_client.futures.heartbeat()
     try:
-      if self._heartbeat.done():
+      if self._heartbeat.done() and not self._heartbeat.exception():
         self._heartbeat = None
         self._last_heartbeat = time.time()
         return True
@@ -629,27 +631,44 @@ class Worker:
       self._heartbeat = None
     return False
 
-  def wait_until_alive(
-      self,
-      deadline_secs: int = 180,
-      *,
-      sleep_interval_secs: float = 1.0,
-  ):
-    """Waits for the worker to be alive with retries."""
-    sleep_interval_secs = max(sleep_interval_secs, 0.1)
-    num_attempts = int(max(deadline_secs // sleep_interval_secs, 1))
-    for _ in range(num_attempts):
+  async def async_wait_until_alive(self, deadline_secs: float = 0.0):
+    """Checks whether the worker is alive."""
+    if self.is_alive:
+      return
+    ticker = time.time()
+    deadline_secs = deadline_secs or self.heartbeat_threshold_secs
+    while (delta_time := time.time() - ticker) < deadline_secs:
       try:
         if self.is_alive:
-          break
+          return
       except Exception as e:  # pylint: disable=broad-exception-caught
         logging.warning('chainables: exception when connecting: %s', e)
-      time.sleep(sleep_interval_secs)
-    else:
-      raise ValueError(
-          f'Failed to connect to worker {self.server_name} after'
-          f' {num_attempts} tries.'
-      )
+      await asyncio.sleep(0)
+    raise RuntimeError(
+        f'Failed to connect to async worker {self.server_name} after'
+        f' {delta_time:.2f}s.'
+    )
+
+  def wait_until_alive(
+      self,
+      deadline_secs: float = 0.0,
+  ):
+    """Waits for the worker to be alive with retries."""
+    if self.is_alive:
+      return
+    ticker = time.time()
+    deadline_secs = deadline_secs or self.heartbeat_threshold_secs
+    while (delta_time := time.time() - ticker) < deadline_secs:
+      try:
+        if self.is_alive:
+          return
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        logging.warning('chainables: exception when connecting: %s', e)
+      time.sleep(0)
+    raise RuntimeError(
+        f'Failed to connect to worker {self.server_name} after'
+        f' {delta_time:.2f}s.'
+    )
 
   @property
   def is_alive(self) -> bool:
@@ -690,27 +709,49 @@ class Worker:
 
   def get_result(self, lazy_obj: base_types.Resolvable[_T]) -> _T:
     """Low level blocking courier call to retrieve the result."""
+    self.wait_until_alive()
     future = self.call(lazy_obj, return_exception=True)
     while not future.done():
+      if not self.is_alive:
+        raise RuntimeError(f'Worker disconnected: {self}')
       time.sleep(0)
     try:
       return self._result_or_exception(future.result())
     except Exception as e:  # pylint: disable=broad-exception-caught
-      e.add_note(f'Raised on the worker: {self}')
+      if _is_courier_timeout(e):
+        if self.is_alive:
+          logging.info(
+              'chainable: call timeout on %s but alive, try a longer timeout.',
+              self,
+          )
+        else:
+          e.add_note(f'Courier worker {self} died.')
       raise e
 
   async def async_get_result(self, lazy_obj: base_types.Resolvable[_T]) -> _T:
     """Low level async courier call to retrieve the result."""
+    await self.async_wait_until_alive()
     future = self.call(lazy_obj, return_exception=True)
+    while not future.done():
+      if not self.is_alive:
+        raise RuntimeError(f'Async worker disconnected: {self}')
+      await asyncio.sleep(0)
     try:
-      return self._result_or_exception(await asyncio.wrap_future(future))
+      return self._result_or_exception(future.result())
     except StopIteration as e:
       # Convert a StopIteration without return to StopAsyncIteration().
       if (v := e.value) is not None:
         logging.warning('Cannot convert StopIteration with return: %s.', v)
       raise StopAsyncIteration() from e
     except Exception as e:  # pylint: disable=broad-exception-caught
-      e.add_note(f'Raised on the worker: {self}')
+      if _is_courier_timeout(e):
+        if self.is_alive:
+          logging.info(
+              'chainable: acall timeout on %s but alive, try a longer timeout.',
+              self,
+          )
+        else:
+          e.add_note(f'Courier worker {self} died.')
       raise e
 
   def submit(self, task: Task[_T] | base_types.Resolvable[_T]) -> Task[_T]:
@@ -905,26 +946,23 @@ class WorkerPool:
       deadline_secs: float = 180.0,
       *,
       minimum_num_workers: int = 1,
-      sleep_interval_secs: float = 1.0,
   ):
     """Waits for the workers to be alive with retries."""
-    sleep_interval_secs = max(sleep_interval_secs, 0.1)
-    num_attempts = int(max(deadline_secs // sleep_interval_secs, 1))
-    for _ in range(num_attempts):
+    ticker = time.time()
+    while (delta_time := time.time() - ticker) < deadline_secs:
       try:
         workers = self.workers
-        logging.info('chainables: Available workers: %d', len(workers))
         # Proceed if reached minimum number of workers.
         if len(workers) >= minimum_num_workers:
-          break
+          logging.info('chainables: Available workers: %d', len(workers))
+          return
       except Exception as e:  # pylint: disable=broad-exception-caught
         logging.warning('chainables: exception when connecting: %s', e)
-      time.sleep(sleep_interval_secs)
-    else:
-      raise ValueError(
-          f'Failed to connect to workers after {num_attempts} tries: workers:'
-          f' {self.server_names}'
-      )
+      time.sleep(0)
+    raise ValueError(
+        f'Failed to connect to workers after {delta_time:.2f}sec: workers:'
+        f' {self.server_names}'
+    )
 
   def call_and_wait(self, *args, courier_method='', **kwargs) -> Any:
     """Calls the workers and waits for the results."""

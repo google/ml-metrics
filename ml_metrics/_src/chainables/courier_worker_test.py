@@ -83,7 +83,6 @@ class RemoteObjectTest(parameterized.TestCase):
     super().setUp()
     self.server = courier_server._cached_server('RemoteObject')
     self.worker = courier_worker.cached_worker(self.server.address)
-    self.worker.wait_until_alive(deadline_secs=6, sleep_interval_secs=0)
 
   @parameterized.named_parameters([
       dict(
@@ -335,7 +334,18 @@ class CourierWorkerTest(absltest.TestCase):
     super().setUp()
     self.server = courier_server._cached_server('CourierWorker')
     self.worker = courier_worker.cached_worker(self.server.address)
-    self.worker.wait_until_alive(deadline_secs=6, sleep_interval_secs=0)
+
+  def test_worker_not_started(self):
+    temp_server = courier_server._cached_server('unknown_worker')
+    worker = courier_worker.cached_worker(
+        'unknown_worker', heartbeat_threshold_secs=1
+    )
+    worker.shutdown()
+    temp_server._thread.join()
+    with self.assertRaises(RuntimeError):
+      worker.get_result(None)
+    with self.assertRaises(RuntimeError):
+      asyncio.run(worker.async_get_result(None))
 
   def test_worker_str(self):
     self.assertRegex(
@@ -515,7 +525,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
     self.invalid_server_thread = self.always_timeout_server.start(daemon=True)
     self.worker_pool = courier_worker.WorkerPool([self.server.address])
     self.unreachable_address = f'localhost:{portpicker.pick_unused_port()}'
-    self.worker_pool.wait_until_alive(deadline_secs=12, sleep_interval_secs=0)
+    self.worker_pool.wait_until_alive(deadline_secs=12)
 
   def test_worker_group_call(self):
     actual = self.worker_pool.call_and_wait('echo')
@@ -528,7 +538,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
     thread = server.start(daemon=True)
     tasks = [courier_worker.Task.new(1, courier_method='plus_one')]
     worker_pool = courier_worker.WorkerPool([server.address])
-    worker_pool.wait_until_alive(deadline_secs=12, sleep_interval_secs=0)
+    worker_pool.wait_until_alive(deadline_secs=12)
     states = list(worker_pool.as_completed(tasks))
     # We only have one task, so just return the first element.
     self.assertEqual(2, courier_worker.get_results(states)[0])
@@ -710,7 +720,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
 
   def test_worker_group_idle_workers(self):
     worker_pool = courier_worker.WorkerPool([self.server.address])
-    worker_pool.wait_until_alive(deadline_secs=12, sleep_interval_secs=0)
+    worker_pool.wait_until_alive(deadline_secs=12)
     idle_workers = worker_pool.idle_workers()
     self.assertLen(idle_workers, 1)
     idle_workers[0].call(lazy_fns.trace(time.sleep)(1))
@@ -721,7 +731,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
     server.build_server()
     t = server.start()
     worker_group = courier_worker.WorkerPool([server.address])
-    worker_group.wait_until_alive(deadline_secs=6, sleep_interval_secs=0.1)
+    worker_group.wait_until_alive(deadline_secs=6)
     self.assertTrue(worker_group.call_and_wait(True))
     worker_group.shutdown()
     ticker = time.time()
@@ -738,7 +748,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
     )
     try:
       with self.assertLogs(level='WARNING') as cm:
-        worker_group.wait_until_alive(deadline_secs=1, sleep_interval_secs=0.1)
+        worker_group.wait_until_alive(deadline_secs=1)
       self.assertRegex(cm.output[0], '.*missed a heartbeat.*')
       self.assertRegex(cm.output[1], 'Failed to connect to workers.*')
     except ValueError:
