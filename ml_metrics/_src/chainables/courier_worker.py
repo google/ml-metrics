@@ -19,7 +19,6 @@ import abc
 import asyncio
 from collections.abc import AsyncIterator, Iterable, Iterator
 from concurrent import futures
-import copy
 import dataclasses as dc
 import functools
 import itertools
@@ -37,7 +36,6 @@ from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
 from ml_metrics._src.utils import func_utils
 from ml_metrics._src.utils import iter_utils
-import more_itertools as mit
 
 
 _LOGGING_INTERVAL_SEC = 30
@@ -467,110 +465,6 @@ def _is_courier_timeout(e: Exception | None) -> bool:
 _InputAndFuture = NamedTuple(
     'InputAndFuture', [('input_', Any), ('future', futures.Future[bytes])]
 )
-
-
-@dc.dataclass(slots=True)
-class RemoteQueues:
-  """Combine multiple remote queues into one as iterators when en/dequeueing."""
-
-  remote_queues: set[RemoteObject[queue.Queue[Any]]] = dc.field(
-      default_factory=set
-  )
-  timeout_secs: int | None = None
-
-  def dequeue(self) -> Iterator[Any]:
-    """Roundrobin across all queues and get the next avaialble item."""
-    states = {}
-    reamining_queues = copy.copy(self.remote_queues)
-    ticker = time.time()
-    while reamining_queues:
-      for remote_queue in tuple(reamining_queues):
-        if remote_queue not in states:
-          states[remote_queue] = remote_queue.get_nowait().future_()
-        if (state := states[remote_queue]).done():
-          try:
-            result = lazy_fns.pickler.loads(state.result())
-            del states[remote_queue]
-            if isinstance(result, Exception):
-              raise result
-            yield result
-            ticker = time.time()
-          except StopIteration:
-            reamining_queues.remove(remote_queue)
-          except queue.Empty as e:
-            if (
-                self.timeout_secs is not None
-                and time.time() - ticker > self.timeout_secs
-            ):
-              raise TimeoutError(
-                  f'Dequeue timeout after {self.timeout_secs}s.'
-              ) from e
-            continue
-      time.sleep(0)
-
-  def enqueue(self, values: Iterable[Any]):
-    """Roundrobin across all queues and put the item to a available queue."""
-    values = iter(values)
-    enqueueing: dict[RemoteObject[queue.Queue[Any]], _InputAndFuture] = {}
-    preferred_queues = copy.copy(self.remote_queues)
-    if not self.remote_queues:
-      raise queue.Full(f'No remote queue: {self.remote_queues=}')
-    ticker = time.time()
-    stopping = False
-    while not stopping or enqueueing:
-      # Reset the state of the queues that has finished enqueing.
-      for remote_queue, (input_, state) in tuple(enqueueing.items()):
-        if state.done():
-          try:
-            r = lazy_fns.pickler.loads(state.result())
-            if isinstance(r, Exception):
-              raise r
-            ticker = time.time()
-            preferred_queues.add(remote_queue)
-            del enqueueing[remote_queue]
-          except Exception as e:  # pylint: disable=broad-exception-caught
-            preferred_queues.discard(remote_queue)
-            if _is_queue_full(e) or _is_courier_timeout(e):
-              if time.time() - ticker > self.timeout_secs:
-                raise TimeoutError(
-                    f'Enqueue timeout after {self.timeout_secs}s.'
-                ) from e
-              # For StopIteration, retry on the same queue.
-              if iter_utils.is_stop_iteration(input_):
-                enqueueing[remote_queue] = _InputAndFuture(
-                    input_, remote_queue.put_nowait(input_).future_()
-                )
-              else:
-                values = mit.prepend(input_, values)
-            else:
-              raise e
-
-      # Pull the next value from the iterator.
-      value = next(values, iter_utils.STOP_ITERATION)
-      if iter_utils.is_stop_iteration(value):
-        # Only starts to put StopIteration when all values are enqueued. This is
-        # to ensure retrying is still possible.
-        if not stopping and not enqueueing:
-          # Broadcast the StopIteration to all queues.
-          for remote_queue in self.remote_queues:
-            enqueueing[remote_queue] = _InputAndFuture(
-                value, remote_queue.put_nowait(value).future_()
-            )
-          stopping = True
-      else:
-        # Prefer to send item to queues that haven't thrown exception yet.
-        available_queues = preferred_queues - set(enqueueing)
-        if not available_queues:
-          available_queues = self.remote_queues - set(enqueueing)
-        # Enqueue the value to a random available queue.
-        if available_queues:
-          remote_queue = random.choice(list(available_queues))
-          enqueueing[remote_queue] = _InputAndFuture(
-              value, remote_queue.put_nowait(value).future_()
-          )
-        else:
-          values = mit.prepend(value, values)
-      time.sleep(0)
 
 
 def _normalize_args(args, kwargs):

@@ -292,71 +292,6 @@ class RemoteObjectTest(parameterized.TestCase):
     actual = self.worker.submit(lazy_fns.trace(list)(remote_iterable)).result()
     self.assertEqual([0, 1, 2], actual)
 
-  def test_remote_queue_dequeue_normal(self):
-    fns = [
-        lazy_fns.trace(lazy_q_fn)(2, stop=True, lazy_result_=True)
-        for _ in range(3)
-    ]
-    remote_qs = courier_worker.RemoteQueues(
-        set(self.worker.submit(fn).result() for fn in fns)
-    )
-    actual = list(remote_qs.dequeue())
-    self.assertCountEqual(actual, [0, 0, 0, 1, 1, 1])
-
-  def test_remote_queue_dequeue_timeout(self):
-    fns = [lazy_fns.trace(lazy_q_fn)(2, lazy_result_=True) for _ in range(3)]
-    remote_qs = courier_worker.RemoteQueues(
-        set(self.worker.submit(fn).result() for fn in fns), timeout_secs=1
-    )
-    with self.assertRaisesRegex(TimeoutError, 'Dequeue timeout'):
-      list(remote_qs.dequeue())
-
-  @parameterized.named_parameters([
-      dict(
-          testcase_name='normal',
-          queue_total_size=12,
-          input_size=3,
-      ),
-      dict(
-          testcase_name='timeout_at_stop',
-          queue_total_size=5,  # needs 3 (num_queues) stop + input_size = 6
-          input_size=3,
-      ),
-  ])
-  def test_remote_queue_enqueue(
-      self,
-      queue_total_size,
-      input_size,
-      num_queues=3,
-  ):
-    base_qsize, residual = divmod(queue_total_size, num_queues)
-    q_sizes = [
-        base_qsize + (1 if i < residual else 0) for i in range(num_queues)
-    ]
-    fns = [
-        lazy_fns.trace(queue.Queue)(maxsize=q_size, lazy_result_=True)
-        for q_size in q_sizes
-    ]
-    remote_qs = courier_worker.RemoteQueues(
-        set(self.worker.submit(fn).result() for fn in fns), timeout_secs=1
-    )
-    if queue_total_size >= input_size + num_queues:
-      remote_qs.enqueue(range(input_size))
-    else:
-      with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout'):
-        remote_qs.enqueue(range(input_size))
-
-  def test_remote_queue_enqueue_timeout(self):
-    fns = [
-        lazy_fns.trace(queue.Queue)(maxsize=q_size, lazy_result_=True)
-        for q_size in [1, 1, 1]
-    ]
-    remote_qs = courier_worker.RemoteQueues(
-        set(self.worker.submit(fn).result() for fn in fns), timeout_secs=1
-    )
-    with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout'):
-      remote_qs.enqueue(range(3))
-
   def test_remote_iterator_queue_async(self):
     local_server = courier_server._cached_server('local')
     remote_server = courier_server._cached_server('remote')
@@ -392,38 +327,6 @@ class RemoteObjectTest(parameterized.TestCase):
     actual = asyncio.run(run(2))
     self.assertEqual(0, local_queue.qsize())
     self.assertCountEqual(list(range(1, num_elem + 1)), actual)
-
-  # TODO: b/349174267 - Re-enable the tests when remote_iterator_pipe is
-  # available.
-  # def test_iterator_pipe_with_datasource(self):
-  #   t = (
-  #       transform_lib.TreeTransform.new()
-  #       .data_source(range(10))
-  #       .apply(fn=lambda x: x + 1)
-  #   )
-  #   deferred_pipe = (
-  #       lazy_fns.trace(t, lazy_result=True).make().iterator_pipe(timeout=1)
-  #   )
-  #   remote_pipe = self.worker.submit(deferred_pipe).result()
-  #   self.assertIsInstance(remote_pipe, courier_worker.RemoteObject)
-  #   remote_queues = courier_worker.RemoteQueues([remote_pipe.output_queue])
-  #   actual = list(remote_queues.dequeue())
-  #   self.assertEqual(list(range(1, 11)), actual)
-  #   self.assertEqual(10, remote_pipe.progress.cnt.result_())
-
-  # def test_iterator_pipe_without_datasource(self):
-  #   t = transform_lib.TreeTransform.new().apply(fn=lambda x: x + 1)
-  #   deferred_pipe = (
-  #       lazy_fns.trace(t, lazy_result=True).make().iterator_pipe(timeout=1)
-  #   )
-  #   remote_pipe = self.worker.submit(deferred_pipe).result()
-  #   self.assertIsInstance(remote_pipe, courier_worker.RemoteObject)
-  #   input_queues = courier_worker.RemoteQueues([remote_pipe.input_queue])
-  #   input_queues.enqueue(range(10))
-  #   output_queues = courier_worker.RemoteQueues([remote_pipe.output_queue])
-  #   actual = list(output_queues.dequeue())
-  #   self.assertEqual(list(range(1, 11)), actual)
-  #   self.assertEqual(10, remote_pipe.progress.cnt.result_())
 
 
 class CourierWorkerTest(absltest.TestCase):
