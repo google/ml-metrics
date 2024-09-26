@@ -48,11 +48,11 @@ def _cached_client(addr: str, call_timeout: int):
   return courier.Client(addr, call_timeout=call_timeout)
 
 
-@func_utils.cache_without_kwargs
+@func_utils.cache_without_kwargs(except_for=('call_timeout',))
 def cached_worker(
     addr: str,
     *,
-    call_timeout: int = 60,
+    call_timeout: float | None = None,
     max_parallelism: int = 1,
     heartbeat_threshold_secs: int = 180,
     iterate_batch_size: int = 1,
@@ -291,13 +291,20 @@ class RemoteObject(Generic[_T], base_types.Resolvable[_T]):
   """Remote object holds remote reference that behaves like a local object."""
   value: lazy_fns.LazyObject[_T]
   worker_addr: str = dc.field(kw_only=True)
+  call_timeout: float | None = dc.field(kw_only=True, default=None)
 
   @classmethod
-  def new(cls, value, *, worker: str | Worker) -> Self:
+  def new(
+      cls,
+      value,
+      *,
+      worker: str | Worker,
+      call_timeout: float | None = None,
+  ) -> Self:
     if not isinstance(value, lazy_fns.LazyObject):
       value = lazy_fns.LazyObject.new(value)
     worker_addr = worker.server_name if isinstance(worker, Worker) else worker
-    return cls(value, worker_addr=worker_addr)
+    return cls(value, worker_addr=worker_addr, call_timeout=call_timeout)
 
   def __hash__(self) -> int:
     return hash(self.value)
@@ -315,7 +322,7 @@ class RemoteObject(Generic[_T], base_types.Resolvable[_T]):
 
   @property
   def worker(self) -> Worker:
-    return cached_worker(self.worker_addr)
+    return cached_worker(self.worker_addr, call_timeout=self.call_timeout)
 
   def future_(self) -> futures.Future[bytes]:
     # Remote object will forward any exception as the result.
@@ -340,21 +347,33 @@ class RemoteObject(Generic[_T], base_types.Resolvable[_T]):
   def __call__(self, *args, **kwargs) -> RemoteObject:
     """Calling a LazyFn records a lazy result of the call."""
     return RemoteObject.new(
-        self.value(*args, **kwargs), worker=self.worker_addr
+        self.value(*args, **kwargs),
+        worker=self.worker_addr,
+        call_timeout=self.call_timeout,
     )
 
   def __getattr__(self, name: str) -> RemoteObject:
-    return RemoteObject.new(getattr(self.value, name), worker=self.worker_addr)
+    return RemoteObject.new(
+        getattr(self.value, name),
+        worker=self.worker_addr,
+        call_timeout=self.call_timeout,
+    )
 
   def __getitem__(self, key) -> RemoteObject:
-    return RemoteObject.new(self.value[key], worker=self.worker_addr)
+    return RemoteObject.new(
+        self.value[key], worker=self.worker_addr, call_timeout=self.call_timeout
+    )
 
+  # TODO: b/356633410 - Replaces RemoteIterator with RemoteIteratorQueue using
+  # courier_server.make_remote_queue.
   def __iter__(self) -> RemoteIterator:
     remote_iterator = self.worker.get_result(
         lazy_fns.trace(iter)(self.value, lazy_result_=True)
     )
     return RemoteIterator(remote_iterator)
 
+  # TODO: b/356633410 - Replaces RemoteIterator with RemoteIteratorQueue using
+  # courier_server.make_remote_queue.
   def __aiter__(self) -> RemoteIterator:
     return self.__iter__()
 
@@ -434,7 +453,7 @@ async def async_remote_iter(
     iterator = iterator.value
   elif isinstance(iterator, lazy_fns.LazyObject):
     if not isinstance(worker, Worker):
-      worker = cached_worker(worker)
+      worker = cached_worker(worker, call_timeout=timeout)
   else:
     raise TypeError(f'Unsupported {type(iterator)}.')
   # Create a queue at the worker, this returns a remote object.
@@ -459,7 +478,7 @@ def _is_queue_full(e: Exception) -> bool:
 
 def _is_courier_timeout(e: Exception | None) -> bool:
   # absl::status::kDeadlineExceeded
-  return isinstance(e, TimeoutError) or getattr(e, 'code', 0) == 4
+  return getattr(e, 'code', 0) == 4
 
 
 _InputAndFuture = NamedTuple(
@@ -489,24 +508,24 @@ class Worker:
   """Courier client wrapper that works as a chainable worker."""
 
   server_name: str
-  max_parallelism: int = 1
-  heartbeat_threshold_secs: float = 180.0
-  iterate_batch_size: int = 1
-  _call_timeout: float = 60.0
-  _lock: threading.Lock = threading.Lock()
+  max_parallelism: int
+  heartbeat_threshold_secs: float
+  iterate_batch_size: int
+  _call_timeout: float | None
+  _lock: threading.Lock
   _worker_pool: WorkerPool | None
-  _shutdown_requested: bool = False
+  _shutdown_requested: bool
   _client: courier.Client
   _pendings: list[futures.Future[Any]]
   _heartbeat_client: courier.Client
-  _heartbeat: futures.Future[Any] | None = dc.field(default=None, init=False)
+  _heartbeat: futures.Future[Any] | None
   _last_heartbeat: float
 
   def __init__(
       self,
       server_name: str | None = '',
       *,
-      call_timeout: float = 60,
+      call_timeout: float | None = 60,
       max_parallelism: int = 1,
       heartbeat_threshold_secs: float = 180,
       iterate_batch_size: int = 1,
@@ -639,12 +658,11 @@ class Worker:
       return False
     if self._check_heartbeat():
       return True
-    # No last heartbeat recorded, consider it dead.
     if self._last_heartbeat:
       time_passed = time.time() - self._last_heartbeat
       return time_passed < self.heartbeat_threshold_secs
-    else:
-      return False
+    # No last heartbeat recorded, consider it dead.
+    return False
 
   @property
   def pendings(self) -> list[futures.Future[Any]]:
@@ -1027,7 +1045,7 @@ class WorkerPool:
         if task.done():
           if exc := task.exception():
             preferred_workers.discard(task.worker)
-            if _is_courier_timeout(exc):
+            if isinstance(exc, TimeoutError) or _is_courier_timeout(exc):
               logging.warning(
                   'chainables: deadline exceeded at %s.',
                   task.server_name,
@@ -1154,7 +1172,7 @@ class WorkerPool:
       for task in running_tasks:
         if task.done():
           if exc := task.exception():
-            if _is_courier_timeout(exc):
+            if isinstance(exc, TimeoutError) or _is_courier_timeout(exc):
               disconnected_tasks.append(task)
             else:
               logging.exception(
