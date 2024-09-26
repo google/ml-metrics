@@ -116,7 +116,7 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
   # computed. (2) Remove score_batch_fn.
 
   batch_score_fn: Callable[..., types.NumbersT] | None = None
-  _count: int = 0
+  _count: types.NumbersT = 0
   _mean: types.NumbersT = np.nan
   _var: types.NumbersT = np.nan
 
@@ -128,7 +128,9 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
 
     If `batch_score_fn` is provided, it will evaluate the batch and assign a
     score to each item. Subsequently, the statistics are computed based on
-    non-nan values within the batch.
+    non-nan values within the batch. If a certain dimension in batch is all nan,
+    mean and variance corresponding to that dimension will be nan, count for
+    that dimension will be 0.
 
     Args:
       batch: A non-vacant series of values.
@@ -142,7 +144,7 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
         length as the `batch`.
     """
 
-    if not self._count:
+    if np.all(self.count == 0):
       # This assumes the first dimension is the batch dimension.
       if self.batch_score_fn is not None:
         org_batch_size = len(batch)
@@ -153,7 +155,7 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
               ' the `batch`.'
           )
 
-      # Sufficient statistics for Mean, variance and standard deviation.
+      # Sufficient statistics for mean, variance and standard deviation.
       self._count = np.nansum(~np.isnan(batch), axis=0)
       self._mean = np.nanmean(batch, axis=0)
       self._var = np.nanvar(batch, axis=0)
@@ -182,26 +184,32 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
 
   @property
   def total(self) -> types.NumbersT:
-    return self._mean * self._count if self._count > 0 else 0.0
+    return np.where(
+        self._count == 0, np.zeros_like(self._mean), self._mean * self._count
+    )
 
   def merge(self, other: 'MeanAndVariance'):
-    # TODO: b/311207032 - Support multi dimensional merge.
-    if other.count == 0:
+    if np.all(other.count == 0):
       return
 
-    if self.count == 0:
+    # When self count is zero and other's count is not zero, we copy the state
+    # from other. The values and and shape of the states will be from other.
+    if np.all(self.count == 0):
       self._count = other.count
       self._mean = other.mean
       self._var = other.var
       return
 
-    prev_mean, prev_count = self._mean, self._count
+    prev_mean, prev_count = np.copy(self._mean), np.copy(self._count)
     self._count += other.count
-    self._mean += (other.mean - prev_mean) * (other.count / self._count)
+    self._mean += (other.mean - prev_mean) * math_utils.safe_divide(
+        other.count, self._count
+    )
+
     # Reference
     # (https://math.stackexchange.com/questions/2971315/how-do-i-combine-standard-deviations-of-two-groups)
-    prev_count_ratio = prev_count / self._count
-    other_count_ratio = other.count / self._count
+    prev_count_ratio = math_utils.safe_divide(prev_count, self._count)
+    other_count_ratio = math_utils.safe_divide(other.count, self._count)
     self._var = (
         prev_count_ratio * self._var
         + other_count_ratio * other.var
