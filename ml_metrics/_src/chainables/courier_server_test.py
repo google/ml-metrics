@@ -102,14 +102,21 @@ class CourierServerTest(parameterized.TestCase):
     self.assertEqual(list(range(10)), actual)
     self.assertEqual(10, returned)
 
-  def test_courier_server_shutdown(self):
-    server = courier_server.CourierServerWrapper()
+  def test_courier_server_shutdown_and_restart(self):
+    server = courier_server.CourierServerWrapper('test_restart')
     server.start()
-    assert server._thread is not None
     worker = courier_worker.Worker(server.address)
     worker.wait_until_alive(deadline_secs=12)
+    assert server._thread is not None
     self.assertTrue(server._thread.is_alive())
     self.assertTrue(server.has_started)
+    worker.shutdown()
+    server._thread.join()
+    # Restart.
+    server.start()
+    worker = courier_worker.Worker(server.address)
+    worker.wait_until_alive(deadline_secs=12)
+    self.assertEqual('echo', worker.get_result(lazy_fns.trace('echo')))
     worker.shutdown()
     server._thread.join()
 

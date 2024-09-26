@@ -28,7 +28,6 @@ from ml_metrics._src.utils import func_utils
 from ml_metrics._src.utils import iter_utils
 
 
-_DEFAULT = 'default'
 _T = TypeVar('_T')
 pickler = lazy_fns.pickler
 
@@ -68,15 +67,17 @@ def make_remote_queue(
     q: base_types.MaybeResolvable[iter_utils.IteratorQueue[_T]],
     *,
     server_addr: str,
+    name: str = '',
 ) -> courier_worker.RemoteIteratorQueue[_T]:
   """Constructs a remote queue given a maybe lazy queue."""
   q = lazy_fns.maybe_make(q)
   assert isinstance(q, iter_utils.IteratorQueue), f'got {type(q)}'
+  name = name or q.name
   return courier_worker.RemoteIteratorQueue.from_queue(
       courier_worker.RemoteQueue(
           make_remote_object(q, server_addr=server_addr)
       ),
-      name=q.name,
+      name=name,
   )
 
 
@@ -91,9 +92,7 @@ class CourierServerWrapper:
   _server: courier.Server | None = None
   _thread: threading.Thread | None = None
   _stats: dict[str, float] = dataclasses.field(default_factory=dict)
-  _shutdown_requested: dict[str, bool] = dataclasses.field(
-      default_factory=lambda: {_DEFAULT: False}, init=False
-  )
+  _shutdown_requested: bool = False
   _generator: iter_utils.PrefetchedIterator | None = dataclasses.field(
       default=None, init=False
   )
@@ -113,7 +112,7 @@ class CourierServerWrapper:
     """Set up (e.g. binding to methods) at server build time."""
 
     def shutdown():
-      self._shutdown_requested[_DEFAULT] = True
+      self._shutdown_requested = True
 
     def pickled_maybe_make(maybe_lazy, return_exception: bool = False):
       try:
@@ -200,8 +199,10 @@ class CourierServerWrapper:
     assert self.server_name != '', f'illegal {self.server_name=}'  # pylint: disable=g-explicit-bool-comparison
     if self._server is not None:
       return self._server
+    self._shutdown_requested = False
     self._server = courier.Server(self.server_name, port=self.port)
     self.set_up()
+    logging.info('chainable: building server %s', self.address)
     return self._server
 
   def run_until_shutdown(self):
@@ -211,10 +212,10 @@ class CourierServerWrapper:
     if not self._server.has_started:
       self._server.Start()
     self._stats['last_heartbeat'] = time.time()
-    while not self._shutdown_requested[_DEFAULT]:
+    while not self._shutdown_requested:
       if time.time() - self._stats['last_heartbeat'] > self.timeout_secs:
         logging.info('Chainables: no ping after %ds.', self.timeout_secs)
-        self._shutdown_requested[_DEFAULT] = True
+        self._shutdown_requested = True
       if self._generator:
         self._generator.prefetch()
       time.sleep(0)
@@ -223,9 +224,12 @@ class CourierServerWrapper:
         self._server.address,
     )
     self._server.Stop()
+    self._server = None
 
   def start(self, daemon: bool = None) -> threading.Thread:
     """Start the server from a different thread."""
+    if self.has_started and self._thread is not None:
+      return self._thread
     self.build_server()
     server_thread = threading.Thread(
         target=self.run_until_shutdown, daemon=daemon
