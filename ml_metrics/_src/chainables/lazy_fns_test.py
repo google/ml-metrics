@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import collections
 import pickle
 import queue
 from unittest import mock
@@ -354,6 +355,14 @@ class LazyFnsTest(parameterized.TestCase):
     lazy_foo_class = trace(Foo)
     lazy_foo = lazy_iter_fn(lazy_foo_class(a=1))
     self.assertEqual([2, 3, 4], maybe_make(lazy_foo)([1, 2, 3]))
+
+  def test_iterate_fn_return_named_tuple(self):
+    R = collections.namedtuple('R', ['a', 'b'])
+
+    def roo(x):
+      return R(x, 0)
+
+    self.assertEqual([R(0, 0), R(1, 0)], lazy_fns.iterate_fn(roo)([0, 1]))
 
   def test_async_iter(self):
     lazy_async_iter_fn = trace(lazy_fns.async_iterate_fn)

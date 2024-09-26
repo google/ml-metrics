@@ -239,11 +239,10 @@ def iterate_fn(fn) -> Callable[..., tuple[_T, ...] | _T]:
   @functools.wraps(fn)
   def wrapped_fun(*inputs, **kwargs) -> tuple[_T, ...] | _T:
     outputs = [fn(*row_inputs, **kwargs) for row_inputs in zip(*inputs)]
-    # Only transpose when multiple items returned.
-    if outputs and isinstance(outputs[0], tuple):
+    # Only transpose when fn returns multiple items (exact tuple).
+    if outputs and type(outputs[0]) is tuple:  # pylint: disable=unidiomatic-typecheck
       return tuple(zip(*outputs))
-    else:
-      return outputs
+    return outputs
 
   return wrapped_fun
 
