@@ -164,7 +164,8 @@ class IteratorQueue(Generic[_ValueT]):
     if value is not None:
       self.returned.append(value)
     if self._iterator_cnt == 0 or self.exception is not None:
-      logging.info('chainable:"%s" enqueue done.', self.name)
+      exc_str = f' with exception: {self.exception}' if self.exception else ''
+      logging.info('chainable:"%s" enqueue done%s', self.name, exc_str)
 
   def enqueue_from_iterator(self, iterator: Iterable[_ValueT]):
     """Iterates through a generator while enqueue its elements."""
@@ -177,7 +178,7 @@ class IteratorQueue(Generic[_ValueT]):
       except StopIteration as e:
         return self._stop_enqueue(e.value)
       except Exception as e:  # pylint: disable=broad-exception-caught
-        e.add_note(f'Search ""{self.name}" enqueue failed".')
+        e.add_note(f'Exception during enqueueing "{self.name}".')
         logging.exception('chainables: "%s" enqueue failed.', self.name)
         self._exception = e
         self._stop_enqueue()
@@ -222,6 +223,7 @@ class IteratorQueue(Generic[_ValueT]):
         time.sleep(0)
         continue
       except Exception as e:  # pylint: disable=broad-exception-caught
+        e.add_note(f'Exception during dequeueing "{self.name}".')
         logging.exception('chainables: "%s" dequeue failed.', self.name)
         raise e
       ticker = None
@@ -281,7 +283,7 @@ class AsyncIteratorQueue(IteratorQueue[_ValueT]):
         self._stop_enqueue()
         return
       except Exception as e:  # pylint: disable=broad-exception-caught
-        e.add_note(f'Exception during enqueueing {self.name}')
+        e.add_note(f'Exception during async enqueueing {self.name}')
         logging.exception('chainables: %s enqueue failed.', self.name)
         self._exception = e
         self._stop_enqueue()

@@ -635,12 +635,19 @@ class Worker:
     self._last_heartbeat = 0.0
 
   @property
-  def call_timeout(self) -> float:
+  def call_timeout(self) -> float | None:
     return self._call_timeout
 
   @property
   def worker_pool(self) -> WorkerPool | None:
     return self._worker_pool
+
+  def __str__(self) -> str:
+    return (
+        f'Worker({self.server_name}, timeout={self.call_timeout},'
+        f' max_parallelism={self.max_parallelism},'
+        f' from_last_heartbeat={(time.time() - self._last_heartbeat):.2f}s)'
+    )
 
   def __hash__(self):
     assert self.server_name, 'server_name must be set for hashing.'
@@ -763,9 +770,9 @@ class Worker:
     return state
 
   def _result_or_exception(self, pickled: bytes) -> Any | Exception:
+    self._last_heartbeat = time.time()
     result = lazy_fns.pickler.loads(pickled)
     if isinstance(result, Exception):
-      result.add_note(f'Raised on the remote worker: {self.server_name}')
       raise result
     return result
 
@@ -774,7 +781,11 @@ class Worker:
     future = self.call(lazy_obj, return_exception=True)
     while not future.done():
       time.sleep(0)
-    return self._result_or_exception(future.result())
+    try:
+      return self._result_or_exception(future.result())
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      e.add_note(f'Raised on the worker: {self}')
+      raise e
 
   async def async_get_result(self, lazy_obj: base_types.Resolvable[_T]) -> _T:
     """Low level async courier call to retrieve the result."""
@@ -786,6 +797,9 @@ class Worker:
       if (v := e.value) is not None:
         logging.warning('Cannot convert StopIteration with return: %s.', v)
       raise StopAsyncIteration() from e
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      e.add_note(f'Raised on the worker: {self}')
+      raise e
 
   def submit(self, task: Task[_T] | base_types.Resolvable[_T]) -> Task[_T]:
     """Runs tasks sequentially and returns the task."""

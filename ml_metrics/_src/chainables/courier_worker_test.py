@@ -201,7 +201,7 @@ class RemoteObjectTest(parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, 'foo'):
       remote_object().result_()
 
-  def test_async_get_result_raises(self):
+  def test_async_get_result_stop_iteration(self):
     def foo():
       raise StopIteration('foo')
 
@@ -213,6 +213,13 @@ class RemoteObjectTest(parameterized.TestCase):
 
     with self.assertRaises(StopAsyncIteration):
       asyncio.run(run())
+
+  def test_async_get_result_raises_value_error(self):
+    def foo():
+      raise ValueError('foo')
+
+    with self.assertRaises(ValueError):
+      asyncio.run(self.worker.async_get_result(lazy_fns.trace(foo)()))
 
   def test_async_remote_iterator_iterate_elemnwise(self):
     remote_iterable = self.worker.submit(
@@ -426,6 +433,12 @@ class CourierWorkerTest(absltest.TestCase):
     self.server = courier_server._cached_server('CourierWorker')
     self.worker = courier_worker.cached_worker(self.server.address)
     self.worker.wait_until_alive(deadline_secs=6, sleep_interval_secs=0)
+
+  def test_worker_str(self):
+    self.assertRegex(
+        str(self.worker),
+        r'Worker\(CourierWorker, timeout=.+, from_last_heartbeat=.+\)',
+    )
 
   def test_worker_call(self):
     self.assertEqual(
