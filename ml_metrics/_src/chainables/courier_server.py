@@ -237,3 +237,9 @@ class CourierServerWrapper:
     server_thread.start()
     self._thread = server_thread
     return server_thread
+
+  def wait_until_alive(self, deadline_secs: float = 120):
+    """Wait until the server is alive."""
+    courier_worker.cached_worker(self.address).wait_until_alive(
+        deadline_secs=deadline_secs
+    )
