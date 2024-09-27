@@ -209,7 +209,7 @@ class RunnerResource:
 
   worker_pool: courier_worker.WorkerPool | None = None
   buffer_size: int = 256
-  timeout: float = 1800
+  timeout: float | None = None
   num_workers: int = 999999
 
 
@@ -236,7 +236,9 @@ def _async_run_single_stage(
         'chainables: AggregateTransform is not supported with worker_pool.'
     )
   result_q = iter_utils.AsyncIteratorQueue(
-      resource.buffer_size, timeout=resource.timeout, name=transform.name
+      resource.buffer_size,
+      timeout=resource.timeout,
+      name=f'{transform.name}(output)',
   )
 
   def iterate_with_worker_pool():
@@ -248,7 +250,9 @@ def _async_run_single_stage(
         logging.debug('chainable: starting master %s', master_server.address)
         master_server.start(daemon=True)
       remote_input_q = courier_server.make_remote_queue(
-          input_queue, server_addr=master_server.address
+          input_queue,
+          server_addr=master_server.address,
+          name=f'{transform.name}(input@{master_server.address})',
       )
       input_iterator = remote_input_q
     lazy_iterator = (
@@ -271,7 +275,9 @@ def _async_run_single_stage(
         random.shuffle(workers)
         worker = worker_pool.next_idle_worker(workers, maybe_acquire=True)
         if worker is not None:
-          remote_iterator = worker.async_iter(lazy_iterator)
+          remote_iterator = worker.async_iter(
+              lazy_iterator, name=f'{transform.name}(remote_iter)'
+          )
           state = asyncio.run_coroutine_threadsafe(
               result_q.async_enqueue_from_iterator(remote_iterator),
               event_loop,
@@ -298,7 +304,11 @@ def _async_run_single_stage(
               len(iterating),
           )
       if time.time() - ticker > _LOGGING_INTERVAL_SECS:
-        logging.info('chainable: async_iter progress %d', result_q.progress.cnt)
+        logging.info(
+            'chainable: %s async_iter progress %d',
+            transform.name,
+            result_q.progress.cnt,
+        )
         ticker = time.time()
       time.sleep(0)
     logging.info('chainable: "%s" finished with worker pool', transform.name)
