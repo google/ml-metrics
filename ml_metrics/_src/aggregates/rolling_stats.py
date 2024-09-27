@@ -136,7 +136,7 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
       batch: A non-vacant series of values.
 
     Returns:
-      StatsState
+      MeanAndVariance
 
     Raise:
       ValueError:

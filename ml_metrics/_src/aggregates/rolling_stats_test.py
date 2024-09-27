@@ -177,7 +177,7 @@ class HistogramTest(parameterized.TestCase):
       hist_1._merge(place_holder_hist, np.array(bin_edges_2))
 
 
-def get_expected_stats_state(batches, batch_score_fn=None):
+def get_expected_mean_and_variance(batches, batch_score_fn=None):
   if batch_score_fn is not None:
     batches = [batch_score_fn(batch) for batch in batches]
   batches = np.asarray(batches)
@@ -190,7 +190,7 @@ def get_expected_stats_state(batches, batch_score_fn=None):
   )
 
 
-class StatsStateTest(parameterized.TestCase):
+class RollingStateTest(parameterized.TestCase):
 
   def assertDataclassAlmostEqual(
       self,
@@ -206,72 +206,6 @@ class StatsStateTest(parameterized.TestCase):
         self.assertAlmostEqual(value, got[key])
       else:
         np.testing.assert_allclose(value, got[key])
-
-  @parameterized.named_parameters([
-      dict(
-          testcase_name='1_batch_1_element',
-          num_batch=1,
-          num_elements_per_batch=1,
-      ),
-      dict(
-          testcase_name='1_batch_2_element',
-          num_batch=1,
-          num_elements_per_batch=2,
-      ),
-      dict(
-          testcase_name='1_batch_1000_element',
-          num_batch=1,
-          num_elements_per_batch=1000,
-      ),
-      dict(
-          testcase_name='2_batch_1_element',
-          num_batch=2,
-          num_elements_per_batch=1,
-      ),
-      dict(
-          testcase_name='2_batch_2_element',
-          num_batch=2,
-          num_elements_per_batch=2,
-      ),
-      dict(
-          testcase_name='2_batch_1000_element',
-          num_batch=2,
-          num_elements_per_batch=1000,
-      ),
-      dict(
-          testcase_name='1000_batch_1_element',
-          num_batch=1000,
-          num_elements_per_batch=1,
-      ),
-      dict(
-          testcase_name='1000_batch_2_element',
-          num_batch=1000,
-          num_elements_per_batch=2,
-      ),
-      dict(
-          testcase_name='1000_batch_1000_element',
-          num_batch=1000,
-          num_elements_per_batch=1000,
-      ),
-  ])
-  def test_stats_state(self, num_batch, num_elements_per_batch):
-    batches = np.array(
-        [np.random.randn(num_elements_per_batch) for _ in range(num_batch)]
-    ) + 1e7
-    state = rolling_stats.MeanAndVariance()
-
-    last_batch_result = None
-    for batch in batches:
-      last_batch_result = state.add(batch)
-    self.assertIsInstance(last_batch_result, rolling_stats.MeanAndVariance)
-
-    expected_last_batch_result = get_expected_stats_state(batches[-1])
-    self.assertDataclassAlmostEqual(
-        expected_last_batch_result, last_batch_result
-    )
-
-    expected_state = get_expected_stats_state(batches)
-    self.assertDataclassAlmostEqual(expected_state, state)
 
   @parameterized.named_parameters([
       dict(
@@ -322,62 +256,61 @@ class StatsStateTest(parameterized.TestCase):
           num_elements_per_batch=10,
           num_dimension=10,
       ),
+      dict(
+          testcase_name='1000_batch_1_element_1_dim',
+          num_batch=1000,
+          num_elements_per_batch=1,
+          num_dimension=1,
+      ),
+      dict(
+          testcase_name='1000_batch_1000_element_1_dim',
+          num_batch=1000,
+          num_elements_per_batch=1000,
+          num_dimension=1,
+      ),
   ])
-  def test_stats_state_multi_dimension(
+  def test_mean_and_variance(
       self, num_batch, num_elements_per_batch, num_dimension
   ):
     batches = np.random.randn(num_batch, num_elements_per_batch, num_dimension)
     state = rolling_stats.MeanAndVariance()
 
+    last_batch_result = None
     for batch in batches:
-      state.add(batch)
+      last_batch_result = state.add(batch)
+    self.assertIsInstance(last_batch_result, rolling_stats.MeanAndVariance)
 
-    self.assertLen(state.mean, num_dimension)
-    self.assertLen(state.var, num_dimension)
-    self.assertLen(state.stddev, num_dimension)
-    self.assertLen(state.count, num_dimension)
-    self.assertLen(state.total, num_dimension)
-    batches = np.reshape(batches, (-1, num_dimension))
-    np.testing.assert_array_equal(
-        state.count, num_batch * num_elements_per_batch
+    expected_last_batch_result = get_expected_mean_and_variance(batches[-1:])
+    self.assertDataclassAlmostEqual(
+        expected_last_batch_result, last_batch_result
     )
-    np.testing.assert_allclose(state.total, np.sum(batches, axis=0))
-    np.testing.assert_allclose(state.mean, np.mean(batches, axis=0))
-    np.testing.assert_allclose(state.var, np.var(batches, axis=0))
-    np.testing.assert_allclose(state.stddev, np.std(batches, axis=0))
 
-  def test_stats_state_multi_dimension_with_batch_score_fn(self):
-    batches = [
-        [dict(score1=1, score2=2, score3=3)],
-        [dict(score1=4, score2=5, score3=6)],
-        [dict(score1=7, score2=8, score3=9)],
+    expected_state = get_expected_mean_and_variance(batches)
+    self.assertDataclassAlmostEqual(expected_state, state)
+
+  def test_mean_and_variance_with_batch_score_fn(self):
+    batch = [
+        dict(score1=1, score2=2, score3=3),
+        dict(score1=4, score2=5, score3=6),
+        dict(score1=7, score2=8, score3=9),
     ]
-    state = rolling_stats.MeanAndVariance(
-        batch_score_fn=lambda batch: [
-            [x['score1'], x['score2'], x['score3']] for x in batch
-        ]
-    )
+    batch_score_fn = lambda batch: [
+        [x['score1'], x['score2'], x['score3']] for x in batch
+    ]
+    state = rolling_stats.MeanAndVariance(batch_score_fn=batch_score_fn)
+    state.add(batch)
 
-    for batch in batches:
-      state.add(batch)
+    expected_state = get_expected_mean_and_variance([batch], batch_score_fn)
+    self.assertDataclassAlmostEqual(expected_state, state)
 
-    self.assertLen(state.mean, 3)
-    self.assertLen(state.var, 3)
-    self.assertLen(state.stddev, 3)
-    self.assertLen(state.count, 3)
-    self.assertLen(state.total, 3)
-
-    batch_array = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
-    np.testing.assert_array_equal(state.count, len(batches))
-    np.testing.assert_allclose(state.total, np.sum(batch_array, axis=0))
-    np.testing.assert_allclose(state.mean, np.mean(batch_array, axis=0))
-    np.testing.assert_allclose(state.var, np.var(batch_array, axis=0))
-    np.testing.assert_allclose(state.stddev, np.std(batch_array, axis=0))
-
-  def test_stats_state_multi_dimension_with_nan(self):
+  def test_mean_and_variance_multi_dimension_with_nan(self):
     # Create batches with shape (2, 3, 4)
     batches = np.asarray([
-        [[1, 2, 3, np.nan], [np.nan, 5, 6, np.nan], [7, 8, 9, np.nan]],
+        [
+            [1, 2, 3, np.nan],
+            [np.nan, 5, 6, np.nan],
+            [7, 8, 9, np.nan],
+        ],
         [
             [np.nan, 11, 12, np.nan],
             [13, np.nan, 15, np.nan],
@@ -387,58 +320,18 @@ class StatsStateTest(parameterized.TestCase):
 
     state = rolling_stats.MeanAndVariance()
 
+    last_batch_result = None
     for batch in batches:
-      state.add(batch)
+      last_batch_result = state.add(batch)
+    self.assertIsInstance(last_batch_result, rolling_stats.MeanAndVariance)
 
-    self.assertLen(state.mean, 4)
-    self.assertLen(state.var, 4)
-    self.assertLen(state.stddev, 4)
-    self.assertLen(state.count, 4)
-    self.assertLen(state.total, 4)
-    # The first dimension ignoring nan is [1.0, 7.0, 13.0, 16.0].
-    # The second dimension ignoring nan is [2.0, 5.0, 8.0, 11.0, 17.0].
-    # The third dimension ignoring nan is [3.0, 6.0, 9.0, 12.0, 15.0, 18.0].
-    # The fourth dimension is all nan.
-    np.testing.assert_array_equal(state.count, [4, 5, 6, 0])
-    np.testing.assert_allclose(
-        state.mean,
-        np.asarray([
-            9.25,
-            8.6,
-            10.5,
-            np.nan,
-        ]),
-        atol=1e-4,
+    expected_last_batch_result = get_expected_mean_and_variance(batches[-1:])
+    self.assertDataclassAlmostEqual(
+        expected_last_batch_result, last_batch_result
     )
-    np.testing.assert_allclose(
-        state.var,
-        np.asarray([
-            33.1875,
-            26.64,
-            26.25,
-            np.nan,
-        ]),
-        atol=1e-4,
-    )
-    np.testing.assert_allclose(
-        state.stddev,
-        np.asarray([
-            5.760859,
-            5.1614,
-            5.1235,
-            np.nan,
-        ]),
-        atol=1e-4,
-    )
-    np.testing.assert_allclose(
-        state.total,
-        np.asarray([
-            37,
-            43,
-            63,
-            0.0,
-        ]),
-    )
+
+    expected_state = get_expected_mean_and_variance(batches)
+    self.assertDataclassAlmostEqual(expected_state, state)
 
   @parameterized.named_parameters([
       dict(
@@ -450,15 +343,15 @@ class StatsStateTest(parameterized.TestCase):
           partial_nan=True,
       ),
   ])
-  def test_stats_state_batch_with_nan(self, partial_nan):
+  def test_mean_and_variance_batch_with_nan(self, partial_nan):
     batch = [np.nan] * 3 + [1, 2, 3] * int(partial_nan)
     state = rolling_stats.MeanAndVariance()
     state.add(batch)
 
-    expected_state = get_expected_stats_state(batch)
+    expected_state = get_expected_mean_and_variance(batch)
     self.assertDataclassAlmostEqual(expected_state, state)
 
-  def test_stats_state_invalid_batch_score_fn(self):
+  def test_mean_and_variance_invalid_batch_score_fn(self):
     batch = [1, 2, 3]
     state = rolling_stats.MeanAndVariance(batch_score_fn=lambda x: [0])
     with self.assertRaisesRegex(
@@ -467,25 +360,6 @@ class StatsStateTest(parameterized.TestCase):
         ' `batch`.',
     ):
       state.add(batch)
-
-  def test_stats_state_with_batch_score_fn(self):
-    batches = np.array([np.random.randn(30) for _ in range(30)])
-    batch_score_fn = lambda x: x + 1
-
-    state = rolling_stats.MeanAndVariance(batch_score_fn=batch_score_fn)
-    last_batch_result = None
-    for batch in batches:
-      last_batch_result = state.add(batch)
-
-    expected_last_batch_state = get_expected_stats_state(
-        batches[-1], batch_score_fn
-    )
-    self.assertDataclassAlmostEqual(
-        expected_last_batch_state, last_batch_result
-    )
-
-    expected_state = get_expected_stats_state(batches, batch_score_fn)
-    self.assertDataclassAlmostEqual(expected_state, state)
 
   @parameterized.named_parameters([
       dict(
@@ -508,20 +382,30 @@ class StatsStateTest(parameterized.TestCase):
           is_self_empty=True,
           is_other_empty=True,
       ),
+      dict(
+          testcase_name='merge_nonempty_multi_dim_states',
+          is_self_empty=True,
+          is_other_empty=True,
+          num_dimension=10,
+      ),
   ])
-  def test_stats_state_merge(self, is_self_empty, is_other_empty):
-    self_batch = np.random.randn(30 * int(not is_self_empty))
-    other_batch = np.random.randn(30 * int(not is_other_empty))
+  def test_mean_and_variance_merge(
+      self, is_self_empty, is_other_empty, num_dimension=1
+  ):
+    self_batch = np.random.randn(int(not is_self_empty), 30, num_dimension)
+    other_batch = np.random.randn(int(not is_other_empty), 30, num_dimension)
     self_state = rolling_stats.MeanAndVariance()
     other_state = rolling_stats.MeanAndVariance()
 
-    if not is_self_empty:
-      self_state.add(self_batch)
-    if not is_other_empty:
-      other_state.add(other_batch)
+    for batch in self_batch:
+      self_state.add(batch)
+
+    for batch in other_batch:
+      other_state.add(batch)
+
     self_state.merge(other_state)
 
-    expected_state = get_expected_stats_state(
+    expected_state = get_expected_mean_and_variance(
         np.append(self_batch, other_batch)
     )
     self.assertDataclassAlmostEqual(expected_state, self_state)
@@ -532,12 +416,19 @@ class StatsStateTest(parameterized.TestCase):
           add_batch=False,
       ),
       dict(
-          testcase_name='non_empty_batch',
+          testcase_name='non_empty_1d_batch',
           add_batch=True,
       ),
+      dict(
+          testcase_name='non_empty_multi_dim_batch',
+          add_batch=True,
+          multi_dimension=True,
+      ),
   ])
-  def test_stats_state_properties(self, add_batch):
-    batch = [1, 2, 3, np.nan] * int(add_batch)
+  def test_mean_and_variance_properties(self, add_batch, multi_dimension=False):
+    batch = np.array([1, 2, 3, np.nan] * int(add_batch))
+    if multi_dimension:
+      batch = np.tile(batch, (2, 1))
     state = rolling_stats.MeanAndVariance()
     if add_batch:
       state.add(batch)
@@ -552,11 +443,13 @@ class StatsStateTest(parameterized.TestCase):
     for property_name, value in expected_properties_dict.items():
       np.testing.assert_allclose(getattr(state.result(), property_name), value)
 
-  def test_agg_fn(self):
+  def test_mean_and_variance_agg_fn(self):
     agg_fn = rolling_stats.MeanAndVarianceAggFn()
     batches = np.arange(3)
     actual = agg_fn(batches)
-    self.assertDataclassAlmostEqual(get_expected_stats_state(batches), actual)
+    self.assertDataclassAlmostEqual(
+        get_expected_mean_and_variance(batches), actual
+    )
 
 
 class MinMaxAndCountTest(parameterized.TestCase):
