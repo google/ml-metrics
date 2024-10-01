@@ -21,9 +21,6 @@ import queue
 from absl.testing import absltest
 from absl.testing import parameterized
 from courier.python import testutil
-from ml_metrics._src.chainables import courier_server
-from ml_metrics._src.chainables import courier_worker
-from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import iter_utils
 import more_itertools as mit
 import numpy as np
@@ -201,36 +198,6 @@ class UtilsTest(parameterized.TestCase):
     with self.assertRaises(asyncio.QueueFull):
       asyncio.run(q.async_enqueue_from_iterator(async_iter()))
 
-  def test_iterator_queue_async(self):
-    local_server = courier_server._cached_server('local')
-    remote_server = courier_server._cached_server('remote')
-    # Constructs a local queue and let remote worker dequeue from it.
-    local_queue = iter_utils.IteratorQueue()
-    num_elem = 20
-    local_queue.enqueue_from_iterator(range(num_elem))
-    # input_iterator is remote and lives in local server.
-    input_iterator = courier_server.make_remote_queue(
-        local_queue, server_addr=local_server.address
-    )
-    lazy_iterator = lazy_fns.trace(map)(lambda x: x + 1, input_iterator)
-    local_result_queue = iter_utils.AsyncIteratorQueue(timeout=3, name='output')
-
-    async def remote_iterate():
-      remote_iterator = await courier_worker.async_remote_iter(
-          lazy_iterator, worker=remote_server.address, name='remote'
-      )
-      await local_result_queue.async_enqueue_from_iterator(remote_iterator)
-
-    async def run(n):
-      result, *_ = await asyncio.gather(
-          alist(local_result_queue), *(remote_iterate() for _ in range(n))
-      )
-      return result
-
-    actual = asyncio.run(run(2))
-    self.assertEqual(0, local_queue.qsize())
-    self.assertCountEqual(list(range(1, num_elem + 1)), actual)
-
   def test_prefetched_iterator(self):
     iterator = iter_utils.PrefetchedIterator(range(10), prefetch_size=2)
     iterator.prefetch()
@@ -320,10 +287,18 @@ class UtilsTest(parameterized.TestCase):
 
   def test_recitable_iterator_normal(self):
     inputs = range(3)
-    it_inputs = iter_utils._RecitableIterator(inputs)
+    it_inputs = iter_utils._TeeIterator(inputs)
     it_outputs = map(lambda x: x + 1, it_inputs)
-    actual = list(zip(it_outputs, it_inputs.recite_iterator(), strict=True))
+    actual = list(zip(it_outputs, it_inputs.tee(), strict=True))
     self.assertEqual([(1, 0), (2, 1), (3, 2)], actual)
+
+  def test_recitable_iterator_raises(self):
+    inputs = range(30)
+    it_inputs = iter_utils._TeeIterator(inputs, buffer_size=1)
+    with self.assertRaisesRegex(IndexError, 'No element left'):
+      list(it_inputs.tee())
+    with self.assertRaisesRegex(RuntimeError, 'Buffer reached capacity'):
+      _ = list(it_inputs)
 
   @parameterized.named_parameters([
       dict(

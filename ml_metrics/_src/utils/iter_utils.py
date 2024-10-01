@@ -14,6 +14,7 @@
 """Internal batching utils, not meant to be used by users."""
 
 import asyncio
+import collections
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable, Iterator, Sequence
 from concurrent import futures
 import dataclasses as dc
@@ -587,41 +588,48 @@ def dequeue_as_iterator(
       progress.cnt = i
 
 
-def _dequeue_as_iterator_blocking(
-    input_queue: QueueLike[_ValueT | StopIteration],
-) -> Iterator[_ValueT]:
-  """Converts a queue to an iterator, stops when meeting StopIteration."""
-  while not is_stop_iteration(value := input_queue.get()):
-    yield value
-  return cast(StopIteration, value).value
+class _TeeIterator(Iterator[_ValueT]):
+  """An iterator that record its inputs and can be re-iterated.
 
+  This is a more restricted version to itertools.tee: it only be teeed once, and
+  the main iterator has to be iterated first. But this does not suffer from
+  out of memory issue as common.
+  """
 
-class _RecitableIterator(Iterator[_ValueT]):
-  """An iterator that recite its inputs."""
-
-  def __init__(self, iterator: Iterable[_ValueT], *, max_buffer_size: int = 0):
+  def __init__(self, iterator: Iterable[_ValueT], *, buffer_size: int = 0):
     self._iterator = iter(iterator)
-    self._max_buffer_size = max_buffer_size
-    self.buffer = queue.SimpleQueue()
+    self._buffer_size = buffer_size
+    self._buffer = collections.deque(maxlen=buffer_size or None)
+    self._exhausted = False
+    self._returned = None
 
   def __next__(self):
+    """Iterate through itself records every element it has seen by reference."""
     try:
       value = next(self._iterator)
     except StopIteration as e:
-      self.buffer.put(e)
+      self._exhausted = True
+      self._returned = e.value
       raise e
-    self.buffer.put(value)
-    if self._max_buffer_size and self.buffer.qsize() > self._max_buffer_size:
-      raise ValueError(
-          f'Buffer overflow: {self.buffer.qsize()} > {self._max_buffer_size=}.'
+    if self._buffer_size and len(self._buffer) == self._buffer_size:
+      raise RuntimeError(
+          f'Buffer reached capacity: {len(self._buffer)} / {self._buffer_size}.'
       )
+    self._buffer.append(value)
     return value
 
   def __iter__(self):
     return self
 
-  def recite_iterator(self) -> Iterator[_ValueT]:
-    return _dequeue_as_iterator_blocking(self.buffer)
+  def tee(self) -> Iterator[_ValueT]:
+    """Re-iterate the elements previously iterated in a FIFO order."""
+    while True:
+      try:
+        yield self._buffer.popleft()
+      except IndexError as e:
+        if self._exhausted:
+          return self._returned
+        raise IndexError('No element left.') from e
 
 
 def processed_with_inputs(
@@ -631,13 +639,11 @@ def processed_with_inputs(
     max_buffer_size: int = 0,
 ) -> Iterator[tuple[_InputT, _ValueT]]:
   """Zips the processed outputs with its inputs."""
-  iter_input = _RecitableIterator(
-      input_iterator, max_buffer_size=max_buffer_size
-  )
+  iter_input = _TeeIterator(input_iterator, buffer_size=max_buffer_size)
   iter_output = process_fn(iter_input)
   # Note that recital iterator has to be put after the input iterator so that
   # there are values to be recited.
-  return zip(iter_output, iter_input.recite_iterator())
+  return zip(iter_output, iter_input.tee())
 
 
 def _concat(data: list[Any]):
@@ -707,7 +713,7 @@ def rebatched_tuples(
     if has_batch_sizes and (batch_sizes[0] >= batch_size or exhausted):
       concated = map(_concat, column_buffer)
       sliced_by_batch_size = functools.partial(mit.sliced, n=batch_size)
-      for columns in mit.zip_equal(*map(sliced_by_batch_size, concated)):
+      for columns in zip(*map(sliced_by_batch_size, concated), strict=True):
         # Only at most one batch can remain after slicing.
         if last_columns is not None:
           yield last_columns
