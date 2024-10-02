@@ -38,6 +38,7 @@ from ml_metrics._src.utils import func_utils
 from ml_metrics._src.utils import iter_utils
 
 
+_HRTBT_INTERVAL_SECS = 15
 _LOGGING_INTERVAL_SEC = 30
 _NUM_TOTAL_FAILURES_THRESHOLD = 60
 _T = TypeVar('_T')
@@ -54,7 +55,7 @@ def cached_worker(
     *,
     call_timeout: float | None = None,
     max_parallelism: int = 1,
-    heartbeat_threshold_secs: int = 180,
+    heartbeat_threshold_secs: float = 180,
     iterate_batch_size: int = 1,
 ):
   return Worker(
@@ -503,6 +504,16 @@ def _normalize_args(args, kwargs):
   return result_args, result_kwargs
 
 
+StateWithTime = NamedTuple(
+    'StateWithTime', [('state', futures.Future[Any]), ('time', float)]
+)
+
+
+def _is_heartbeat_stale(state_with_time: StateWithTime) -> bool:
+  """Checks whether the heartbeat is stale."""
+  return time.time() - state_with_time.time > _HRTBT_INTERVAL_SECS
+
+
 # TODO(b/311207032): Adds unit test to cover logic for disconneted worker.
 class Worker:
   """Courier client wrapper that works as a chainable worker."""
@@ -514,11 +525,10 @@ class Worker:
   _call_timeout: float | None
   _lock: threading.Lock
   _worker_pool: WorkerPool | None
-  _shutdown_requested: bool
   _client: courier.Client
-  _pendings: list[futures.Future[Any]]
+  _pendings: list[StateWithTime]
   _heartbeat_client: courier.Client
-  _heartbeat: futures.Future[Any] | None
+  _heartbeat: StateWithTime
   _last_heartbeat: float
 
   def __init__(
@@ -537,15 +547,26 @@ class Worker:
     self._call_timeout = call_timeout
     self._lock = threading.Lock()
     self._worker_pool = None
-    self._shutdown_requested = True if server_name is None else False
-    self._pendings = []
-    assert self.server_name, f'empty server_name: "{self.server_name}"'
-    self._client = courier.Client(self.server_name, call_timeout=call_timeout)
-    self._heartbeat_client = courier.Client(
-        self.server_name, call_timeout=self.heartbeat_threshold_secs
+    self._refresh_courier_client()
+    self._heartbeat = StateWithTime(
+        self._heartbeat_client.futures.heartbeat(), time.time()
     )
-    self._heartbeat = None
+    self._pendings = [self._heartbeat]
     self._last_heartbeat = 0.0
+
+  def _refresh_courier_client(self):
+    assert self.server_name, f'empty server_name: "{self.server_name}"'
+    logging.debug(
+        'chainable: refreshing courier client at %s', self.server_name
+    )
+    self._client = courier.Client(
+        self.server_name, call_timeout=self.call_timeout
+    )
+    self._heartbeat_client = courier.Client(
+        self.server_name,
+        call_timeout=self.heartbeat_threshold_secs,
+        wait_for_ready=False,
+    )
 
   @property
   def call_timeout(self) -> float | None:
@@ -613,62 +634,82 @@ class Worker:
     # `result()`, and `async_result()`.
     return len(self.pendings) < self.max_parallelism
 
-  def _check_heartbeat(self) -> bool:
+  def _send_heartbeat(self):
     """Ping the worker to check the heartbeat once."""
-    if not self._heartbeat:
-      self._heartbeat = self._heartbeat_client.futures.heartbeat()
-    try:
-      if self._heartbeat.done():
-        self._heartbeat = None
-        self._last_heartbeat = time.time()
-        return True
-    except Exception:  # pylint: disable=broad-exception-caught
-      logging.warning(
-          'chainables: Worker %s missed a heartbeat.', self.server_name
-      )
-      self._heartbeat = None
-    return False
+    # Only renews the heartbeat one at a time.
+    if self._heartbeat.state.done() and _is_heartbeat_stale(self._heartbeat):
+      # It is possible the client is stale, e.g., server is started after the
+      # client is created. This is only applicable for the first heartbeat.
+      if not self._last_heartbeat:
+        self._refresh_courier_client()
+      heatbeat_future = self._heartbeat_client.futures.heartbeat()
+      self._heartbeat = StateWithTime(heatbeat_future, time.time())
+      self._pendings.append(self._heartbeat)
+
+  async def async_wait_until_alive(self, deadline_secs: float = 0.0):
+    """Checks whether the worker is alive."""
+    if self.is_alive:
+      return
+    ticker = time.time()
+    deadline_secs = deadline_secs or self.heartbeat_threshold_secs
+    while (delta_time := time.time() - ticker) < deadline_secs:
+      if self.is_alive:
+        return
+    await asyncio.sleep(0.1)
+    raise RuntimeError(
+        f'Failed to connect to async worker {self.server_name} after'
+        f' {delta_time:.2f}s.'
+    )
 
   def wait_until_alive(
       self,
-      deadline_secs: int = 180,
-      *,
-      sleep_interval_secs: float = 1.0,
+      deadline_secs: float = 0.0,
   ):
     """Waits for the worker to be alive with retries."""
-    sleep_interval_secs = max(sleep_interval_secs, 0.1)
-    num_attempts = int(max(deadline_secs // sleep_interval_secs, 1))
-    for _ in range(num_attempts):
-      try:
-        if self.is_alive:
-          break
-      except Exception as e:  # pylint: disable=broad-exception-caught
-        logging.warning('chainables: exception when connecting: %s', e)
-      time.sleep(sleep_interval_secs)
-    else:
-      raise ValueError(
-          f'Failed to connect to worker {self.server_name} after'
-          f' {num_attempts} tries.'
-      )
+    if self.is_alive:
+      return
+    ticker = time.time()
+    deadline_secs = deadline_secs or self.heartbeat_threshold_secs
+    while (delta_time := time.time() - ticker) < deadline_secs:
+      if self.is_alive:
+        return
+      time.sleep(0.1)
+    raise RuntimeError(
+        f'Failed to connect to worker {self.server_name} after'
+        f' {delta_time:.2f}s.'
+    )
+
+  def _is_heartbeat_fresh(self) -> bool:
+    """Checks whether the heartbeat is stale."""
+    still_pendings = []
+    for state_and_time in self._pendings:
+      if state_and_time.state.done():
+        try:
+          if not state_and_time.state.exception():
+            self._last_heartbeat = max(
+                state_and_time.time, self._last_heartbeat
+            )
+        except futures.CancelledError:
+          # The actual exception will be caught on the callsite.
+          time.sleep(0)
+      else:
+        still_pendings.append(state_and_time)
+    self._pendings = still_pendings
+    return time.time() - self._last_heartbeat < self.heartbeat_threshold_secs
 
   @property
   def is_alive(self) -> bool:
     """Checks whether the worker is alive."""
-    if self._shutdown_requested:
+    if not self._is_heartbeat_fresh():
+      # No last heartbeat recorded, consider it not alive temporarily.
+      self._send_heartbeat()
       return False
-    if self._check_heartbeat():
-      return True
-    if self._last_heartbeat:
-      time_passed = time.time() - self._last_heartbeat
-      return time_passed < self.heartbeat_threshold_secs
-    # No last heartbeat recorded, consider it dead.
-    return False
+    return True
 
   @property
-  def pendings(self) -> list[futures.Future[Any]]:
+  def pendings(self) -> list[StateWithTime]:
     """Returns the states that are not done."""
-    self._pendings = [state for state in self._pendings if not state.done()]
-    return self._pendings
+    return [p for p in self._pendings if not p.state.done()]
 
   def call(
       self, *args, courier_method: str = '', **kwargs
@@ -678,11 +719,10 @@ class Worker:
     courier_method = courier_method or 'maybe_make'
     assert self._client is not None
     state = getattr(self._client.futures, courier_method)(*args, **kwargs)
-    self._pendings.append(state)
+    self._pendings.append(StateWithTime(state, time.time()))
     return state
 
   def _result_or_exception(self, pickled: bytes) -> Any | Exception:
-    self._last_heartbeat = time.time()
     result = lazy_fns.pickler.loads(pickled)
     if isinstance(result, Exception):
       raise result
@@ -690,27 +730,43 @@ class Worker:
 
   def get_result(self, lazy_obj: base_types.Resolvable[_T]) -> _T:
     """Low level blocking courier call to retrieve the result."""
+    self.wait_until_alive()
     future = self.call(lazy_obj, return_exception=True)
     while not future.done():
+      if not self.is_alive:
+        raise RuntimeError(f'Worker disconnected: {self}')
       time.sleep(0)
     try:
       return self._result_or_exception(future.result())
     except Exception as e:  # pylint: disable=broad-exception-caught
-      e.add_note(f'Raised on the worker: {self}')
+      if _is_courier_timeout(e):
+        if self.is_alive:
+          raise TimeoutError(f'Try longer timeout on {self}') from e
+        else:
+          e.add_note(f'Courier worker {self} died.')
       raise e
 
   async def async_get_result(self, lazy_obj: base_types.Resolvable[_T]) -> _T:
     """Low level async courier call to retrieve the result."""
+    await self.async_wait_until_alive()
     future = self.call(lazy_obj, return_exception=True)
+    while not future.done():
+      if not self.is_alive:
+        raise RuntimeError(f'Async worker disconnected: {self}')
+      await asyncio.sleep(0)
     try:
-      return self._result_or_exception(await asyncio.wrap_future(future))
+      return self._result_or_exception(future.result())
     except StopIteration as e:
       # Convert a StopIteration without return to StopAsyncIteration().
       if (v := e.value) is not None:
         logging.warning('Cannot convert StopIteration with return: %s.', v)
       raise StopAsyncIteration() from e
     except Exception as e:  # pylint: disable=broad-exception-caught
-      e.add_note(f'Raised on the worker: {self}')
+      if _is_courier_timeout(e):
+        if self.is_alive:
+          raise TimeoutError(f'Try longer timeout on {self}') from e
+        else:
+          e.add_note(f'Courier worker {self} died.')
       raise e
 
   def submit(self, task: Task[_T] | base_types.Resolvable[_T]) -> Task[_T]:
@@ -753,7 +809,7 @@ class Worker:
       self.submit(task.parent_task)
     # Artificially insert a pending state to block other tasks.
     generator_state = futures.Future()
-    self._pendings.append(generator_state)
+    self._pendings.append(StateWithTime(generator_state, time.time()))
     batch_cnt = 0
     try:
       init_state = self.call(
@@ -828,8 +884,11 @@ class Worker:
     )
 
   def shutdown(self) -> futures.Future[Any]:
-    self._shutdown_requested = True
     self.state = self._client.futures.shutdown()
+    for p in self._pendings:
+      p.state.cancel()
+    self._pendings = []
+    self._last_heartbeat = 0.0
     return self.state
 
 
@@ -905,26 +964,23 @@ class WorkerPool:
       deadline_secs: float = 180.0,
       *,
       minimum_num_workers: int = 1,
-      sleep_interval_secs: float = 1.0,
   ):
     """Waits for the workers to be alive with retries."""
-    sleep_interval_secs = max(sleep_interval_secs, 0.1)
-    num_attempts = int(max(deadline_secs // sleep_interval_secs, 1))
-    for _ in range(num_attempts):
+    ticker = time.time()
+    while (delta_time := time.time() - ticker) < deadline_secs:
       try:
         workers = self.workers
-        logging.info('chainables: Available workers: %d', len(workers))
         # Proceed if reached minimum number of workers.
         if len(workers) >= minimum_num_workers:
-          break
+          logging.info('chainables: Available workers: %d', len(workers))
+          return
       except Exception as e:  # pylint: disable=broad-exception-caught
-        logging.warning('chainables: exception when connecting: %s', e)
-      time.sleep(sleep_interval_secs)
-    else:
-      raise ValueError(
-          f'Failed to connect to workers after {num_attempts} tries: workers:'
-          f' {self.server_names}'
-      )
+        logging.warning('chainables: exception when connecting: %s', type(e))
+      time.sleep(0)
+    raise ValueError(
+        f'Failed to connect to {minimum_num_workers} workers after '
+        f'{delta_time:.2f}sec: connected {len(self.workers)}'
+    )
 
   def call_and_wait(self, *args, courier_method='', **kwargs) -> Any:
     """Calls the workers and waits for the results."""
@@ -1024,9 +1080,9 @@ class WorkerPool:
       # Submitting the next batch of tasks.
       if not self.workers:
         raise TimeoutError('All workers timeout, check worker status.')
-      workers = itertools.chain(
-          preferred_workers, set(self.workers) - preferred_workers
-      )
+      backup_workers = list(set(self.workers) - preferred_workers)
+      random.shuffle(backup_workers)
+      workers = list(itertools.chain(preferred_workers, backup_workers))
       while (tasks or not exhausted) and (
           worker := self.next_idle_worker(workers, maybe_acquire=True)
       ):

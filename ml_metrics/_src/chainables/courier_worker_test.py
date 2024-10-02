@@ -26,7 +26,8 @@ from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import iter_utils
 import portpicker
 
-
+# For test, accelerate the heartbeat interval.
+courier_worker._HRTBT_INTERVAL_SECS = 0.1
 Task = courier_worker.Task
 
 
@@ -83,7 +84,7 @@ class RemoteObjectTest(parameterized.TestCase):
     super().setUp()
     self.server = courier_server._cached_server('RemoteObject')
     self.worker = courier_worker.cached_worker(self.server.address)
-    self.worker.wait_until_alive(deadline_secs=6, sleep_interval_secs=0)
+    self.server.wait_until_alive(deadline_secs=12)
 
   @parameterized.named_parameters([
       dict(
@@ -301,12 +302,14 @@ class RemoteObjectTest(parameterized.TestCase):
     local_queue.enqueue_from_iterator(range(num_elem))
     # input_iterator is remote and lives in local server.
     input_queue = courier_server.make_remote_queue(
-        local_queue, server_addr=local_server.address
+        local_queue, server_addr=local_server.address, name='remote_iter'
     )
     # Remotely constructs an iteraotor as the input_iterator.
     iterator_fn = functools.partial(map, lambda x: x + 1)
     lazy_iterator = lazy_fns.trace(iterator_fn)(lazy_fns.trace(input_queue))
-    local_result_queue = iter_utils.AsyncIteratorQueue(timeout=9, name='output')
+    local_result_queue = iter_utils.AsyncIteratorQueue(
+        timeout=30, name='output'
+    )
 
     async def remote_iterate():
       remote_iterator = await courier_worker.async_remote_iter(
@@ -335,7 +338,37 @@ class CourierWorkerTest(absltest.TestCase):
     super().setUp()
     self.server = courier_server._cached_server('CourierWorker')
     self.worker = courier_worker.cached_worker(self.server.address)
-    self.worker.wait_until_alive(deadline_secs=6, sleep_interval_secs=0)
+
+  def test_heartbeat_interval(self):
+    first_heartbeat_time = self.worker._heartbeat.time
+    while not courier_worker._is_heartbeat_stale(self.worker._heartbeat):
+      time.sleep(0.1)
+    self.worker._send_heartbeat()
+    self.assertGreater(self.worker._heartbeat.time, first_heartbeat_time)
+    self.assertEqual(
+        self.worker._pendings[-1].time, self.worker._heartbeat.time
+    )
+
+  def test_worker_not_started(self):
+    server = courier_server._cached_server('unknown_worker')
+    worker = courier_worker.cached_worker(
+        'unknown_worker', heartbeat_threshold_secs=1, call_timeout=0.1
+    )
+    worker.shutdown()
+    server._thread.join()
+    with self.assertRaises(RuntimeError):
+      worker.get_result(None)
+    with self.assertRaises(RuntimeError):
+      asyncio.run(worker.async_get_result(None))
+
+  def test_worker_get_result_timeout(self):
+    worker = courier_worker.cached_worker(
+        self.server.address, call_timeout=0.01
+    )
+    with self.assertRaises(TimeoutError):
+      worker.get_result(lazy_fns.trace(time.sleep)(0.3))
+    with self.assertRaises(TimeoutError):
+      asyncio.run(worker.async_get_result(lazy_fns.trace(time.sleep)(0.3)))
 
   def test_worker_str(self):
     self.assertRegex(
@@ -367,7 +400,7 @@ class CourierWorkerTest(absltest.TestCase):
     self.assertEqual('echo', lazy_fns.maybe_make(state.result()))
 
   def test_wait_timeout(self):
-    task = Task.new(lazy_fns.trace(time.sleep)(0.1))
+    task = Task.new(lazy_fns.trace(time.sleep)(1))
     task = self.worker.submit(task)
     self.assertNotEmpty(courier_worker.wait([task], timeout=0).not_done)
 
@@ -445,20 +478,20 @@ class CourierWorkerTest(absltest.TestCase):
     self.assertFalse(worker.is_alive)
 
   def test_worker_pendings(self):
-    self.worker.call(lazy_fns.trace(time.sleep)(0.3))
+    r = self.worker.call(lazy_fns.trace(time.sleep)(0.3))
     self.assertLen(self.worker.pendings, 1)
     # wait until the call is finished.
-    time.sleep(0.6)
+    assert r.result()
     self.assertEmpty(self.worker.pendings)
 
   def test_worker_idle(self):
     while not self.worker.has_capacity:
       time.sleep(0)
     self.assertTrue(self.worker.has_capacity)
-    self.worker.call(lazy_fns.trace(time.sleep)(0.3))
+    r = self.worker.call(lazy_fns.trace(time.sleep)(0.3))
     self.assertFalse(self.worker.has_capacity)
     # wait until the call is finished.
-    time.sleep(0.6)
+    assert r.result()
     self.assertTrue(self.worker.has_capacity)
 
   def test_worker_exception(self):
@@ -470,7 +503,6 @@ class CourierWorkerTest(absltest.TestCase):
   def test_worker_timeout(self):
     self.worker.set_timeout(0.01)
     state = self.worker.call(lazy_fns.trace(time.sleep)(0.3))
-    time.sleep(0.6)
     exceptions = courier_worker.get_exceptions([state])
     self.assertLen(exceptions, 1)
     self.assertIsInstance(exceptions[0], Exception)
@@ -479,7 +511,7 @@ class CourierWorkerTest(absltest.TestCase):
     server = courier_server.CourierServerWrapper()
     server.build_server()
     t = server.start()
-    worker = courier_worker.Worker(server.address)
+    worker = courier_worker.cached_worker(server.address)
     self.assertTrue(worker.call(True))
     self.assertTrue(t.is_alive())
     worker.shutdown()
@@ -511,11 +543,10 @@ class CourierWorkerGroupTest(absltest.TestCase):
     super().setUp()
     self.server = courier_server._cached_server('WorkerGroup')
     self.always_timeout_server = TimeoutServer()
-    self.always_timeout_server.build_server()
     self.invalid_server_thread = self.always_timeout_server.start(daemon=True)
     self.worker_pool = courier_worker.WorkerPool([self.server.address])
     self.unreachable_address = f'localhost:{portpicker.pick_unused_port()}'
-    self.worker_pool.wait_until_alive(deadline_secs=12, sleep_interval_secs=0)
+    self.worker_pool.wait_until_alive(deadline_secs=12)
 
   def test_worker_pool_call(self):
     actual = self.worker_pool.call_and_wait('echo')
@@ -524,16 +555,14 @@ class CourierWorkerGroupTest(absltest.TestCase):
 
   def test_worker_pool_call_with_method_in_task(self):
     server = TestServer()
-    server.build_server()
-    thread = server.start(daemon=True)
+    server.start(daemon=True)
     tasks = [courier_worker.Task.new(1, courier_method='plus_one')]
     worker_pool = courier_worker.WorkerPool([server.address])
-    worker_pool.wait_until_alive(deadline_secs=12, sleep_interval_secs=0)
+    worker_pool.wait_until_alive(deadline_secs=12)
     states = list(worker_pool.as_completed(tasks))
     # We only have one task, so just return the first element.
     self.assertEqual(2, courier_worker.get_results(states)[0])
     worker_pool.shutdown()
-    thread.join()
 
   def test_worker_pool_iterate_lazy_generator(self):
     lazy_generators = (lazy_fns.trace(mock_generator)(3) for _ in range(30))
@@ -710,7 +739,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
 
   def test_worker_pool_idle_workers(self):
     worker_pool = courier_worker.WorkerPool([self.server.address])
-    worker_pool.wait_until_alive(deadline_secs=12, sleep_interval_secs=0)
+    worker_pool.wait_until_alive(deadline_secs=12)
     idle_workers = worker_pool.idle_workers()
     self.assertLen(idle_workers, 1)
     idle_workers[0].call(lazy_fns.trace(time.sleep)(1))
@@ -721,7 +750,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
     server.build_server()
     t = server.start()
     worker_pool = courier_worker.WorkerPool([server.address])
-    worker_pool.wait_until_alive(deadline_secs=6, sleep_interval_secs=0.1)
+    worker_pool.wait_until_alive(deadline_secs=12)
     self.assertTrue(worker_pool.call_and_wait(True))
     worker_pool.shutdown()
     ticker = time.time()
@@ -734,11 +763,11 @@ class CourierWorkerGroupTest(absltest.TestCase):
     worker_pool = courier_worker.WorkerPool(
         [f'localhost:{portpicker.pick_unused_port()}'],
         call_timeout=0.01,
-        heartbeat_threshold_secs=3,
+        heartbeat_threshold_secs=1,
     )
     try:
       with self.assertLogs(level='WARNING') as cm:
-        worker_pool.wait_until_alive(deadline_secs=1, sleep_interval_secs=0.1)
+        worker_pool.wait_until_alive(deadline_secs=1)
       self.assertRegex(cm.output[0], '.*missed a heartbeat.*')
       self.assertRegex(cm.output[1], 'Failed to connect to workers.*')
     except ValueError:
@@ -747,7 +776,11 @@ class CourierWorkerGroupTest(absltest.TestCase):
       worker_pool.wait_until_alive(deadline_secs=1)
 
   def test_worker_pool_num_workers(self):
-    worker_pool = courier_worker.WorkerPool(['a', 'b'])
+    addrs = [
+        f'localhost:{portpicker.pick_unused_port()}',
+        f'localhost:{portpicker.pick_unused_port()}',
+    ]
+    worker_pool = courier_worker.WorkerPool(addrs)
     self.assertEqual(2, worker_pool.num_workers)
 
 

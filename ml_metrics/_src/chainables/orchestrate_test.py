@@ -24,6 +24,8 @@ from ml_metrics._src.chainables import orchestrate
 import more_itertools as mit
 import numpy as np
 
+# For test, accelerate the heartbeat interval.
+courier_worker._HRTBT_INTERVAL_SECS = 0.1
 
 SERVER_ADDRS = [f'server_{i}' for i in range(2)]
 
@@ -32,10 +34,6 @@ def setUpModule():
   # Required for BNS resolution.
   testutil.SetupMockBNS()
   _ = [courier_server._cached_server(addr) for addr in SERVER_ADDRS]
-
-
-def tearDownModule():
-  courier_worker.WorkerPool(SERVER_ADDRS).shutdown()
 
 
 def random_numbers_iterator(

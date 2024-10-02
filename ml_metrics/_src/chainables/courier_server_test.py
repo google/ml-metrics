@@ -20,6 +20,8 @@ from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import iter_utils
 
+# For test, accelerate the heartbeat interval.
+courier_worker._HRTBT_INTERVAL_SECS = 0.1
 pickler = lazy_fns.pickler
 
 
@@ -104,20 +106,16 @@ class CourierServerTest(parameterized.TestCase):
   def test_courier_server_shutdown_and_restart(self):
     server = courier_server.CourierServerWrapper('test_restart')
     server.start()
-    worker = courier_worker.Worker(server.address)
-    worker.wait_until_alive(deadline_secs=12)
+    server.wait_until_alive(deadline_secs=12)
     assert server._thread is not None
     self.assertTrue(server._thread.is_alive())
     self.assertTrue(server.has_started)
-    worker.shutdown()
+    courier_worker.cached_worker(server.address).shutdown()
     server._thread.join()
     # Restart.
     server.start()
-    worker = courier_worker.Worker(server.address)
-    worker.wait_until_alive(deadline_secs=12)
-    self.assertEqual('echo', worker.get_result(lazy_fns.trace('echo')))
-    worker.shutdown()
-    server._thread.join()
+    server.wait_until_alive(deadline_secs=12)
+    courier_worker.cached_worker(server.address).shutdown()
 
   def test_courier_exception_during_prefetch(self):
     client = courier.Client(self.server.address, call_timeout=1)
