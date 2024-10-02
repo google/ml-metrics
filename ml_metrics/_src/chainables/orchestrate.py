@@ -34,7 +34,7 @@ from ml_metrics._src.chainables import transform as transform_lib
 from ml_metrics._src.utils import iter_utils
 
 _MASTER = 'master'
-_LOGGING_INTERVAL_SECS = 10.0
+_LOGGING_INTERVAL_SECS = 60.0
 
 
 def sharded_pipelines_as_iterator(
