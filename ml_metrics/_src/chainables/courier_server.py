@@ -32,7 +32,7 @@ _T = TypeVar('_T')
 pickler = lazy_fns.pickler
 
 
-@func_utils.cache_without_kwargs
+@func_utils.lru_cache(settable_kwargs=('timeout_secs',))
 def _cached_server(name: str | None = None, *, timeout_secs: float = 10200):
   result = CourierServerWrapper(name, timeout_secs=timeout_secs)
   result.build_server()

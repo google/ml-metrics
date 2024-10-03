@@ -68,6 +68,9 @@ class LruCache(Mapping[_KeyT, _ValueT]):
   def cache_insert(self, key, value):
     self.__setitem__(key, value)
 
+  def __contains__(self, key):
+    return key in self.data
+
   def __iter__(self) -> Iterator[_KeyT]:
     return iter(self.data)
 
@@ -89,30 +92,31 @@ class LruCache(Mapping[_KeyT, _ValueT]):
     )
 
 
-def cache_without_kwargs(
-    fn=None, *, except_for: Iterable[str] = (), maxsize: int = 128
+def lru_cache(
+    fn=None,
+    *,
+    settable_kwargs: Iterable[str] = (),
+    maxsize: int = 128,
 ):
   """Cache by the positional and specified keyword arguments."""
 
-  arg_names = {k for k in except_for if isinstance(k, str)}
+  settable_kwargs = set(settable_kwargs)
 
   def decorator(fn):
     cache_ = LruCache(maxsize=maxsize)
 
     @functools.wraps(fn)
-    def wrapped(*args, **kwargs):
-      is_in_arg_names = lambda x: x[0] in arg_names
-      others, hashed = mit.partition(is_in_arg_names, kwargs.items())
+    def wrapped(*args, cache_insert_: bool = False, **kwargs):
+      is_settable = lambda x: x[0] in settable_kwargs
+      hashed, settables = mit.partition(is_settable, kwargs.items())
       key = hash(tuple(itt.chain(args, hashed)))
-      try:
+      if not cache_insert_ and key in cache_:
         result = cache_[key]
-      except KeyError:
+      else:
         result = fn(*args, **kwargs)
         cache_[key] = result
-        return result
-
       result_new = None
-      for k, v in others:
+      for k, v in settables:
         if v != getattr(result, k):
           if result_new is None:
             result_new = copy.copy(result)

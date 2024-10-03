@@ -49,7 +49,7 @@ def _cached_client(addr: str, call_timeout: int):
   return courier.Client(addr, call_timeout=call_timeout)
 
 
-@func_utils.cache_without_kwargs(except_for=('call_timeout',))
+@func_utils.lru_cache(settable_kwargs=('max_parallelism', 'iterate_batch_size'))
 def cached_worker(
     addr: str,
     *,

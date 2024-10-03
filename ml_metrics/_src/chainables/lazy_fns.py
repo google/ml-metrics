@@ -76,7 +76,7 @@ def _maybe_lru_cache(maxsize: int):
 
     wrapped_fn.cache_info = lazy_obj_cache.cache_info
     wrapped_fn.cache_clear = lazy_obj_cache.cache_clear
-    wrapped_fn.cache_add = lazy_obj_cache.cache_insert
+    wrapped_fn.cache_insert = lazy_obj_cache.cache_insert
     return wrapped_fn
 
   return decorator
@@ -320,7 +320,7 @@ class LazyObject(base_types.Resolvable[_T]):
     if cache_result:
       result = cls(value=None, _cache_result=True)
       # Direct insert to the cache without retrieving.
-      result.result_.cache_add(result, value)
+      result.result_.cache_insert(result, value)
       return result
     return cls(value=value, _lazy_result=lazy_result)
 

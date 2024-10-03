@@ -37,48 +37,52 @@ class Foo:
 class CacheByKwargsTest(absltest.TestCase):
 
   def test_without_kwargs(self):
-    foo_cached = func_utils.cache_without_kwargs()(Foo)
+    foo_cached = func_utils.lru_cache(settable_kwargs=['b', 'c'])(Foo)
     self.assertEqual(Foo(1, 0, 0), foo_cached(1))
     self.assertEqual(Foo(1, 100, 100), foo_cached(1, b=100, c=100))
     self.assertEqual(foo_cached.cache_info().hits, 1)
 
   def test_ignore_kwargs(self):
-
-    foo_cached = func_utils.cache_without_kwargs()(Foo)
+    foo_cached = func_utils.lru_cache(settable_kwargs=['b', '_b', 'c'])(Foo)
     self.assertEqual(Foo(1, 10, 0), foo_cached(1, _b=10))
     self.assertEqual(Foo(1, 100, 100), foo_cached(1, b=100, c=100))
     self.assertEqual(Foo(1, 10, 0), foo_cached(1, b=10))
 
   def test_cache_partial_kwargs(self):
-    foo_cached = func_utils.cache_without_kwargs(except_for=['c'])(Foo)
+    foo_cached = func_utils.lru_cache(settable_kwargs=['b'])(Foo)
     self.assertEqual(Foo(1, 0, 10), foo_cached(1, c=10))
     self.assertEqual(Foo(1, 100, 10), foo_cached(1, b=100, c=10))
     self.assertEqual(Foo(1, 10, 10), foo_cached(1, b=10, c=10))
 
   def test_cache_info(self):
-    foo_cached = func_utils.cache_without_kwargs()(Foo)
+    foo_cached = func_utils.lru_cache(settable_kwargs=['b', 'c'])(Foo)
     foo_cached(1, c=10)
     foo_cached(1, b=100, c=100)
     foo_cached(1, b=10, c=100)
     self.assertEqual(foo_cached.cache_info().hits, 2)
-    self.assertEqual(foo_cached.cache_info().misses, 1)
+    self.assertEqual(foo_cached.cache_info().misses, 0)
     self.assertEqual(foo_cached.cache_info().currsize, 1)
+
+  def test_cache_insert(self):
+    foo_cached = func_utils.lru_cache(settable_kwargs=['b', 'c'])(Foo)
+    foo_cached(1)
+    self.assertEqual(Foo(1, 0, 1), foo_cached(1, c=1))
+    foo_cached(1, c=100, cache_insert_=True)
+    self.assertEqual(Foo(1, 0, 100), foo_cached(1))
 
   def test_attribute_error_raises(self):
 
     def foo(a, b=1):
       return (a, b)
 
-    foo_cached = func_utils.cache_without_kwargs()(foo)
-    self.assertEqual((1, 1), foo_cached(1, b=1))
-
+    foo_cached = func_utils.lru_cache(settable_kwargs=['b'])(foo)
     with self.assertRaises(AttributeError):
       # b is not an attr in the result of foo, thus, cannot uses this kind of
       # caching mechanism by setting the uncached attr afterwards.
       foo_cached(1, b=10)
 
   def test_cache_clear(self):
-    foo_cached = func_utils.cache_without_kwargs()(Foo)
+    foo_cached = func_utils.lru_cache(settable_kwargs=['b', 'c'])(Foo)
     foo_cached(1)
     foo_cached(1, b=10, c=100)
     foo_cached.cache_clear()
