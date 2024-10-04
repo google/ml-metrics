@@ -85,7 +85,7 @@ def sharded_pipelines_as_iterator(
       )
       for i in range(num_shards)
   ]
-  logging.info('chainables: distributed on %d shards', len(sharded_tasks))
+  logging.info('chainable: distributed on %d shards', len(sharded_tasks))
   # Inference and aggregations.
   states_queue = queue.SimpleQueue()
   if calculate_agg_result:
@@ -103,7 +103,7 @@ def sharded_pipelines_as_iterator(
           **pipeline_kwargs,
       ).make(mode=transform_lib.RunnerMode.AGGREGATE)
       if not agg_fn.has_agg:
-        raise ValueError('chainables: no aggregations found in the pipeline.')
+        raise ValueError('chainable: no aggregations found in the pipeline.')
 
       def iterate_agg_state():
         while True:
@@ -137,7 +137,7 @@ def sharded_pipelines_as_iterator(
       generator_result_queue=states_queue,
       num_total_failures_threshold=faiure_threshold,
   )
-  logging.info('chainables: iterator: %s', iterator)
+  logging.info('chainable: iterator: %s', iterator)
   yield from iterator
 
 
@@ -198,7 +198,7 @@ class RunnerState:
           _ = s.state.result()
         except Exception as e:  # pylint: disable=broad-exception-caught
           raise ValueError(
-              f'chainables: stage {i} failed, stage: {s.name}'
+              f'chainable: stage {i} failed, stage: {s.name}'
           ) from e
     return result
 
@@ -229,11 +229,11 @@ def _async_run_single_stage(
   worker_pool = resource.worker_pool
   if worker_pool and transform.input_iterator is not None:
     raise ValueError(
-        'chainables: input_iterator is not supported with worker_pool.'
+        'chainable: input_iterator is not supported with worker_pool.'
     )
   if worker_pool and isinstance(transform, transform_lib.AggregateTransform):
     raise ValueError(
-        'chainables: AggregateTransform is not supported with worker_pool.'
+        'chainable: AggregateTransform is not supported with worker_pool.'
     )
   result_q = iter_utils.AsyncIteratorQueue(
       resource.buffer_size,
@@ -294,7 +294,7 @@ def _async_run_single_stage(
           worker.release()
           if exc := state.exception():
             logging.exception(
-                'chainables: worker %s failed with exception: %s, %s',
+                'chainable: worker %s failed with exception: %s, %s',
                 worker.server_name,
                 type(exc),
                 exc,

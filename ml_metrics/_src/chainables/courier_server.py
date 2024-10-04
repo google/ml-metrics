@@ -147,7 +147,7 @@ class CourierServerWrapper:
         )
       if self._generator is not None and not self._generator.exhausted:
         logging.warning(
-            'Chainables: A new generator is initialized while the previous one'
+            'chainable: A new generator is initialized while the previous one'
             ' is not exhausted.'
         )
       self._generator = iter_utils.PrefetchedIterator(
@@ -214,13 +214,13 @@ class CourierServerWrapper:
     self._stats['last_heartbeat'] = time.time()
     while not self._shutdown_requested:
       if time.time() - self._stats['last_heartbeat'] > self.timeout_secs:
-        logging.info('Chainables: no ping after %ds.', self.timeout_secs)
+        logging.info('chainable: no ping after %ds.', self.timeout_secs)
         self._shutdown_requested = True
       if self._generator:
         self._generator.prefetch()
       time.sleep(0)
     logging.info(
-        'Chainables: Shutdown requested, shutting down server %s',
+        'chainable: Shutdown requested, shutting down server %s',
         self._server.address,
     )
     self._server.Stop()

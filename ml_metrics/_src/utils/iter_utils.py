@@ -180,7 +180,7 @@ class IteratorQueue(Generic[_ValueT]):
         return self._stop_enqueue(e.value)
       except Exception as e:  # pylint: disable=broad-exception-caught
         e.add_note(f'Exception during enqueueing "{self.name}".')
-        logging.exception('chainables: "%s" enqueue failed.', self.name)
+        logging.exception('chainable: "%s" enqueue failed.', self.name)
         self._exception = e
         self._stop_enqueue()
         raise e
@@ -225,7 +225,7 @@ class IteratorQueue(Generic[_ValueT]):
         continue
       except Exception as e:  # pylint: disable=broad-exception-caught
         e.add_note(f'Exception during dequeueing "{self.name}".')
-        logging.exception('chainables: "%s" dequeue failed.', self.name)
+        logging.exception('chainable: "%s" dequeue failed.', self.name)
         raise e
       ticker = None
       yield value
@@ -285,7 +285,7 @@ class AsyncIteratorQueue(IteratorQueue[_ValueT]):
         return
       except Exception as e:  # pylint: disable=broad-exception-caught
         e.add_note(f'Exception during async enqueueing {self.name}')
-        logging.exception('chainables: %s enqueue failed.', self.name)
+        logging.exception('chainable: %s enqueue failed.', self.name)
         self._exception = e
         self._stop_enqueue()
         raise e
@@ -481,7 +481,7 @@ class PrefetchedIterator:
     while self.data_size and len(result) < batch_size:
       result.append(self._data.get())
       self._data_size -= 1
-    logging.info('Chainables: flush_prefetched: %s', len(result))
+    logging.info('chainable: flush_prefetched: %s', len(result))
     return result
 
   def __next__(self):
@@ -489,7 +489,7 @@ class PrefetchedIterator:
     if not self._data.empty():
       return self._data.get()
     else:
-      logging.info('chainables: Generator exhausted from %s.', self._iterator)
+      logging.info('chainable: Generator exhausted from %s.', self._iterator)
       raise StopIteration(self._returned)
 
   def __iter__(self):
@@ -508,14 +508,14 @@ class PrefetchedIterator:
         self._exhausted = True
         self._returned = e.value
         logging.info(
-            'chainables: prefetch exhausted after %d items.', self._cnt
+            'chainable: prefetch exhausted after %d items.', self._cnt
         )
       except Exception as e:  # pylint: disable=broad-exception-caught
-        logging.exception('chainables: Got error during prefetch.')
+        logging.exception('chainable: Got error during prefetch.')
         if 'generator already executing' != str(e):
           self._exceptions.append(e)
           if len(self._exceptions) > 3:
-            logging.exception('chainables: Too many errors, stop prefetching.')
+            logging.exception('chainable: Too many errors, stop prefetching.')
             break
 
         time.sleep(0)

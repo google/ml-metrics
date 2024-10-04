@@ -835,13 +835,13 @@ class Worker:
           yield elem
           batch_cnt += 1
       logging.info(
-          'chainables: worker %s generator exhausted after %d batches',
+          'chainable: worker %s generator exhausted after %d batches',
           self.server_name,
           batch_cnt,
       )
     except Exception as e:  # pylint: disable=broad-exception-caught
       logging.exception(
-          'chainables: exception when iterating task: %s',
+          'chainable: exception when iterating task: %s',
           task.set(parent_task=None),
       )
       raise e
@@ -870,7 +870,7 @@ class Worker:
       yield batch
       batch_cnt += 1
     logging.info(
-        'chainables: remote iterator at %s exhausted after %d batches',
+        'chainable: remote iterator at %s exhausted after %d batches',
         self.server_name,
         batch_cnt,
     )
@@ -972,10 +972,10 @@ class WorkerPool:
         workers = self.workers
         # Proceed if reached minimum number of workers.
         if len(workers) >= minimum_num_workers:
-          logging.info('chainables: Available workers: %d', len(workers))
+          logging.info('chainable: Available workers: %d', len(workers))
           return
       except Exception as e:  # pylint: disable=broad-exception-caught
-        logging.warning('chainables: exception when connecting: %s', type(e))
+        logging.warning('chainable: exception when connecting: %s', type(e))
       time.sleep(0)
     raise ValueError(
         f'Failed to connect to {minimum_num_workers} workers after '
@@ -1049,14 +1049,14 @@ class WorkerPool:
     """Attemping to shut down workers."""
     while blocking and len(self.workers) < self.num_workers:
       logging.info(
-          'chainables: shutting down %d workers, remaining %d workers are not'
+          'chainable: shutting down %d workers, remaining %d workers are not'
           ' connected, retrying.',
           self.num_workers,
           self.num_workers - len(self.workers),
       )
       time.sleep(6)
     logging.info(
-        'chainables: shutting down %d workers, remaining %d workers are not'
+        'chainable: shutting down %d workers, remaining %d workers are not'
         ' connected, needs to be manually shutdown.',
         len(self.workers),
         len(self.all_workers) - len(self.workers),
@@ -1103,13 +1103,13 @@ class WorkerPool:
             preferred_workers.discard(task.worker)
             if isinstance(exc, TimeoutError) or _is_courier_timeout(exc):
               logging.warning(
-                  'chainables: deadline exceeded at %s.',
+                  'chainable: deadline exceeded at %s.',
                   task.server_name,
               )
               tasks.append(task)
             elif ignore_failures:
               logging.exception(
-                  'chainables: task failed with exception: %s, task: %s',
+                  'chainable: task failed with exception: %s, task: %s',
                   exc,
                   task.set(parent_task=None),
               )
@@ -1120,7 +1120,7 @@ class WorkerPool:
             yield task
         elif not task.is_alive:
           logging.warning(
-              'chainables: Worker %s disconnected.',
+              'chainable: Worker %s disconnected.',
               task.server_name,
           )
           assert task.state is not None
@@ -1204,7 +1204,7 @@ class WorkerPool:
         if tasks:
           task = tasks.pop().set(worker=worker)
           logging.info(
-              'chainables: submitting task to worker %s', worker.server_name
+              'chainable: submitting task to worker %s', worker.server_name
           )
           aiter_until_complete = iterate_until_complete(
               worker.async_iterate(
@@ -1232,7 +1232,7 @@ class WorkerPool:
               disconnected_tasks.append(task)
             else:
               logging.exception(
-                  'chainables: task failed with exception: %s, task: %s',
+                  'chainable: task failed with exception: %s, task: %s',
                   task.exception(),
                   task.set(parent_task=None),
               )
@@ -1252,7 +1252,7 @@ class WorkerPool:
           state.cancel()
       if failed_tasks or disconnected_tasks:
         logging.info(
-            'chainables: %d tasks failed, %d tasks disconnected.',
+            'chainable: %d tasks failed, %d tasks disconnected.',
             len(failed_tasks),
             len(disconnected_tasks),
         )
@@ -1260,7 +1260,7 @@ class WorkerPool:
         total_failures_cnt += len(failed_tasks)
         if total_failures_cnt > num_total_failures_threshold:
           logging.exception(
-              'chainables: too many failures: %d > %d, stopping, '
+              'chainable: too many failures: %d > %d, stopping, '
               'last exception:\n %s.',
               total_failures_cnt,
               num_total_failures_threshold,
@@ -1270,7 +1270,7 @@ class WorkerPool:
         else:
           tasks.extend(failed_tasks)
           logging.info(
-              'chainables: %d tasks failed, re-trying: %s.',
+              'chainable: %d tasks failed, re-trying: %s.',
               len(failed_tasks),
               failed_tasks,
           )
@@ -1278,7 +1278,7 @@ class WorkerPool:
 
       if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SEC:
         logging.info(
-            'chainables: async throughput: %.2f batches/s; progress:'
+            'chainable: async throughput: %.2f batches/s; progress:'
             ' %d/%d/%d/%d (running/remaining/finished/total) with %d retries in'
             ' %.2f secs.',
             (batch_cnt - prev_batch_cnt) / (ticker - prev_ticker),

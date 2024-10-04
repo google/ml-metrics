@@ -335,10 +335,10 @@ class CombinedTreeFn:
           fn_state = agg_fn.merge_states([states_by_fn[key], fn_state])
         states_by_fn[key] = fn_state
       states_cnt += 1
-      logging.info('chainables: merged %d states.', states_cnt)
+      logging.info('chainable: merged %d states.', states_cnt)
     if strict_states_cnt and states_cnt != strict_states_cnt:
       raise ValueError(
-          'chainables: unexpected number of aggregation states. Workers'
+          'chainable: unexpected number of aggregation states. Workers'
           f' might have partially crashed: got {states_cnt} states, '
           f'needs {strict_states_cnt}.'
       )
@@ -416,7 +416,7 @@ class CombinedTreeFn:
     ):
       if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SECS:
         logging.info(
-            'chainables: "%s" calculating for batch %d.', self.name, batch_index
+            'chainable: "%s" calculating for batch %d.', self.name, batch_index
         )
         prev_ticker = ticker
       yield batch_output if with_result else None
@@ -427,7 +427,7 @@ class CombinedTreeFn:
     agg_result = self.get_result(state) if with_agg_result else None
     if with_agg_state:
       logging.info(
-          'chainables: "%s" iterator returns after %d batches.',
+          'chainable: "%s" iterator returns after %d batches.',
           self.name,
           batch_index + 1,
       )
