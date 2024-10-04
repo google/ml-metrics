@@ -242,6 +242,7 @@ def _async_run_single_stage(
   )
 
   def iterate_with_worker_pool():
+    start_time = time.time()
     logging.debug('chainable: "%s" started with worker pool', transform.name)
     assert worker_pool is not None
     input_iterator = None
@@ -307,15 +308,21 @@ def _async_run_single_stage(
           )
       if time.time() - ticker > _LOGGING_INTERVAL_SECS:
         logging.info(
-            'chainable: %s async_iter progress %d',
+            'chainable: %s async_iter progress %d and througput %.2f/sec',
             transform.name,
             result_q.progress.cnt,
+            result_q.progress.cnt / (time.time() - start_time),
         )
         ticker = time.time()
       time.sleep(0)
-    logging.info('chainable: "%s" finished with worker pool', transform.name)
+    logging.info(
+        'chainable: "%s" done with worker pool, average thoughput: %.2f/sec',
+        transform.name,
+        result_q.progress.cnt / (time.time() - start_time),
+    )
 
   def iterate_in_process():
+    start_time = time.time()
     input_iterator = None
     if input_queue is not None:
       input_iterator = iter(input_queue)
@@ -323,6 +330,11 @@ def _async_run_single_stage(
         input_iterator=input_iterator
     )
     result_q.enqueue_from_iterator(iterator)
+    logging.info(
+        'chainable: "%s" done in process, average throughput: %.2f/sec.',
+        transform.name,
+        result_q.progress.cnt / (time.time() - start_time),
+    )
 
   iter_fn = iterate_with_worker_pool if worker_pool else iterate_in_process
   logging.info(
