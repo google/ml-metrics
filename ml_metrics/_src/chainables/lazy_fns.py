@@ -67,8 +67,8 @@ def _maybe_lru_cache(maxsize: int):
             return result
           else:
             raise KeyError(
-                'The local object is missing, likely the cache'
-                'was mistakenly cleared, or is resolved in'
+                'The local object is missing, likely the cache '
+                'was mistakenly cleared, or is resolved in '
                 f'a wrong worker, object:{x}'
             ) from e
       else:
