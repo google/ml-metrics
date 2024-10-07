@@ -410,6 +410,11 @@ class RemoteIteratorQueue(iter_utils.AsyncIteratorQueue[_T]):
     return q.queue.exception.result_()
 
   @property
+  def returned(self) -> list[Any]:
+    assert isinstance(q := self._queue, RemoteQueue), f'{type(q)}'
+    return q.queue.returned.result_()
+
+  @property
   def exhausted(self):
     assert isinstance(q := self._queue, RemoteQueue), f'{type(q)}'
     return q.queue.exhausted.result_()
@@ -757,10 +762,7 @@ class Worker:
     try:
       return self._result_or_exception(future.result())
     except StopIteration as e:
-      # Convert a StopIteration without return to StopAsyncIteration().
-      if (v := e.value) is not None:
-        logging.warning('Cannot convert StopIteration with return: %s.', v)
-      raise StopAsyncIteration() from e
+      raise StopAsyncIteration(*e.args) from e
     except Exception as e:  # pylint: disable=broad-exception-caught
       if _is_courier_timeout(e):
         if self.is_alive:

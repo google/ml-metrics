@@ -212,8 +212,12 @@ class RemoteObjectTest(parameterized.TestCase):
       )
       return await remote_object().async_result_()
 
-    with self.assertRaises(StopAsyncIteration):
+    returned = None
+    try:
       asyncio.run(run())
+    except StopAsyncIteration as e:
+      returned = e.args
+    self.assertEqual(returned, ('foo',))
 
   def test_async_get_result_raises_value_error(self):
     def foo():
@@ -299,7 +303,12 @@ class RemoteObjectTest(parameterized.TestCase):
     # Constructs a local queue and let remote worker dequeue from it.
     local_queue = iter_utils.IteratorQueue(name='input')
     num_elem = 20
-    local_queue.enqueue_from_iterator(range(num_elem))
+
+    def foo(n):
+      yield from range(n)
+      return n
+
+    local_queue.enqueue_from_iterator(foo(num_elem))
     # input_iterator is remote and lives in local server.
     input_queue = courier_server.make_remote_queue(
         local_queue, server_addr=local_server.address, name='remote_iter'
@@ -313,7 +322,7 @@ class RemoteObjectTest(parameterized.TestCase):
 
     async def remote_iterate():
       remote_iterator = await courier_worker.async_remote_iter(
-          lazy_iterator, worker=remote_server.address
+          lazy_iterator, worker=remote_server.address, name='remote_iter'
       )
       await local_result_queue.async_enqueue_from_iterator(remote_iterator)
 
@@ -330,6 +339,7 @@ class RemoteObjectTest(parameterized.TestCase):
     actual = asyncio.run(run(2))
     self.assertEqual(0, local_queue.qsize())
     self.assertCountEqual(list(range(1, num_elem + 1)), actual)
+    self.assertEqual(num_elem, local_result_queue.returned[0])
 
 
 class CourierWorkerTest(absltest.TestCase):

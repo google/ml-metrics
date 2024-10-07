@@ -160,6 +160,23 @@ class UtilsTest(parameterized.TestCase):
     self.assertLen(q.returned, 1)
     self.assertEqual(10, q.returned[0])
 
+  def test_async_iterator_queue_enqueue_dequeue(self):
+
+    def foo(n):
+      yield from range(n)
+      return n
+
+    q = iter_utils.AsyncIteratorQueue()
+    # This merges two streams of iterator into one.
+    q.enqueue_from_iterator(foo(1))
+    q.enqueue_from_iterator(foo(2))
+    output_q = iter_utils.AsyncIteratorQueue()
+    asyncio.run(output_q.async_enqueue_from_iterator(q))
+    actual = asyncio.run(alist(output_q))
+    self.assertSequenceEqual([0, 0, 1], actual)
+    self.assertLen(output_q.returned, 2)
+    self.assertEqual([1, 2], output_q.returned)
+
   def test_enqueue_from_generator_timeout(self):
     q = iter_utils.IteratorQueue.from_queue(queue.Queue(1), timeout=0.1)
     with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout'):
@@ -176,7 +193,7 @@ class UtilsTest(parameterized.TestCase):
     with self.assertRaises(asyncio.QueueEmpty):
       asyncio.run(q.get())
     with self.assertRaises(asyncio.QueueEmpty):
-      asyncio.run(alist(q.async_dequeue_as_iterator()))
+      asyncio.run(alist(q))
 
   def test_async_enqueue_from_generator_raises(self):
     q = iter_utils.AsyncIteratorQueue(timeout=0.1)
