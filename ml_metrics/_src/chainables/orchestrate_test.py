@@ -36,19 +36,50 @@ def setUpModule():
   _ = [courier_server._cached_server(addr) for addr in SERVER_ADDRS]
 
 
-def random_numbers_iterator(
+def sharded_ones(
     total_numbers: int,
     batch_size: int,
-    *,
     shard_index: int = 0,
     num_shards: int = 1,
 ):
-  num_batches, residual = divmod(total_numbers, batch_size)
+  num_batches, remainder = divmod(total_numbers, batch_size)
   for i in range(num_batches):
     if i % num_shards == shard_index:
-      yield np.random.randint(100, size=batch_size)
-  if residual:
-    yield np.random.randint(100, size=residual)
+      yield batch_size
+  if not shard_index and remainder:
+    yield remainder
+
+
+def sharded_pipeline(
+    total_numbers: int,
+    batch_size: int,
+    shard_index: int = 0,
+    num_shards: int = 1,
+):
+  return (
+      chainable.Pipeline.new(name='datasource')
+      .data_source(
+          sharded_ones(
+              total_numbers,
+              batch_size=batch_size,
+              shard_index=shard_index,
+              num_shards=num_shards,
+          )
+      )
+      .chain(
+          chainable.Pipeline.new(name='apply').apply(
+              fn=lambda batch_size: np.random.randint(100, size=batch_size),
+          )
+      )
+      .chain(
+          chainable.Pipeline.new(name='agg').aggregate(
+              output_keys='stats',
+              fn=aggregates.MergeableMetricAggFn(
+                  rolling_stats.MeanAndVariance()
+              ),
+          )
+      )
+  )
 
 
 class OrchestrateTest(absltest.TestCase):
@@ -59,30 +90,12 @@ class OrchestrateTest(absltest.TestCase):
     self.worker_pool.wait_until_alive(deadline_secs=12)
 
   def test_sharded_pipelines_as_iterator(self):
-
-    def define_pipeline(shard_index: int, num_shards: int):
-      return (
-          chainable.Pipeline.new()
-          .data_source(
-              random_numbers_iterator(
-                  total_numbers=1000,
-                  batch_size=100,
-                  shard_index=shard_index,
-                  num_shards=num_shards,
-              )
-          )
-          .aggregate(
-              output_keys='stats',
-              fn=aggregates.MergeableMetricAggFn(
-                  rolling_stats.MeanAndVariance()
-              ),
-          )
-      )
-
     results_queue = queue.SimpleQueue()
     for elem in orchestrate.sharded_pipelines_as_iterator(
         self.worker_pool,
-        define_pipeline,
+        sharded_pipeline,
+        total_numbers=1000,
+        batch_size=100,
         result_queue=results_queue,
         retry_failures=False,
     ):
@@ -96,28 +109,8 @@ class OrchestrateTest(absltest.TestCase):
     self.assertEqual(results['stats'].count, 1000)
 
   def test_run_pipelines_interleaved_default(self):
-    pipeline = (
-        chainable.Pipeline.new(name='datasource')
-        .data_source(
-            mit.batched(range(1001), 32),
-        )
-        .chain(
-            chainable.Pipeline.new(name='apply')
-            .apply(fn=np.asarray, output_keys='inputs')
-            .assign('feature1', fn=lambda x: x + 1, input_keys='inputs')
-        )
-        .chain(
-            chainable.Pipeline.new(name='agg').aggregate(
-                output_keys='stats',
-                fn=aggregates.MergeableMetricAggFn(
-                    rolling_stats.MeanAndVariance()
-                ),
-                input_keys='feature1',
-            )
-        )
-    )
     runner_state = orchestrate.run_pipeline_interleaved(
-        pipeline,
+        sharded_pipeline(total_numbers=1001, batch_size=32),
         master_server=courier_server.CourierServerWrapper('master_interleaved'),
         ignore_failures=False,
         resources={
