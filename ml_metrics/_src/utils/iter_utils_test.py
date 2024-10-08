@@ -83,64 +83,6 @@ class UtilsTest(parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, 'not in array'):
       a.index(10)
 
-  def test_iterator_pipe_normal(self):
-
-    def inc_(input_iter):
-      return map(lambda x: x + 1, input_iter)
-
-    iter_pipe = iter_utils.IteratorPipe.new(inc_, timeout=1)
-    self.assertIsNotNone(iter_pipe.input_queue)
-    self.assertIsNotNone(iter_pipe.output_queue)
-    iter_pipe = iter_pipe.submit_to(self.thread_pool)
-    iter_pipe.input_queue.enqueue_from_iterator(range(10))
-    self.assertIsNone(iter_pipe.state.result())
-    actual = list(iter_pipe.output_queue)
-    self.assertEqual(list(range(1, 11)), actual)
-
-  def test_iterator_pipe_source_only(self):
-    iter_pipe = iter_utils.IteratorPipe.new(
-        range(10), input_qsize=None, timeout=1
-    ).submit_to(self.thread_pool)
-    self.assertIsNone(iter_pipe.input_queue)
-    self.assertIsNone(iter_pipe.state.result())
-    actual = list(iter_pipe.output_queue)
-    self.assertEqual(list(range(10)), actual)
-
-  def test_iterator_pipe_sink_only(self):
-
-    def consumer(iterator):
-      for x in iterator:
-        del x
-
-    iter_pipe = iter_utils.IteratorPipe.new(
-        consumer, output_qsize=None, timeout=1
-    )
-    self.assertIsNone(iter_pipe.output_queue)
-    self.assertIsNotNone(iter_pipe.input_queue)
-    iter_pipe = iter_pipe.submit_to(self.thread_pool)
-    iter_pipe.input_queue.enqueue_from_iterator(range(10))
-    self.assertIsNone(iter_pipe.state.result())
-
-  def test_iterator_pipe_timeout(self):
-
-    def inc_(input_iter):
-      return map(lambda x: x + 1, input_iter)
-
-    iter_pipe = iter_utils.IteratorPipe.new(inc_, timeout=1).submit_to(
-        self.thread_pool
-    )
-    self.assertIsNotNone(iter_pipe.output_queue)
-    self.assertIsNotNone(iter_pipe.input_queue)
-    iter_pipe.input_queue._queue.put(0)
-    with self.assertRaisesRegex(TimeoutError, '(De|En)queue timeout'):
-      iter_pipe._state.result()
-
-  def test_enqueue_dequeue_from_generator(self):
-    q = queue.Queue()
-    expected = list(iter_utils.enqueue_from_iterator(range(10), q))
-    actual = list(iter_utils.dequeue_as_iterator(q))
-    self.assertSequenceEqual(expected, actual)
-
   def test_enqueue_dequeue_raises(self):
     q = iter_utils.IteratorQueue()
     q._exception = ValueError('foo')
