@@ -14,7 +14,6 @@
 import asyncio
 import functools
 import queue
-import threading
 import time
 
 from absl.testing import absltest
@@ -37,7 +36,7 @@ def setUpModule():
   # Setup the server for the test group below.
   courier_server._cached_server('RemoteObject')
   courier_server._cached_server('CourierWorker')
-  courier_server._cached_server('WorkerGroup')
+  courier_server._cached_server('WorkerPool')
 
 
 def lazy_q_fn(n, stop=False):
@@ -545,13 +544,13 @@ class TestServer(courier_server.CourierServerWrapper):
     self._server.Bind('plus_one', plus_one)
 
 
-class CourierWorkerGroupTest(absltest.TestCase):
+class CourierWorkerPoolTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server = courier_server._cached_server('WorkerGroup')
+    self.server = courier_server._cached_server('WorkerPool')
     self.always_timeout_server = TimeoutServer()
-    self.invalid_server_thread = self.always_timeout_server.start(daemon=True)
+    self.timeout_server_thread = self.always_timeout_server.start(daemon=True)
     self.worker_pool = courier_worker.WorkerPool([self.server.address])
     self.unreachable_address = f'localhost:{portpicker.pick_unused_port()}'
     self.worker_pool.wait_until_alive(deadline_secs=12)
@@ -564,12 +563,11 @@ class CourierWorkerGroupTest(absltest.TestCase):
   def test_worker_pool_call_with_method_in_task(self):
     server = TestServer()
     server.start(daemon=True)
-    tasks = [courier_worker.Task.new(1, courier_method='plus_one')]
     worker_pool = courier_worker.WorkerPool([server.address])
     worker_pool.wait_until_alive(deadline_secs=12)
-    states = list(worker_pool.as_completed(tasks))
+    task = courier_worker.Task.new(1, courier_method='plus_one')
     # We only have one task, so just return the first element.
-    self.assertEqual(2, courier_worker.get_results(states)[0])
+    self.assertEqual(2, worker_pool.run(task))
     worker_pool.shutdown()
 
   def test_worker_pool_iterate_lazy_generator(self):
@@ -642,32 +640,6 @@ class CourierWorkerGroupTest(absltest.TestCase):
   #   with self.assertRaises(Exception):
   #     next(iterator)
 
-  def test_shared_worker_pool_run(self):
-    shared_worker_pool = courier_worker.WorkerPool(
-        self.worker_pool.all_workers, call_timeout=6
-    )
-    shared_worker_pool.wait_until_alive(deadline_secs=12)
-    self.assertNotEmpty(shared_worker_pool.workers)
-    blocked = [True]
-
-    def blocking_fn(n):
-      cnt = 0
-      while blocked[0] and cnt < n:
-        time.sleep(0.01)
-        cnt += 1
-
-    tasks = [lazy_fns.trace(blocking_fn)(3)] * 3
-    t = threading.Thread(target=shared_worker_pool.run, args=(tasks,))
-    t.start()
-    while not all(w.is_locked() for w in self.worker_pool.all_workers):
-      time.sleep(0)
-    # The worker is not acquirable while blocked.
-    self.assertSameElements([], self.worker_pool._acquire_all())
-    blocked[0] = False
-    time.sleep(0)
-    self.assertEqual(2, self.worker_pool.run(lazy_fns.trace(len)([1, 2])))
-    self.assertEmpty(shared_worker_pool.acquired_workers)
-
   def test_worker_pool_run(self):
     tasks = lazy_fns.trace(len)([1, 2])
     actual = self.worker_pool.run(tasks)
@@ -676,10 +648,10 @@ class CourierWorkerGroupTest(absltest.TestCase):
 
   def test_worker_pool_run_multi_tasks(self):
     tasks = (lazy_fns.trace(len)([1, 2]) for _ in range(3))
-    actual = self.worker_pool.run(tasks)
+    states = list(self.worker_pool.as_completed(tasks))
     self.assertEmpty(self.worker_pool.acquired_workers)
-    self.assertLen(actual, 3)
-    self.assertEqual([2] * 3, actual)
+    self.assertLen(states, 3)
+    self.assertEqual([2] * 3, courier_worker.get_results(states))
 
   def test_worker_cache_info(self):
     self.worker_pool.run(lazy_fns.trace(len)((1, 2), cache_result_=True))

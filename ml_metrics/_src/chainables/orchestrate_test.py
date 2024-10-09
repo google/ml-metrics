@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import queue
+import threading
+import time
 
 from absl.testing import absltest
 from courier.python import testutil
@@ -23,6 +25,7 @@ from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import orchestrate
 import more_itertools as mit
 import numpy as np
+import portpicker
 
 # For test, accelerate the heartbeat interval.
 courier_worker._HRTBT_INTERVAL_SECS = 0.1
@@ -80,6 +83,122 @@ def sharded_pipeline(
           )
       )
   )
+
+
+class TimeoutServer(courier_server.CourierServerWrapper):
+  """Test server for CourierServerWrapper."""
+
+  def set_up(self):
+    super().set_up()
+
+    def timeout(x):
+      time.sleep(60)
+      result = chainable.maybe_make(x)
+      return chainable.pickler.dumps(result)
+
+    def timeout_init_iterator(x):
+      del x
+      time.sleep(60)
+
+    assert self._server is not None
+    self._server.Unbind('maybe_make')
+    self._server.Bind('maybe_make', timeout)
+    self._server.Unbind('init_iterator')
+    self._server.Bind('init_iterator', timeout_init_iterator)
+
+
+class RunAsCompletedTest(absltest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.server = courier_server._cached_server('WorkerGroup')
+    self.always_timeout_server = TimeoutServer()
+    self.invalid_server_thread = self.always_timeout_server.start(daemon=True)
+    self.worker_pool = courier_worker.WorkerPool([self.server.address])
+    self.unreachable_address = f'localhost:{portpicker.pick_unused_port()}'
+    self.worker_pool.wait_until_alive(deadline_secs=12)
+
+  def test_run_multi_tasks(self):
+    tasks = (chainable.trace(len)([1, 2]) for _ in range(3))
+    actual = list(orchestrate.as_completed(self.worker_pool, tasks))
+    self.assertEmpty(self.worker_pool.acquired_workers)
+    self.assertLen(actual, 3)
+    self.assertEqual([2] * 3, actual)
+
+  def test_as_completed_with_retry(self):
+    tasks = [chainable.trace(len)([1, 2]) for _ in range(30)]
+    addrs = [
+        self.always_timeout_server.address,
+        self.unreachable_address,
+        self.server.address,
+    ]
+    worker_pool = courier_worker.WorkerPool(
+        addrs,
+        max_parallelism=1,
+        call_timeout=1,
+    )
+    # Add a worker with invalid address to test the retry logic.
+    worker_pool.wait_until_alive(deadline_secs=12, minimum_num_workers=2)
+    # Only one worker is alive.
+    self.assertLen(worker_pool.workers, 2)
+    actual = list(orchestrate.as_completed(worker_pool, tasks))
+    self.assertLen(actual, 30)
+    self.assertEqual([2] * 30, actual)
+
+  def test_worker_pool_as_completed_with_exception(self):
+    def foo():
+      raise ValueError('foo')
+
+    tasks = [chainable.trace(foo)() for _ in range(3)]
+    addrs = [
+        self.always_timeout_server.address,
+        self.unreachable_address,
+        self.server.address,
+    ]
+    worker_pool = courier_worker.WorkerPool(
+        addrs,
+        max_parallelism=1,
+        call_timeout=1,
+    )
+    # Add a worker with invalid address to test the retry logic.
+    worker_pool.wait_until_alive(deadline_secs=12, minimum_num_workers=2)
+    # Only one worker is alive.
+    self.assertLen(worker_pool.workers, 2)
+    with self.assertRaisesRegex(Exception, 'foo'):
+      next(orchestrate.as_completed(worker_pool, tasks))
+    self.assertEmpty(
+        list(orchestrate.as_completed(worker_pool, tasks, ignore_failures=True))
+    )
+
+  def test_shared_worker_pool_run(self):
+    shared_worker_pool = courier_worker.WorkerPool(
+        self.worker_pool.all_workers, call_timeout=6
+    )
+    shared_worker_pool.wait_until_alive(deadline_secs=12)
+    self.assertNotEmpty(shared_worker_pool.workers)
+    blocked = [True]
+
+    def blocking_fn(n):
+      cnt = 0
+      while blocked[0] and cnt < n:
+        time.sleep(0.01)
+        cnt += 1
+
+    tasks = [chainable.trace(blocking_fn)(3)] * 3
+    t = threading.Thread(
+        target=list, args=(orchestrate.as_completed(shared_worker_pool, tasks),)
+    )
+    t.start()
+    while not all(w.is_locked() for w in self.worker_pool.all_workers):
+      time.sleep(0)
+    # The worker is not acquirable while blocked.
+    self.assertSameElements([], self.worker_pool._acquire_all())
+    blocked[0] = False
+    time.sleep(0)
+    tasks = [chainable.trace(len)([1, 2])]
+    actual = list(orchestrate.as_completed(self.worker_pool, tasks))
+    self.assertEqual([2], actual)
+    self.assertEmpty(shared_worker_pool.acquired_workers)
 
 
 class OrchestrateTest(absltest.TestCase):

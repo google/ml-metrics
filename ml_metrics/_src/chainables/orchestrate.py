@@ -16,10 +16,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from concurrent import futures
 import copy
 import dataclasses
+import itertools
 import queue
 import random
 import threading
@@ -27,6 +28,7 @@ import time
 from typing import Any, cast
 
 from absl import logging
+from ml_metrics._src import base_types
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
@@ -67,21 +69,19 @@ def sharded_pipelines_as_iterator(
   num_shards = worker_pool.num_workers
   worker_pool.wait_until_alive(deadline_secs=600)
   sharded_tasks = [
-      courier_worker.GeneratorTask.new(
-          lazy_fns.trace(define_pipeline)(
-              *pipeline_args,
-              shard_index=i,
-              num_shards=num_shards,
-              **pipeline_kwargs,
-          )
-          .make()
-          .iterate(
-              with_result=with_batch_output,
-              with_agg_state=calculate_agg_result,
-              # In the distributed fashion, the result for each shard is not
-              # meaningful, thus is always disabled.
-              with_agg_result=False,
-          ),
+      lazy_fns.trace(define_pipeline)(
+          *pipeline_args,
+          shard_index=i,
+          num_shards=num_shards,
+          **pipeline_kwargs,
+      )
+      .make()
+      .iterate(
+          with_result=with_batch_output,
+          with_agg_state=calculate_agg_result,
+          # In the distributed fashion, the result for each shard is not
+          # meaningful, thus is always disabled.
+          with_agg_result=False,
       )
       for i in range(num_shards)
   ]
@@ -155,6 +155,7 @@ class RunnerState:
 
   stages: list[StageState]
   event_loop: asyncio.AbstractEventLoop
+  event_loop_thread: threading.Thread
   master_server: courier_server.CourierServerWrapper
 
   @property
@@ -169,6 +170,7 @@ class RunnerState:
     self.event_loop.call_soon_threadsafe(self.event_loop.stop)
     if self.master_server.has_started:
       courier_worker.cached_worker(self.master_server.address).shutdown()
+    self.event_loop_thread.join()
     stage_names = ','.join(f'"{s.name}"' for s in self.stages)
     logging.info('chainable: pipeline with stages %s finished.', stage_names)
     return result
@@ -379,5 +381,87 @@ def run_pipeline_interleaved(
     stages.append(runner)
     input_queue = runner.result_queue
   return RunnerState(
-      stages=stages, event_loop=event_loop, master_server=master_server
+      stages=stages,
+      event_loop=event_loop,
+      event_loop_thread=event_loop_thread,
+      master_server=master_server,
   )
+
+
+def as_completed(
+    worker_pool: courier_worker.WorkerPool,
+    task_iterator: Iterable[courier_worker.Task | base_types.Resolvable],
+    ignore_failures: bool = False,
+) -> Iterator[Any]:
+  """Run tasks within the worker pool."""
+  task_iterator = iter(task_iterator)
+  running_tasks: list[courier_worker.Task] = []
+  tasks: list[courier_worker.Task] = []
+  preferred = set()
+  exhausted = False
+  while not exhausted or tasks or running_tasks:
+    # Submitting the next batch of tasks.
+    if not worker_pool.workers:
+      raise TimeoutError('All workers timeout, check worker status.')
+    backup_workers = list(set(worker_pool.workers) - preferred)
+    random.shuffle(backup_workers)
+    workers = list(itertools.chain(preferred, backup_workers))
+    while (tasks or not exhausted) and (
+        worker := worker_pool.next_idle_worker(workers, maybe_acquire=True)
+    ):
+      # Ensure failed tasks are retried before new tasks are submitted.
+      if not tasks and not exhausted:
+        try:
+          tasks.append(courier_worker.Task.maybe_as_task(next(task_iterator)))
+        except StopIteration:
+          exhausted = True
+      if tasks:
+        running_tasks.append(worker.submit(tasks.pop()))
+
+    # Check the results of the running tasks and retry timeout tasks.
+    still_running: list[courier_worker.Task] = []
+    for task in running_tasks:
+      if task.done():
+        if exc := task.exception():
+          preferred.discard(task.worker)
+          if isinstance(exc, TimeoutError) or courier_worker.is_timeout(exc):
+            logging.warning(
+                'chainable: deadline exceeded at %s.',
+                task.server_name,
+            )
+            tasks.append(task)
+          elif ignore_failures:
+            logging.exception(
+                'chainable: task failed with exception: %s, task: %s', exc, task
+            )
+          else:
+            raise exc
+        else:
+          preferred.add(task.worker)
+          yield task.result()
+      elif not task.is_alive:
+        logging.warning(
+            'chainable: Worker %s disconnected.',
+            task.server_name,
+        )
+        assert task.state is not None
+        task.state.set_exception(TimeoutError(f'{task.server_name} timeout.'))
+        tasks.append(task)
+      else:
+        still_running.append(task)
+    running_tasks = still_running
+
+    # Releasing unused workers.
+    if exhausted and not tasks:
+      running = set(task.worker for task in running_tasks)
+      acquired = set(worker_pool.acquired_workers)
+      reserved = set()
+      # Reserve some workers from the preferred workers first.
+      if candidates := list(preferred - running or acquired - running):
+        # Reserve same amount of workers as the number of unproven workers.
+        num_reserved_workers = len(running - preferred)
+        reserved.update(random.sample(candidates, k=num_reserved_workers))
+      unused_workers = acquired - running - reserved
+      worker_pool.release_all(unused_workers)
+    time.sleep(0.0)
+  worker_pool.release_all()
