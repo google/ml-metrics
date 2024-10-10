@@ -399,15 +399,15 @@ class CourierWorkerTest(absltest.TestCase):
     courier_worker.wait([task])
     self.assertTrue(task.done())
 
-  def test_worker_run_task(self):
-    task = Task.new('echo').add_task(
-        Task.new(lazy_fns.trace(len)([1, 2]), blocking=True)
-    )
-    result = self.worker.submit(task)
-    self.assertEqual(2, result.result())
-    assert (task := result.parent_task) is not None
-    assert (state := task.state) is not None
-    self.assertEqual('echo', lazy_fns.maybe_make(state.result()))
+  def test_worker_submit_task(self):
+    def foo():
+      time.sleep(0.5)
+      return 2
+
+    task = Task.new(lazy_fns.trace(foo)(), blocking=True)
+    task = self.worker.submit(task)
+    self.assertTrue(task.done())
+    self.assertEqual(2, task.result())
 
   def test_wait_timeout(self):
     task = Task.new(lazy_fns.trace(time.sleep)(1))
@@ -438,9 +438,7 @@ class CourierWorkerTest(absltest.TestCase):
 
   def test_worker_async_iterate(self):
 
-    task = Task.new('echo').add_generator_task(
-        lazy_fns.trace(mock_generator)(3)
-    )
+    task = courier_worker.GeneratorTask.new(lazy_fns.trace(mock_generator)(3))
     agg_q = queue.SimpleQueue()
     batch_outputs = []
 
@@ -609,9 +607,7 @@ class CourierWorkerGroupTest(absltest.TestCase):
     self.assertNotEmpty([l for l in cm.output if 'progress' in l])
 
   def test_worker_pool_iterate_by_task(self):
-    tasks = [
-        Task.new('echo').add_generator_task(lazy_fns.trace(mock_generator)(3))
-    ] * 5
+    tasks = [lazy_fns.trace(mock_generator)(3)] * 5
     courier_worker._LOGGING_INTERVAL_SEC = 0.01
     generator_result_queue = queue.SimpleQueue()
     with self.assertLogs(level='INFO') as cm:

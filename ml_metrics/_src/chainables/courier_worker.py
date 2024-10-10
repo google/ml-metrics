@@ -93,7 +93,6 @@ class Task(_FutureLike[_T]):
     blocking: Whether the wait for the call to complete.
     keep_result: Whether to keep the result.
     worker: The courier worker that runs this task.
-    parent_task: The parent task that has to be run first.
     state: the result of the task.
     courier_method: the courier method of the task.
     exception: the exception of the running this task if there is any.
@@ -106,7 +105,6 @@ class Task(_FutureLike[_T]):
   kwargs: dict[str, Any] = dc.field(default_factory=dict)
   blocking: bool = False
   worker: Worker | None = None
-  parent_task: 'Task | None' = None
   state: futures.Future[Any] | None = None
   courier_method: str = 'maybe_make'
 
@@ -125,15 +123,6 @@ class Task(_FutureLike[_T]):
         blocking=blocking,
         courier_method=courier_method,
     )
-
-  @classmethod
-  def from_list_of_tasks(cls, tasks: list[Self]) -> Self:
-    iter_tasks = iter(tasks)
-    task = next(iter_tasks)
-    assert isinstance(task, Task)
-    for next_task in iter_tasks:
-      task = dc.replace(next_task, parent_task=task)
-    return task
 
   # The followings are to implement the _FutureLike interfaces.
   def done(self) -> bool:
@@ -164,42 +153,6 @@ class Task(_FutureLike[_T]):
   def set(self, **kwargs) -> Self:
     return dc.replace(self, **kwargs)
 
-  def add_task(
-      self,
-      task: Task | Any,
-      *,
-      blocking: bool = False,
-  ):
-    """Append a task behind this task."""
-    if not isinstance(task, Task):
-      task = Task.new(
-          task,
-          blocking=blocking,
-      )
-    result = self
-    for each_task in task.flatten():
-      result = dc.replace(each_task, parent_task=result)
-    return result
-
-  def add_generator_task(
-      self,
-      task: GeneratorTask | Any,
-      *,
-      blocking: bool = False,
-  ):
-    """Append a task behind this task."""
-    if not isinstance(task, GeneratorTask):
-      task = GeneratorTask.new(
-          task,
-          blocking=blocking,
-      )
-    return self.add_task(task)
-
-  def flatten(self) -> list['Task']:
-    if self.parent_task is None:
-      return [self]
-    return self.parent_task.flatten() + [self]
-
 
 @dc.dataclass(kw_only=True, frozen=True)
 class GeneratorTask(Task):
@@ -211,7 +164,6 @@ class GeneratorTask(Task):
     blocking: Whether the wait for the call to complete.
     keep_result: Whether to keep the result.
     server_name: The server address this task is sent to.
-    parent_task: The parent task that has to be run first.
     state: the result of the task.
     exception: the exception of the running this task if there is any.
     result: get the result of the task if there is any.
@@ -773,19 +725,17 @@ class Worker:
 
   def submit(self, task: Task[_T] | base_types.Resolvable[_T]) -> Task[_T]:
     """Runs tasks sequentially and returns the task."""
+    self.wait_until_alive()
     if isinstance(task, base_types.Resolvable):
       task = Task.new(task)
-    result = []
-    for task in task.flatten():
-      while not self.has_capacity:
-        time.sleep(0)
-      state = self.call(
-          *task.args, courier_method=task.courier_method, **task.kwargs
-      )
-      if task.blocking:
-        futures.wait([state])
-      result.append(task.set(state=state, worker=self))
-    return Task.from_list_of_tasks(result)
+    while not self.has_capacity:
+      time.sleep(0)
+    state = self.call(
+        *task.args, courier_method=task.courier_method, **task.kwargs
+    )
+    if task.blocking:
+      futures.wait([state])
+    return task.set(state=state, worker=self)
 
   def next_batch_from_generator(
       self, batch_size: int = 0
@@ -806,9 +756,6 @@ class Worker:
       generator_result_queue: queue.SimpleQueue[transform.AggregateResult],
   ) -> AsyncIterator[Any]:
     """Iterates the generator task."""
-    # Make the actual generator.
-    if task.parent_task is not None:
-      self.submit(task.parent_task)
     # Artificially insert a pending state to block other tasks.
     generator_state = futures.Future()
     self._pendings.append(StateWithTime(generator_state, time.time()))
@@ -842,10 +789,7 @@ class Worker:
           batch_cnt,
       )
     except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.exception(
-          'chainable: exception when iterating task: %s',
-          task.set(parent_task=None),
-      )
+      logging.exception('chainable: exception when iterating task: %s', task)
       raise e
     finally:
       generator_state.cancel()
@@ -1113,7 +1057,7 @@ class WorkerPool:
               logging.exception(
                   'chainable: task failed with exception: %s, task: %s',
                   exc,
-                  task.set(parent_task=None),
+                  task,
               )
             else:
               raise exc
@@ -1236,7 +1180,7 @@ class WorkerPool:
               logging.exception(
                   'chainable: task failed with exception: %s, task: %s',
                   task.exception(),
-                  task.set(parent_task=None),
+                  task,
               )
               failed_tasks.append(task)
           else:
