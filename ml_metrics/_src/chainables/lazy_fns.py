@@ -153,6 +153,12 @@ class _Pickler:
 pickler = _Pickler()
 
 
+def maybe_unpickle(value: Any) -> Any:
+  if isinstance(value, bytes):
+    return pickler.loads(value)
+  return value
+
+
 class _Makers(collections.UserDict):
   """Maker registry."""
 
@@ -180,8 +186,7 @@ def maybe_make(
     maybe_lazy: base_types.MaybeResolvable[_T] | bytes,
 ) -> base_types.MaybeResolvable[_T]:
   """Dereference a lazy object or lazy function when applicable."""
-  if isinstance(maybe_lazy, bytes):
-    maybe_lazy = pickler.loads(maybe_lazy)
+  maybe_lazy = maybe_unpickle(maybe_lazy)
   return _maybe_make(maybe_lazy)
 
 
