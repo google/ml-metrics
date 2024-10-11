@@ -922,9 +922,12 @@ class WorkerPool:
       except Exception as e:  # pylint: disable=broad-exception-caught
         logging.warning('chainable: exception when connecting: %s', type(e))
       time.sleep(0)
+    unconnected_workers = list(set(self.all_workers) - set(self.workers))
+    unconnected_worker_strs = ', '.join(str(w) for w in unconnected_workers[:3])
     raise ValueError(
-        f'Failed to connect to {minimum_num_workers} workers after '
-        f'{delta_time:.2f}sec: connected {len(self.workers)}'
+        f'Failed to connect to {minimum_num_workers=} workers after '
+        f'{delta_time:.2f}sec: connected {len(self.workers)} workers. '
+        f'First three unconnected servers: {unconnected_worker_strs}'
     )
 
   def call_and_wait(self, *args, courier_method='maybe_make', **kwargs) -> Any:

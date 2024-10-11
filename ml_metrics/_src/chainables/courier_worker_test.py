@@ -738,19 +738,18 @@ class CourierWorkerPoolTest(absltest.TestCase):
         self.fail('Server is not shutdown after 10 seconds.')
 
   def test_worker_pool_failed_to_start(self):
+    server = courier_server.CourierServerWrapper('bad_server')
+    thread = server.start()
+    courier_worker.Worker('bad_server').shutdown()
+    thread.join()
+
     worker_pool = courier_worker.WorkerPool(
-        [f'localhost:{portpicker.pick_unused_port()}'],
+        # [f'localhost:{portpicker.pick_unused_port()}'],
+        ['bad_server'],
         call_timeout=0.01,
         heartbeat_threshold_secs=1,
     )
-    try:
-      with self.assertLogs(level='WARNING') as cm:
-        worker_pool.wait_until_alive(deadline_secs=1)
-      self.assertRegex(cm.output[0], '.*missed a heartbeat.*')
-      self.assertRegex(cm.output[1], 'Failed to connect to workers.*')
-    except ValueError:
-      pass  # The exception is tested below.
-    with self.assertRaises(ValueError):
+    with self.assertRaisesRegex(ValueError, 'Failed to connect to minimum.*'):
       worker_pool.wait_until_alive(deadline_secs=1)
 
   def test_worker_pool_num_workers(self):
