@@ -124,6 +124,12 @@ class Task(_FutureLike[_T]):
         courier_method=courier_method,
     )
 
+  @classmethod
+  def maybe_as_task(cls, task: Task | base_types.Resolvable) -> Task:
+    if isinstance(task, base_types.Resolvable):
+      return cls.new(task)
+    return task
+
   # The followings are to implement the _FutureLike interfaces.
   def done(self) -> bool:
     """Checks whether the task is done."""
@@ -133,7 +139,7 @@ class Task(_FutureLike[_T]):
 
   def result(self) -> _T:
     if self.state is not None:
-      return lazy_fns.pickler.loads(self.state.result())
+      return lazy_fns.maybe_unpickle(self.state.result())
 
   def exception(self) -> BaseException | None:
     if (state := self.state) is not None:
@@ -170,12 +176,12 @@ class GeneratorTask(Task):
   """
 
 
-def _as_task(task: Task | lazy_fns.LazyFn) -> Task:
-  return Task.new(task) if isinstance(task, lazy_fns.LazyFn) else task
-
-
-def _as_generator_task(task: GeneratorTask | lazy_fns.LazyFn) -> GeneratorTask:
-  return GeneratorTask.new(task) if isinstance(task, lazy_fns.LazyFn) else task
+def _as_generator_task(
+    task: GeneratorTask | base_types.Resolvable,
+) -> GeneratorTask:
+  if isinstance(task, base_types.Resolvable):
+    return GeneratorTask.new(task)
+  return task
 
 
 MaybeDoneTasks = NamedTuple(
@@ -184,18 +190,12 @@ MaybeDoneTasks = NamedTuple(
 )
 
 
-def _maybe_unpickle(value: Any) -> Any:
-  if isinstance(value, bytes):
-    return lazy_fns.pickler.loads(value)
-  return value
-
-
 def get_results(
     states: Iterable[_FutureLike[_T]], timeout: float | None = None
 ) -> list[_T]:
   """Gets the result of the futures, blocking by default."""
   return [
-      _maybe_unpickle(task.result())
+      lazy_fns.maybe_unpickle(task.result())
       for task in wait(states, timeout=timeout).done
   ]
 
@@ -434,7 +434,7 @@ def _is_queue_full(e: Exception) -> bool:
   return isinstance(e, queue.Full) or 'queue.Full' in getattr(e, 'message', '')
 
 
-def _is_courier_timeout(e: Exception | None) -> bool:
+def is_timeout(e: Exception | None) -> bool:
   # absl::status::kDeadlineExceeded
   return getattr(e, 'code', 0) == 4
 
@@ -669,11 +669,10 @@ class Worker:
     return [p for p in self._pendings if not p.state.done()]
 
   def call(
-      self, *args, courier_method: str = '', **kwargs
+      self, *args, courier_method: str = 'maybe_make', **kwargs
   ) -> futures.Future[Any]:
     """Low level courier call ignoring capacity and lock."""
     args, kwargs = _normalize_args(args, kwargs)
-    courier_method = courier_method or 'maybe_make'
     assert self._client is not None
     state = getattr(self._client.futures, courier_method)(*args, **kwargs)
     self._pendings.append(StateWithTime(state, time.time()))
@@ -696,7 +695,7 @@ class Worker:
     try:
       return self._result_or_exception(future.result())
     except Exception as e:  # pylint: disable=broad-exception-caught
-      if _is_courier_timeout(e):
+      if is_timeout(e):
         if self.is_alive:
           raise TimeoutError(f'Try longer timeout on {self}') from e
         else:
@@ -716,7 +715,7 @@ class Worker:
     except StopIteration as e:
       raise StopAsyncIteration(*e.args) from e
     except Exception as e:  # pylint: disable=broad-exception-caught
-      if _is_courier_timeout(e):
+      if is_timeout(e):
         if self.is_alive:
           raise TimeoutError(f'Try longer timeout on {self}') from e
         else:
@@ -899,7 +898,7 @@ class WorkerPool:
         break
     return result
 
-  def _release_all(self, workers: Iterable[Worker] = ()):
+  def release_all(self, workers: Iterable[Worker] = ()):
     workers = workers or self._workers
     for worker in workers:
       if worker.is_available(self):
@@ -928,7 +927,7 @@ class WorkerPool:
         f'{delta_time:.2f}sec: connected {len(self.workers)}'
     )
 
-  def call_and_wait(self, *args, courier_method='', **kwargs) -> Any:
+  def call_and_wait(self, *args, courier_method='maybe_make', **kwargs) -> Any:
     """Calls the workers and waits for the results."""
     self._acquire_all()
     states = [
@@ -941,7 +940,7 @@ class WorkerPool:
     except Exception as e:  # pylint: disable=broad-exception-caught
       raise e
     finally:
-      self._release_all()
+      self.release_all()
     return result
 
   def set_timeout(self, timeout: int):
@@ -1011,6 +1010,7 @@ class WorkerPool:
     time.sleep(0.1)
     return states
 
+  # TODO: b/356633410 - Deprecate this in favor of orchestrate.as_completed.
   def as_completed(
       self,
       task_iterator: Iterable[Task | lazy_fns.LazyObject],
@@ -1035,7 +1035,7 @@ class WorkerPool:
         # Ensure failed tasks are retried before new tasks are submitted.
         if not tasks and not exhausted:
           try:
-            tasks.append(_as_task(next(task_iterator)))
+            tasks.append(Task.maybe_as_task(next(task_iterator)))
           except StopIteration:
             exhausted = True
         if tasks:
@@ -1047,7 +1047,7 @@ class WorkerPool:
         if task.done():
           if exc := task.exception():
             preferred_workers.discard(task.worker)
-            if isinstance(exc, TimeoutError) or _is_courier_timeout(exc):
+            if isinstance(exc, TimeoutError) or is_timeout(exc):
               logging.warning(
                   'chainable: deadline exceeded at %s.',
                   task.server_name,
@@ -1093,20 +1093,21 @@ class WorkerPool:
               random.sample(candidate_workers, k=num_reserved_workers)
           )
         unused_workers = acquired_workers - running_workers - reserved_workers
-        self._release_all(unused_workers)
+        self.release_all(unused_workers)
       time.sleep(0.0)
-    self._release_all()
+    self.release_all()
 
-  def run(
-      self,
-      fns: Iterable[lazy_fns.LazyFn | Task] | lazy_fns.LazyFn | Task,
-      ignore_failures: bool = False,
-  ) -> Any:
-    """Run lazy functions or task within the worker pool."""
-    if signle_task := isinstance(fns, (lazy_fns.LazyFn, Task)):
-      fns = [fns]
-    results = get_results(self.as_completed(fns, ignore_failures))
-    return results[0] if signle_task else results
+  def run(self, task: lazy_fns.LazyFn | Task) -> Any:
+    """Run lazy object or task within the worker pool."""
+    self.wait_until_alive()
+    worker = self.next_idle_worker(maybe_acquire=True)
+    if worker is None:
+      raise ValueError('No worker is available.')
+    # Always set blocking to True as run is blocking.
+    task = Task.maybe_as_task(task).set(blocking=True)
+    result = worker.submit(task).result()
+    worker.release()
+    return result
 
   # TODO: b/356633410 - Deprecate iterate.
   def iterate(
@@ -1174,7 +1175,7 @@ class WorkerPool:
       for task in running_tasks:
         if task.done():
           if exc := task.exception():
-            if isinstance(exc, TimeoutError) or _is_courier_timeout(exc):
+            if isinstance(exc, TimeoutError) or is_timeout(exc):
               disconnected_tasks.append(task)
             else:
               logging.exception(
