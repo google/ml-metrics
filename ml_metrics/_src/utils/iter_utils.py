@@ -16,6 +16,7 @@
 import asyncio
 import collections
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable, Iterator, Sequence
+from concurrent import futures
 import dataclasses as dc
 import functools
 import queue
@@ -351,6 +352,30 @@ class _AsyncDequeueIterator:
 
   def __aiter__(self):
     return self
+
+
+def parallel_iterate(
+    iterator_fn: Callable[..., Iterable[_ValueT]],
+    input_iterator: Iterable[Any] = (),
+    *,
+    buffer_size: int = 64,
+    thread_pool: futures.ThreadPoolExecutor | None = None,
+    max_workers: int = 1,
+) -> Iterator[_ValueT]:
+  """Call a chain of functions in sequence."""
+  output_q = IteratorQueue(buffer_size)
+  input_q = None
+  pool = thread_pool or futures.ThreadPoolExecutor()
+  if input_iterator is not None:
+    input_q = IteratorQueue(buffer_size)
+    pool.submit(input_q.enqueue_from_iterator, input_iterator)
+  for _ in range(max_workers):
+    if input_q is not None:
+      it = iterator_fn(input_q.dequeue_as_iterator())
+    else:
+      it = iterator_fn()
+    pool.submit(output_q.enqueue_from_iterator, it)
+  return output_q.dequeue_as_iterator()
 
 
 def is_stop_iteration(e: Exception) -> bool:
