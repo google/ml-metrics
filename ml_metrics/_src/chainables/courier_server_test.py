@@ -57,11 +57,10 @@ class CourierServerTest(parameterized.TestCase):
 
   def test_courier_server_custom_setup(self):
     server = TestServer()
-    server.build_server()
     thread = server.start()
     client = courier.Client(server.address, call_timeout=2)
     self.assertEqual(2, pickler.loads(client.plus_one(1)))
-    client.shutdown()
+    server.stop()
     thread.join()
 
   def test_courier_server_heartbeat(self):
@@ -110,12 +109,12 @@ class CourierServerTest(parameterized.TestCase):
     assert server._thread is not None
     self.assertTrue(server._thread.is_alive())
     self.assertTrue(server.has_started)
-    courier_worker.cached_worker(server.address).shutdown()
+    server.stop()
     server._thread.join()
     # Restart.
     server.start()
     server.wait_until_alive(deadline_secs=12)
-    courier_worker.cached_worker(server.address).shutdown()
+    server.stop()
 
   def test_courier_exception_during_prefetch(self):
     client = courier.Client(self.server.address, call_timeout=1)

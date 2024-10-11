@@ -99,8 +99,8 @@ class CourierServerWrapper:
 
   @property
   def address(self) -> str:
-    if self.server_name:
-      return self.server_name
+    if server_name := self.server_name:
+      return server_name
     assert self._server is not None, 'Server is not built.'
     return self._server.address
 
@@ -110,9 +110,6 @@ class CourierServerWrapper:
 
   def set_up(self) -> None:
     """Set up (e.g. binding to methods) at server build time."""
-
-    def shutdown():
-      self._shutdown_requested = True
 
     def pickled_maybe_make(maybe_lazy, return_exception: bool = False):
       try:
@@ -189,7 +186,7 @@ class CourierServerWrapper:
     self._server.Bind('next_from_generator', next_from_iterator)
     self._server.Bind('next_batch_from_generator', next_batch_from_iterator)
     self._server.Bind('heartbeat', heartbeat)
-    self._server.Bind('shutdown', shutdown)
+    self._server.Bind('shutdown', self.stop)
     # TODO: b/318463291 - Add unit tests.
     self._server.Bind('clear_cache', transform.clear_cache)
     self._server.Bind('cache_info', pickled_cache_info)
@@ -202,9 +199,10 @@ class CourierServerWrapper:
     self._shutdown_requested = False
     self._server = courier.Server(self.server_name, port=self.port)
     self.set_up()
-    logging.info('chainable: building server %s', self.address)
+    logging.info('chainable: constructed server %s', self.address)
     return self._server
 
+  # TODO: b/372935688 - Makes this optional, and uses to start() and stop().
   def run_until_shutdown(self):
     """Run until shutdown requested."""
     self.build_server()
@@ -226,7 +224,7 @@ class CourierServerWrapper:
     self._server.Stop()
     self._server = None
 
-  def start(self, daemon: bool = None) -> threading.Thread:
+  def start(self, *, daemon: bool = None) -> threading.Thread:
     """Start the server from a different thread."""
     if self.has_started and self._thread is not None:
       return self._thread
@@ -237,6 +235,10 @@ class CourierServerWrapper:
     server_thread.start()
     self._thread = server_thread
     return server_thread
+
+  def stop(self):
+    """Stop the server."""
+    self._shutdown_requested = True
 
   def wait_until_alive(self, deadline_secs: float = 120):
     """Wait until the server is alive."""
