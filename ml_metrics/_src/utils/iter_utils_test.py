@@ -336,6 +336,14 @@ class UtilsTest(parameterized.TestCase):
     np.testing.assert_array_equal(expected_orignal, original)
     np.testing.assert_array_equal(expected_outputs, outputs)
 
+  def test_parallel_iterate(self):
+
+    def foo(values):
+      return map(lambda x: x + 1, values)
+
+    actual = list(iter_utils.parallel_iterate(foo, range(100), max_workers=4))
+    self.assertSameElements(list(range(1, 101)), actual)
+
 
 if __name__ == '__main__':
   absltest.main()
