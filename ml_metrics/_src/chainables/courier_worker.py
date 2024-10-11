@@ -21,7 +21,6 @@ from collections.abc import AsyncIterator, Iterable, Iterator
 from concurrent import futures
 import dataclasses as dc
 import functools
-import itertools
 import queue
 import random
 import threading
@@ -1012,93 +1011,6 @@ class WorkerPool:
     states = [worker.shutdown() for worker in self.all_workers]
     time.sleep(0.1)
     return states
-
-  # TODO: b/356633410 - Deprecate this in favor of orchestrate.as_completed.
-  def as_completed(
-      self,
-      task_iterator: Iterable[Task | lazy_fns.LazyObject],
-      ignore_failures: bool = False,
-  ) -> Iterator[Task]:
-    """Run tasks within the worker pool."""
-    task_iterator = iter(task_iterator)
-    running_tasks: list[Task] = []
-    tasks: list[Task] = []
-    preferred_workers = set()
-    exhausted = False
-    while not exhausted or tasks or running_tasks:
-      # Submitting the next batch of tasks.
-      if not self.workers:
-        raise TimeoutError('All workers timeout, check worker status.')
-      backup_workers = list(set(self.workers) - preferred_workers)
-      random.shuffle(backup_workers)
-      workers = list(itertools.chain(preferred_workers, backup_workers))
-      while (tasks or not exhausted) and (
-          worker := self.next_idle_worker(workers, maybe_acquire=True)
-      ):
-        # Ensure failed tasks are retried before new tasks are submitted.
-        if not tasks and not exhausted:
-          try:
-            tasks.append(Task.maybe_as_task(next(task_iterator)))
-          except StopIteration:
-            exhausted = True
-        if tasks:
-          running_tasks.append(worker.submit(tasks.pop()))
-
-      # Check the results of the running tasks and retry timeout tasks.
-      still_running: list[Task] = []
-      for task in running_tasks:
-        if task.done():
-          if exc := task.exception():
-            preferred_workers.discard(task.worker)
-            if isinstance(exc, TimeoutError) or is_timeout(exc):
-              logging.warning(
-                  'chainable: deadline exceeded at %s.',
-                  task.server_name,
-              )
-              tasks.append(task)
-            elif ignore_failures:
-              logging.exception(
-                  'chainable: task failed with exception: %s, task: %s',
-                  exc,
-                  task,
-              )
-            else:
-              raise exc
-          else:
-            preferred_workers.add(task.worker)
-            yield task
-        elif not task.is_alive:
-          logging.warning(
-              'chainable: Worker %s disconnected.',
-              task.server_name,
-          )
-          assert task.state is not None
-          task.state.set_exception(TimeoutError(f'{task.server_name} timeout.'))
-          tasks.append(task)
-        else:
-          still_running.append(task)
-      running_tasks = still_running
-
-      # Releasing unused workers.
-      if exhausted and not tasks:
-        running_workers = set(task.worker for task in running_tasks)
-        # Reserve same amount of workers as the number of unproven workers.
-        num_reserved_workers = len(running_workers - preferred_workers)
-        acquired_workers = set(self.acquired_workers)
-        reserved_workers = set()
-        # Reserve some workers from the preferred workers first.
-        if candidate_workers := list(preferred_workers - running_workers):
-          reserved_workers.update(
-              random.sample(candidate_workers, k=num_reserved_workers)
-          )
-        elif candidate_workers := list(acquired_workers - running_workers):
-          reserved_workers.update(
-              random.sample(candidate_workers, k=num_reserved_workers)
-          )
-        unused_workers = acquired_workers - running_workers - reserved_workers
-        self.release_all(unused_workers)
-      time.sleep(0.0)
-    self.release_all()
 
   def run(self, task: lazy_fns.LazyFn | Task) -> Any:
     """Run lazy object or task within the worker pool."""

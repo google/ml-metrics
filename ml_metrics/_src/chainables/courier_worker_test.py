@@ -646,13 +646,6 @@ class CourierWorkerPoolTest(absltest.TestCase):
     self.assertEmpty(self.worker_pool.acquired_workers)
     self.assertEqual(2, actual)
 
-  def test_worker_pool_run_multi_tasks(self):
-    tasks = (lazy_fns.trace(len)([1, 2]) for _ in range(3))
-    states = list(self.worker_pool.as_completed(tasks))
-    self.assertEmpty(self.worker_pool.acquired_workers)
-    self.assertLen(states, 3)
-    self.assertEqual([2] * 3, courier_worker.get_results(states))
-
   def test_worker_cache_info(self):
     self.worker_pool.run(lazy_fns.trace(len)((1, 2), cache_result_=True))
     hits = self.worker_pool.idle_workers()[0].cache_info().hits
@@ -669,52 +662,6 @@ class CourierWorkerPoolTest(absltest.TestCase):
     new_hits = self.worker_pool.idle_workers()[0].cache_info().hits
     self.assertEqual(new_hits - hits, 1)
 
-  def test_worker_pool_as_completed_with_retry(self):
-    tasks = [lazy_fns.trace(len)([1, 2]) for _ in range(30)]
-    addrs = [
-        self.always_timeout_server.address,
-        self.unreachable_address,
-        self.server.address,
-    ]
-    worker_pool = courier_worker.WorkerPool(
-        addrs,
-        max_parallelism=1,
-        call_timeout=1,
-    )
-    # Add a worker with invalid address to test the retry logic.
-    worker_pool.wait_until_alive(deadline_secs=12, minimum_num_workers=2)
-    # Only one worker is alive.
-    self.assertLen(worker_pool.workers, 2)
-    states = list(worker_pool.as_completed(tasks))
-    self.assertLen(states, 30)
-    actual = courier_worker.get_results(states)
-    self.assertEqual([2] * 30, actual)
-
-  def test_worker_pool_as_completed_with_exception(self):
-    def foo():
-      raise ValueError('foo')
-
-    tasks = [lazy_fns.trace(foo)() for _ in range(3)]
-    addrs = [
-        self.always_timeout_server.address,
-        self.unreachable_address,
-        self.server.address,
-    ]
-    worker_pool = courier_worker.WorkerPool(
-        addrs,
-        max_parallelism=1,
-        call_timeout=1,
-    )
-    # Add a worker with invalid address to test the retry logic.
-    worker_pool.wait_until_alive(deadline_secs=12, minimum_num_workers=2)
-    # Only one worker is alive.
-    self.assertLen(worker_pool.workers, 2)
-    with self.assertRaisesRegex(Exception, 'foo'):
-      next(worker_pool.as_completed(tasks))
-    self.assertEmpty(
-        list(worker_pool.as_completed(tasks, ignore_failures=True))
-    )
-
   def test_worker_pool_idle_workers(self):
     worker_pool = courier_worker.WorkerPool([self.server.address])
     worker_pool.wait_until_alive(deadline_secs=12)
@@ -725,7 +672,6 @@ class CourierWorkerPoolTest(absltest.TestCase):
 
   def test_worker_pool_shutdown(self):
     server = courier_server.CourierServerWrapper()
-    server.build_server()
     t = server.start()
     worker_pool = courier_worker.WorkerPool([server.address])
     worker_pool.wait_until_alive(deadline_secs=12)
@@ -744,7 +690,6 @@ class CourierWorkerPoolTest(absltest.TestCase):
     thread.join()
 
     worker_pool = courier_worker.WorkerPool(
-        # [f'localhost:{portpicker.pick_unused_port()}'],
         ['bad_server'],
         call_timeout=0.01,
         heartbeat_threshold_secs=1,
