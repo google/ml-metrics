@@ -60,6 +60,7 @@ from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
 from ml_metrics._src.chainables import tree_fns
+from ml_metrics._src.utils import iter_utils
 import more_itertools
 
 
@@ -76,6 +77,7 @@ TreeFn = tree_fns.TreeFn
 _ValueT = TypeVar('_ValueT')
 
 _LOGGING_INTERVAL_SECS = 60
+_DEFAULT_NUM_THREADS = 0
 
 
 def iterate_with_returned(
@@ -91,17 +93,6 @@ def get_generator_returned(
 ) -> _ValueT | None:
   """Returns the aggregate result by from a TreeTransform based generator."""
   return more_itertools.last(iterate_with_returned(generator), None)
-
-
-def _call_fns_iterate(
-    fns: Sequence[tree_fns.TreeFn],
-    input_iterator: Iterable[tree.MapLikeTree | None] = (),
-) -> Iterator[tree.MapLikeTree | None]:
-  """Call a chain of functions in sequence."""
-  result = input_iterator
-  for fn in fns:
-    result = fn.iterate(result)
-  yield from result
 
 
 class RunnerMode(base_types.StrEnum):
@@ -205,6 +196,7 @@ def _transform_make(
       slicers=slice_fns,
       output_fns=output_fns,
       input_iterator=input_iterator,
+      num_threads=transform.num_threads,
   )
 
 
@@ -223,9 +215,9 @@ def clear_cache():
   lazy_fns.clear_cache()
 
 
-@functools.lru_cache(maxsize=1)
+@functools.lru_cache(maxsize=16)
 def _get_thread_pool():
-  return futures.ThreadPoolExecutor()
+  return futures.ThreadPoolExecutor(thread_name_prefix='chainable_mt')
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -254,6 +246,7 @@ class CombinedTreeFn:
   slicers: list[tree_fns.Slicer] = dataclasses.field(default_factory=list)
   output_fns: Sequence[tree_fns.TreeFn] = ()
   input_iterator: Iterable[Any] | None = None
+  num_threads: int = _DEFAULT_NUM_THREADS
 
   @classmethod
   def from_transform(
@@ -377,6 +370,31 @@ class CombinedTreeFn:
       return input_iterator
     return self.input_iterator
 
+  def _iterate(
+      self,
+      input_iterator: Iterable[tree.MapLikeTree | None] = (),
+  ) -> Iterable[tree.MapLikeTree | None]:
+    """Call a chain of functions in sequence."""
+
+    def iterate_fn(
+        input_iterator: Iterable[tree.MapLikeTree | None] = (),
+    ) -> Iterator[tree.MapLikeTree | None]:
+      """Call a chain of functions in sequence."""
+      result = input_iterator
+      for fn in self.input_fns:
+        result = fn.iterate(result)
+      yield from result
+
+    if not self.num_threads:
+      return iterate_fn(input_iterator)
+    else:
+      return iter_utils.piter(
+          iterate_fn,
+          input_iterator=input_iterator,
+          thread_pool=_get_thread_pool(),
+          max_parallism=self.num_threads,
+      )
+
   def iterate(
       self,
       input_iterator: Iterable[Any] | None = None,
@@ -411,9 +429,7 @@ class CombinedTreeFn:
     with_agg_state = with_agg_state or with_agg_result
     prev_ticker = time.time()
     batch_index = -1
-    for batch_index, batch_output in enumerate(
-        _call_fns_iterate(self.input_fns, input_iterator)
-    ):
+    for batch_index, batch_output in enumerate(self._iterate(input_iterator)):
       if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SECS:
         logging.info(
             'chainable: "%s" calculating for batch %d.', self.name, batch_index
@@ -535,6 +551,7 @@ class TreeTransform(Generic[TreeFnT]):
     input_transform: the transform that outputs the input of this transform.
     fns: the underlying routines of the transforms.
     use_cache: a boolean to indicate whether to use cache for the transform.
+    num_threads: maximum number of threads to run the transform.
     id: the id of the transform, unique for each transform.
     is_noop: whether the transform is a no-op, e.g., no function to execute.
       This is useful at the beginning of a chain by calling `Transform.new()`.
@@ -545,6 +562,7 @@ class TreeTransform(Generic[TreeFnT]):
   input_transform: TreeTransform | None = None
   fns: tuple[TreeFnT, ...] = dataclasses.field(default_factory=tuple)
   use_cache: bool = dataclasses.field(default=False, repr=False)
+  num_threads: int = _DEFAULT_NUM_THREADS
   _id: uuid.UUID = dataclasses.field(
       default_factory=uuid.uuid4, init=False, repr=False
   )
@@ -571,12 +589,14 @@ class TreeTransform(Generic[TreeFnT]):
       use_cache: bool = False,
       input_iterator: base_types.MaybeResolvable[Iterable[Any]] | None = None,
       input_transform: TreeTransformT | None = None,
+      num_threads: int = _DEFAULT_NUM_THREADS,
   ) -> Self:
     return cls(
         input_transform=input_transform,
         input_iterator=input_iterator,
         name=name,
         use_cache=use_cache,
+        num_threads=num_threads,
     )
 
   @property
@@ -627,7 +647,10 @@ class TreeTransform(Generic[TreeFnT]):
 
   def data_source(self, iterator: Any = None) -> TreeTransform:
     return TreeTransform.new(
-        input_iterator=iterator, name=self.name, use_cache=self.use_cache
+        input_iterator=iterator,
+        name=self.name,
+        use_cache=self.use_cache,
+        num_threads=self.num_threads,
     )
 
   # TODO: b/356633410 - support rebatching.
@@ -730,6 +753,7 @@ class TreeTransform(Generic[TreeFnT]):
           fns=(fn,),
           name=self.name,
           use_cache=self.use_cache,
+          num_threads=self.num_threads,
       )
     else:
       if self.name:
@@ -741,6 +765,7 @@ class TreeTransform(Generic[TreeFnT]):
           input_transform=self,
           fns=(fn,),
           use_cache=self.use_cache,
+          num_threads=self.num_threads,
       )
 
   def _maybe_new_transform(self, fn) -> TreeTransform:
@@ -755,6 +780,7 @@ class TreeTransform(Generic[TreeFnT]):
           input_transform=self,
           fns=(fn,),
           use_cache=self.use_cache,
+          num_threads=self.num_threads,
       )
     return dataclasses.replace(self, fns=self.fns + (fn,))
 
