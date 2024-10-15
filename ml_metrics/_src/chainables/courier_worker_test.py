@@ -243,7 +243,7 @@ class RemoteObjectTest(parameterized.TestCase):
 
   def test_remote_iterator_as_input_iterator(self):
     # Constructs a local queue and let remote worker dequeue from it.
-    local_queue = iter_utils.IteratorQueue()
+    local_queue = iter_utils.IteratorQueue(name='input')
     num_elem = 30
     local_queue.enqueue_from_iterator(range(num_elem))
     # input_iterator is remote and lives in local server.
@@ -254,7 +254,7 @@ class RemoteObjectTest(parameterized.TestCase):
 
     async def run():
       remote_iterator = self.worker.async_iter(
-          lazy_fns.trace(iterator_fn)(input_iterator)
+          lazy_fns.trace(iterator_fn)(input_iterator), name='remote_iter'
       )
       return [elem async for elem in remote_iterator]
 
