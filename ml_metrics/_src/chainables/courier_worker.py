@@ -330,45 +330,23 @@ class RemoteObject(Generic[_T], base_types.Resolvable[_T]):
     return self.__iter__()
 
 
-@dc.dataclass(repr=False, eq=False)
-class RemoteQueue(Generic[_T]):
+class RemoteIteratorQueue(iter_utils.AsyncIterableQueue[_T]):
   """Remote iterator queue that implements AsyncIteratorQueue interfaces."""
+  _queue: RemoteObject[iter_utils.IteratorQueue[_T]]
 
-  queue: RemoteObject[iter_utils.IteratorQueue[_T]]
+  def __init__(
+      self, q: RemoteObject[iter_utils.IteratorQueue[_T]], *, name: str = ''
+  ):
+    self._queue = q
+    self.name = name
 
-  def get_nowait(self):
-    return self.queue.get_nowait().result_()
+  def get(self):
+    logging.debug('chainable: remote queue "%s" get', self.name)
+    return self._queue.get().result_()
 
-  def put_nowait(self, value):
-    return self.queue.put_nowait(value).result_()
-
-  async def get(self):
-    return await self.queue.get_nowait().async_result_()
-
-  async def put(self, value):
-    return await self.queue.put_nowait(value).async_result_()
-
-  def qsize(self) -> int:
-    return self.queue.qsize().result_()
-
-
-class RemoteIteratorQueue(iter_utils.AsyncIteratorQueue[_T]):
-  """Remote iterator queue that implements AsyncIteratorQueue interfaces."""
-
-  @property
-  def exception(self) -> Exception | None:
-    assert isinstance(q := self._queue, RemoteQueue), f'{type(q)}'
-    return q.queue.exception.result_()
-
-  @property
-  def returned(self) -> list[Any]:
-    assert isinstance(q := self._queue, RemoteQueue), f'{type(q)}'
-    return q.queue.returned.result_()
-
-  @property
-  def exhausted(self):
-    assert isinstance(q := self._queue, RemoteQueue), f'{type(q)}'
-    return q.queue.exhausted.result_()
+  async def async_get(self):
+    logging.debug('chainable: remote queue "%s" async_get', self.name)
+    return await self._queue.get().async_result_()
 
 
 class RemoteIterator(Iterator[_T]):
@@ -425,7 +403,7 @@ async def async_remote_iter(
   # Start the remote worker to enqueue the input_iterator.
   _ = worker.call(lazy_output_q.enqueue_from_iterator(iterator))
   # Wrap this queue to behave like a normal queue.
-  return RemoteIteratorQueue(RemoteQueue(lazy_output_q))
+  return RemoteIteratorQueue(lazy_output_q)
 
 
 def _is_queue_full(e: Exception) -> bool:

@@ -133,7 +133,7 @@ class UtilsTest(parameterized.TestCase):
   def test_async_dequeue_from_generator_timeout(self):
     q = iter_utils.AsyncIteratorQueue(queue_or_size=1, timeout=0.1)
     with self.assertRaises(asyncio.QueueEmpty):
-      asyncio.run(q.get())
+      asyncio.run(q.async_get())
     with self.assertRaises(asyncio.QueueEmpty):
       asyncio.run(alist(q))
 

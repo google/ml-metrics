@@ -73,10 +73,8 @@ def make_remote_queue(
   q = lazy_fns.maybe_make(q)
   assert isinstance(q, iter_utils.IteratorQueue), f'got {type(q)}'
   name = name or q.name
-  return courier_worker.RemoteIteratorQueue.from_queue(
-      courier_worker.RemoteQueue(
-          make_remote_object(q, server_addr=server_addr)
-      ),
+  return courier_worker.RemoteIteratorQueue(
+      make_remote_object(q, server_addr=server_addr),
       name=name,
   )
 
