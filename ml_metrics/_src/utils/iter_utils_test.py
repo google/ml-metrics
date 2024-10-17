@@ -17,6 +17,7 @@ from collections.abc import Sequence
 from concurrent import futures
 import itertools as it
 import queue
+import threading
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -57,6 +58,11 @@ class MockIterable:
     return iter(self._iteratable)
 
 
+def range_with_return(n):
+  yield from range(n)
+  return n
+
+
 class UtilsTest(parameterized.TestCase):
 
   def setUp(self):
@@ -89,39 +95,68 @@ class UtilsTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       _ = list(q)
 
-  def test_iterator_queue_enqueue_dequeue(self):
-
-    def foo(n):
-      yield from range(n)
-      return n
-
+  def test_iterator_queue_enqueue_dequeue_single_thread(self):
     q = iter_utils.IteratorQueue()
-    q.enqueue_from_iterator(foo(10))
-    actual = list(q)
+    self.assertFalse(q.enqueue_done)
+    q.enqueue_from_iterator(range_with_return(10))
+    self.assertTrue(q.enqueue_done)
+    q_iter = q.dequeue_as_iterator(num_steps=10)
+    actual = list(iter(q_iter))
     self.assertSequenceEqual(list(range(10)), actual)
     self.assertLen(q.returned, 1)
     self.assertEqual(10, q.returned[0])
 
-  def test_async_iterator_queue_enqueue_dequeue(self):
-
-    def foo(n):
-      yield from range(n)
-      return n
-
+  def test_iterator_queue_async_enqueue_dequeue_single_thread(self):
     q = iter_utils.AsyncIteratorQueue()
     # This merges two streams of iterator into one.
-    q.enqueue_from_iterator(foo(1))
-    q.enqueue_from_iterator(foo(2))
+    q.enqueue_from_iterator(range_with_return(1))
+    q.enqueue_from_iterator(range_with_return(2))
     output_q = iter_utils.AsyncIteratorQueue()
     asyncio.run(output_q.async_enqueue_from_iterator(q))
-    actual = asyncio.run(alist(output_q))
+    async_iter = output_q.async_dequeue_as_iterator(num_steps=3)
+    actual = asyncio.run(alist(aiter(async_iter)))
     self.assertSequenceEqual([0, 0, 1], actual)
     self.assertLen(output_q.returned, 2)
     self.assertEqual([1, 2], output_q.returned)
 
+  def test_iterator_queue_multithread_enqueue_dequeue(self):
+    n = 1024
+    num_threads, num_dequeue_threads = 16, 16
+    input_q = iter_utils.IteratorQueue(24, name='input')
+    q = iter_utils.IteratorQueue(n, timeout=15, name='iter')
+    for _ in range(num_threads):
+      t = threading.Thread(target=q.enqueue_from_iterator, args=(input_q,))
+      t.start()
+    with futures.ThreadPoolExecutor() as thread_pool:
+      states = [thread_pool.submit(list, q) for _ in range(num_dequeue_threads)]
+      input_q.enqueue_from_iterator(range_with_return(n))
+    results = futures.as_completed(states)
+    actual = list(it.chain(*(result.result() for result in results)))
+    expected = list(range(n))
+    self.assertCountEqual(expected, actual)
+    self.assertEqual([n] * num_threads, q.returned)
+
+  def test_iterator_queue_mt_enqueue_async_dequeue(self):
+    n = 1024
+    input_q = iter_utils.IteratorQueue()
+    num_threads, num_dequeue_threads = 16, 16
+    q = iter_utils.AsyncIteratorQueue(24, timeout=15)
+    for _ in range(num_threads):
+      threading.Thread(target=q.enqueue_from_iterator, args=(input_q,)).start()
+
+    async def dequeue():
+      tasks = (alist(q) for _ in range(num_dequeue_threads))
+      results = await asyncio.gather(*tasks)
+      return list(it.chain(*results))
+
+    input_q.enqueue_from_iterator(range_with_return(n))
+    actual = asyncio.run(dequeue())
+    expected = list(range(n))
+    self.assertCountEqual(expected, actual)
+
   def test_enqueue_from_generator_timeout(self):
     q = iter_utils.IteratorQueue.from_queue(queue.Queue(1), timeout=0.1)
-    with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout'):
+    with self.assertRaisesRegex(TimeoutError, 'Enqueue timeout='):
       q.enqueue_from_iterator(range(2))
 
   def test_dequeue_from_generator_timeout(self):
@@ -132,9 +167,9 @@ class UtilsTest(parameterized.TestCase):
 
   def test_async_dequeue_from_generator_timeout(self):
     q = iter_utils.AsyncIteratorQueue(queue_or_size=1, timeout=0.1)
-    with self.assertRaises(asyncio.QueueEmpty):
+    with self.assertRaises(TimeoutError):
       asyncio.run(q.async_get())
-    with self.assertRaises(asyncio.QueueEmpty):
+    with self.assertRaises(TimeoutError):
       asyncio.run(alist(q))
 
   def test_async_enqueue_from_generator_raises(self):
@@ -154,7 +189,7 @@ class UtilsTest(parameterized.TestCase):
       for i in range(2):
         yield i
 
-    with self.assertRaises(asyncio.QueueFull):
+    with self.assertRaises(TimeoutError):
       asyncio.run(q.async_enqueue_from_iterator(async_iter()))
 
   def test_prefetched_iterator(self):
