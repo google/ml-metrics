@@ -396,14 +396,14 @@ async def async_remote_iter(
       lazy_fns.trace(iter_utils.IteratorQueue)(
           buffer_size,
           timeout=timeout,
-          name=name,
+          name=f'{name}@{worker.server_name}',
           lazy_result_=True,
       )
   )
   # Start the remote worker to enqueue the input_iterator.
   _ = worker.call(lazy_output_q.enqueue_from_iterator(iterator))
   # Wrap this queue to behave like a normal queue.
-  return RemoteIteratorQueue(lazy_output_q)
+  return RemoteIteratorQueue(lazy_output_q, name=name)
 
 
 def _is_queue_full(e: Exception) -> bool:
@@ -428,7 +428,7 @@ def _normalize_args(args, kwargs):
     try:
       result_args.append(lazy_fns.pickler.dumps(arg))
     except Exception as e:
-      raise ValueError(f'Having issue pickling arg: {arg}') from e
+      raise ValueError(f'Having issue pickling arg: {arg}, {type(arg)}') from e
   result_kwargs = {}
   for k, v in kwargs.items():
     try:
@@ -787,10 +787,16 @@ class Worker:
         buffer_size=buffer_size,
         name=name,
     )
-    logging.info('chainable: %s async iter constructed.', self.server_name)
+    logging.info('chainable: %s remote iterator constructed.', self.server_name)
     async for batch in remote_iterator:
       yield batch
       batch_cnt += 1
+      logging.debug(
+          'chainable: "%s" async iter yield %d batch of a type %s.',
+          self.server_name,
+          batch_cnt,
+          type(batch),
+      )
     logging.info(
         'chainable: remote iterator at %s exhausted after %d batches',
         self.server_name,
@@ -894,7 +900,7 @@ class WorkerPool:
         workers = self.workers
         # Proceed if reached minimum number of workers.
         if len(workers) >= minimum_num_workers:
-          logging.info('chainable: Available workers: %d', len(workers))
+          logging.info('chainable: pool connected %d workers', len(workers))
           return
       except Exception as e:  # pylint: disable=broad-exception-caught
         logging.warning('chainable: exception when connecting: %s', type(e))

@@ -228,8 +228,9 @@ class OrchestrateTest(absltest.TestCase):
     self.assertEqual(results['stats'].count, 1000)
 
   def test_run_pipelines_interleaved_default(self):
+    total_examples = 1001
     runner_state = orchestrate.run_pipeline_interleaved(
-        sharded_pipeline(total_numbers=1001, batch_size=32),
+        sharded_pipeline(total_numbers=total_examples, batch_size=32),
         master_server=courier_server.CourierServerWrapper('master_interleaved'),
         ignore_failures=False,
         resources={
@@ -244,14 +245,14 @@ class OrchestrateTest(absltest.TestCase):
     result_queue = runner_state.result_queue
     cnt = mit.ilen(result_queue.dequeue_as_iterator())
     runner_state.wait_and_maybe_raise()
-    self.assertEqual(cnt, 32)  # ceil(1001/32) = 32 batches.
+    self.assertEqual(cnt, int(total_examples / 32) + 1)
     self.assertLen(result_queue.returned, 1)
     agg_result = result_queue.returned[0]
     self.assertIsInstance(agg_result, chainable.AggregateResult)
     results = agg_result.agg_result
     self.assertIn('stats', results)
     self.assertIsInstance(results['stats'], rolling_stats.MeanAndVariance)
-    self.assertEqual(results['stats'].count, 1001)
+    self.assertEqual(results['stats'].count, total_examples)
 
   def test_run_pipelines_interleaved_raises(self):
     pipeline = (

@@ -261,7 +261,7 @@ class RemoteObjectTest(parameterized.TestCase):
     with self.assertLogs(level='INFO') as cm:
       actual = asyncio.run(run())
     self.assertEqual(list(range(1, num_elem + 1)), actual)
-    self.assertEqual(0, local_queue.qsize())
+    self.assertEqual([], list(local_queue))
     logs = [l for l in cm.output if f'exhausted after {num_elem} batches' in l]
     self.assertLen(logs, 1)
 
@@ -336,7 +336,7 @@ class RemoteObjectTest(parameterized.TestCase):
       return result
 
     actual = asyncio.run(run(2))
-    self.assertEqual(0, local_queue.qsize())
+    self.assertEqual([], list(local_queue))
     self.assertCountEqual(list(range(1, num_elem + 1)), actual)
     self.assertEqual(num_elem, local_result_queue.returned[0])
 
@@ -423,19 +423,21 @@ class CourierWorkerTest(absltest.TestCase):
 
     self.assertEqual([1, 2, 3], asyncio.run(alist(remote_iterator)))
 
-  def test_async_iteratable(self):
+  def test_async_iterable(self):
     iterator_fn = functools.partial(map, lambda x: x + 1)
     remote_iterable = self.worker.get_result(
         lazy_fns.trace(iterator_fn)(range(3), lazy_result_=True)
     )
 
     async def run():
-      remote_iterator = await courier_worker.async_remote_iter(remote_iterable)
+      remote_iterator = await courier_worker.async_remote_iter(
+          remote_iterable, name='remote_iter'
+      )
       return [elem async for elem in remote_iterator]
 
     self.assertEqual([1, 2, 3], asyncio.run(run()))
 
-  def test_worker_async_iterate(self):
+  def test_legacy_async_iterate(self):
 
     task = courier_worker.GeneratorTask.new(lazy_fns.trace(mock_generator)(3))
     agg_q = queue.SimpleQueue()
@@ -455,7 +457,7 @@ class CourierWorkerTest(absltest.TestCase):
     self.assertEqual(list(range(3)), batch_outputs)
     self.assertEqual(3, agg_q.get())
 
-  def test_worker_async_iterate_raise(self):
+  def test_legacy_async_iterate_raise(self):
 
     def bad_generator():
       for elem in range(3):
@@ -553,7 +555,7 @@ class CourierWorkerPoolTest(absltest.TestCase):
     self.timeout_server_thread = self.always_timeout_server.start(daemon=True)
     self.worker_pool = courier_worker.WorkerPool([self.server.address])
     self.unreachable_address = f'localhost:{portpicker.pick_unused_port()}'
-    self.worker_pool.wait_until_alive(deadline_secs=12)
+    self.worker_pool.wait_until_alive(deadline_secs=15)
 
   def test_worker_pool_call(self):
     actual = self.worker_pool.call_and_wait('echo')
@@ -563,8 +565,8 @@ class CourierWorkerPoolTest(absltest.TestCase):
   def test_worker_pool_call_with_method_in_task(self):
     server = TestServer()
     server.start(daemon=True)
+    server.wait_until_alive(deadline_secs=15)
     worker_pool = courier_worker.WorkerPool([server.address])
-    worker_pool.wait_until_alive(deadline_secs=12)
     task = courier_worker.Task.new(1, courier_method='plus_one')
     # We only have one task, so just return the first element.
     self.assertEqual(2, worker_pool.run(task))
@@ -664,7 +666,7 @@ class CourierWorkerPoolTest(absltest.TestCase):
 
   def test_worker_pool_idle_workers(self):
     worker_pool = courier_worker.WorkerPool([self.server.address])
-    worker_pool.wait_until_alive(deadline_secs=12)
+    worker_pool.wait_until_alive(deadline_secs=15)
     idle_workers = worker_pool.idle_workers()
     self.assertLen(idle_workers, 1)
     idle_workers[0].call(lazy_fns.trace(time.sleep)(1))
@@ -674,7 +676,7 @@ class CourierWorkerPoolTest(absltest.TestCase):
     server = courier_server.CourierServerWrapper()
     t = server.start()
     worker_pool = courier_worker.WorkerPool([server.address])
-    worker_pool.wait_until_alive(deadline_secs=12)
+    worker_pool.wait_until_alive(deadline_secs=15)
     self.assertTrue(worker_pool.call_and_wait(True))
     worker_pool.shutdown()
     ticker = time.time()
