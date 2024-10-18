@@ -40,19 +40,6 @@ def _cached_server(name: str | None = None, *, timeout_secs: float = 10200):
   return result
 
 
-def make_remote_iterator(
-    iterator: base_types.MaybeResolvable[Iterable[_T]],
-    *,
-    server_addr: str,
-) -> courier_worker.RemoteIterator[_T]:
-  """Constructs a remote iterator given a maybe lazy iterator."""
-  iterator = lazy_fns.maybe_make(iterator)
-  # Creates a local iterator that can be served as remote iterator.
-  return courier_worker.RemoteIterator(
-      courier_worker.RemoteObject.new(iter(iterator), worker=server_addr)
-  )
-
-
 def make_remote_object(
     q: base_types.MaybeResolvable[iter_utils.IteratorQueue[_T]],
     *,

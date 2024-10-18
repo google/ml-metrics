@@ -135,19 +135,15 @@ class CourierServerTest(parameterized.TestCase):
       self.assertEqual(list(range(6)), actual)
     self.assertRegex(cm.output[0], '.*Traceback.*')
 
-  def test_make_remote_iterator(self):
-    remote_iterator = courier_server.make_remote_iterator(
-        range(10), server_addr=self.server.address
+  def test_make_remote_queue(self):
+    local_queue = iter_utils.IteratorQueue(name='input')
+    num_elem = 30
+    local_queue.enqueue_from_iterator(range(num_elem))
+    remote_queue = courier_server.make_remote_queue(
+        local_queue, server_addr=self.server.address
     )
-    self.assertEqual(list(remote_iterator), list(range(10)))
-    self.assertEqual(list(remote_iterator), [])
-
-  def test_make_remote_iterator_lazy(self):
-    remote_iterator = courier_server.make_remote_iterator(
-        lazy_fns.trace(range)(10), server_addr=self.server.address
-    )
-    self.assertEqual(list(range(10)), list(remote_iterator))
-    self.assertEqual([], list(remote_iterator))
+    self.assertEqual(list(range(num_elem)), list(remote_queue))
+    self.assertEqual([], list(remote_queue))
 
 
 if __name__ == '__main__':

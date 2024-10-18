@@ -316,19 +316,6 @@ class RemoteObject(Generic[_T], base_types.Resolvable[_T]):
         self.value[key], worker=self.worker_addr, call_timeout=self.call_timeout
     )
 
-  # TODO: b/356633410 - Replaces RemoteIterator with RemoteIteratorQueue using
-  # courier_server.make_remote_queue.
-  def __iter__(self) -> RemoteIterator:
-    remote_iterator = self.worker.get_result(
-        lazy_fns.trace(iter)(self.value, lazy_result_=True)
-    )
-    return RemoteIterator(remote_iterator)
-
-  # TODO: b/356633410 - Replaces RemoteIterator with RemoteIteratorQueue using
-  # courier_server.make_remote_queue.
-  def __aiter__(self) -> RemoteIterator:
-    return self.__iter__()
-
 
 class RemoteIteratorQueue(iter_utils.AsyncIterableQueue[_T]):
   """Remote iterator queue that implements AsyncIteratorQueue interfaces."""
@@ -347,31 +334,6 @@ class RemoteIteratorQueue(iter_utils.AsyncIterableQueue[_T]):
   async def async_get(self):
     logging.debug('chainable: remote queue "%s" async_get', self.name)
     return await self._queue.get().async_result_()
-
-
-class RemoteIterator(Iterator[_T]):
-  """A local iterator that iterate through remote iterator."""
-
-  iterator: RemoteObject[Iterator[_T]]
-
-  def __init__(self, iterator: RemoteObject[Iterator[_T]]):
-    self.iterator = iterator
-
-  def __next__(self) -> _T:
-    return self.iterator.worker.get_result(
-        lazy_fns.trace(next)(self.iterator.value)
-    )
-
-  def __iter__(self):
-    return self
-
-  async def __anext__(self) -> _T:
-    return await self.iterator.worker.async_get_result(
-        lazy_fns.trace(next)(self.iterator.value)
-    )
-
-  def __aiter__(self):
-    return self
 
 
 async def async_remote_iter(
@@ -999,9 +961,13 @@ class WorkerPool:
   def run(self, task: lazy_fns.LazyFn | Task) -> Any:
     """Run lazy object or task within the worker pool."""
     self.wait_until_alive()
-    worker = self.next_idle_worker(maybe_acquire=True)
-    if worker is None:
-      raise ValueError('No worker is available.')
+    worker = None
+    start_time = time.time()
+    while worker is None:
+      worker = self.next_idle_worker(maybe_acquire=True)
+      time.sleep(0)
+      if time.time() - start_time > 180:
+        raise ValueError('No worker is available.')
     # Always set blocking to True as run is blocking.
     task = Task.maybe_as_task(task).set(blocking=True)
     result = worker.submit(task).result()
