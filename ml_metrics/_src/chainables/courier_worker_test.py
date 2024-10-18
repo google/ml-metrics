@@ -225,30 +225,14 @@ class RemoteObjectTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       asyncio.run(self.worker.async_get_result(lazy_fns.trace(foo)()))
 
-  def test_async_remote_iterator_iterate_elemnwise(self):
-    remote_iterable = self.worker.submit(
-        lazy_fns.trace(range)(3, lazy_result_=True)
-    ).result()
-    self.assertIsInstance(remote_iterable, courier_worker.RemoteObject)
-
-    async def run():
-      remote_iterator = aiter(remote_iterable)  # pytype: disable=name-error
-      self.assertIsInstance(remote_iterator, courier_worker.RemoteIterator)
-      self.assertIs(aiter(remote_iterator), remote_iterator)  # pytype: disable=name-error
-      return [elem async for elem in remote_iterator]
-
-    self.assertEqual([0, 1, 2], asyncio.run(run()))
-    # 2nd iteration on an exhausted iterator.
-    self.assertEqual([0, 1, 2], asyncio.run(run()))
-
   def test_remote_iterator_as_input_iterator(self):
     # Constructs a local queue and let remote worker dequeue from it.
     local_queue = iter_utils.IteratorQueue(name='input')
     num_elem = 30
     local_queue.enqueue_from_iterator(range(num_elem))
     # input_iterator is remote and lives in local server.
-    input_iterator = courier_server.make_remote_iterator(
-        local_queue.dequeue_as_iterator(), server_addr=self.server.address
+    input_iterator = courier_server.make_remote_queue(
+        local_queue, server_addr=self.server.address
     )
     iterator_fn = functools.partial(map, lambda x: x + 1)
 
@@ -264,22 +248,6 @@ class RemoteObjectTest(parameterized.TestCase):
     self.assertEqual([], list(local_queue))
     logs = [l for l in cm.output if f'exhausted after {num_elem} batches' in l]
     self.assertLen(logs, 1)
-
-  def test_remote_iterator_iterate_elemnwise(self):
-    remote_iterable = self.worker.submit(
-        lazy_fns.trace(range)(3, lazy_result_=True)
-    ).result()
-    self.assertIsInstance(remote_iterable, courier_worker.RemoteObject)
-    remote_iterator = iter(remote_iterable)
-    self.assertIsInstance(remote_iterator, courier_worker.RemoteIterator)
-    self.assertIs(iter(remote_iterator), remote_iterator)
-    self.assertEqual([0, 1, 2], list(remote_iterator))
-    # 2nd iteration on an exhausted iterator.
-    self.assertEqual([], list(remote_iterator))
-
-    self.assertEqual([0, 1, 2], list(remote_iterable))
-    # Iterable allows repeated traversing.
-    self.assertEqual([0, 1, 2], list(remote_iterable))
 
   def test_remote_iterator_iterate_remotely(self):
     remote_iterable = self.worker.submit(
