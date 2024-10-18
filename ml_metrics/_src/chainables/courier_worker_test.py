@@ -27,6 +27,7 @@ import portpicker
 
 # For test, accelerate the heartbeat interval.
 courier_worker._HRTBT_INTERVAL_SECS = 0.1
+courier_worker._HRTBT_THRESHOLD_SECS = 1
 Task = courier_worker.Task
 
 
@@ -37,6 +38,15 @@ def setUpModule():
   courier_server._cached_server('RemoteObject')
   courier_server._cached_server('CourierWorker')
   courier_server._cached_server('WorkerPool')
+
+
+def tearDownModule():
+  # Required for BNS resolution.
+  testutil.SetupMockBNS()
+  # Setup the server for the test group below.
+  courier_server._cached_server('RemoteObject').stop().join()
+  courier_server._cached_server('CourierWorker').stop().join()
+  courier_server._cached_server('WorkerPool').stop().join()
 
 
 def lazy_q_fn(n, stop=False):

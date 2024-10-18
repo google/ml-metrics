@@ -22,11 +22,19 @@ from ml_metrics._src.utils import iter_utils
 
 # For test, accelerate the heartbeat interval.
 courier_worker._HRTBT_INTERVAL_SECS = 0.1
+courier_worker._HRTBT_THRESHOLD_SECS = 1
 pickler = lazy_fns.pickler
 
 
 def setUpModule():
   testutil.SetupMockBNS()
+
+
+def tearDownModule():
+  server = courier_server._cached_server()
+  w = courier_worker.cached_worker(server.address)
+  assert not w.pendings, f'{w.pendings=}'
+  server.stop().join()
 
 
 class TestServer(courier_server.CourierServerWrapper):

@@ -20,7 +20,6 @@ import asyncio
 from collections.abc import AsyncIterator, Iterable, Iterator
 from concurrent import futures
 import dataclasses as dc
-import functools
 import queue
 import random
 import threading
@@ -40,12 +39,8 @@ from ml_metrics._src.utils import iter_utils
 _HRTBT_INTERVAL_SECS = 15
 _LOGGING_INTERVAL_SEC = 30
 _NUM_TOTAL_FAILURES_THRESHOLD = 60
+_HRTBT_THRESHOLD_SECS = 15
 _T = TypeVar('_T')
-
-
-@functools.lru_cache
-def _cached_client(addr: str, call_timeout: int):
-  return courier.Client(addr, call_timeout=call_timeout)
 
 
 @func_utils.lru_cache(settable_kwargs=('max_parallelism', 'iterate_batch_size'))
@@ -54,7 +49,7 @@ def cached_worker(
     *,
     call_timeout: float | None = None,
     max_parallelism: int = 1,
-    heartbeat_threshold_secs: float = 180,
+    heartbeat_threshold_secs: float = _HRTBT_THRESHOLD_SECS,
     iterate_batch_size: int = 1,
 ):
   return Worker(
@@ -458,6 +453,8 @@ class Worker:
   iterate_batch_size: int
   _call_timeout: float | None
   _lock: threading.Lock
+  # "_states_lock" guards all the variables below.
+  _states_lock: threading.RLock
   _worker_pool: WorkerPool | None
   _client: courier.Client
   _pendings: list[StateWithTime]
@@ -471,7 +468,7 @@ class Worker:
       *,
       call_timeout: float | None = 60,
       max_parallelism: int = 1,
-      heartbeat_threshold_secs: float = 180,
+      heartbeat_threshold_secs: float = _HRTBT_THRESHOLD_SECS,
       iterate_batch_size: int = 1,
   ):
     self.server_name = server_name or ''
@@ -480,6 +477,7 @@ class Worker:
     self.iterate_batch_size = iterate_batch_size
     self._call_timeout = call_timeout
     self._lock = threading.Lock()
+    self._states_lock = threading.RLock()
     self._worker_pool = None
     self._refresh_courier_client()
     self._heartbeat = StateWithTime(
@@ -490,16 +488,13 @@ class Worker:
 
   def _refresh_courier_client(self):
     assert self.server_name, f'empty server_name: "{self.server_name}"'
-    logging.debug(
-        'chainable: refreshing courier client at %s', self.server_name
-    )
+    logging.debug('chainable: refresh courier client at %s', self.server_name)
     self._client = courier.Client(
         self.server_name, call_timeout=self.call_timeout
     )
     self._heartbeat_client = courier.Client(
         self.server_name,
         call_timeout=self.heartbeat_threshold_secs,
-        wait_for_ready=False,
     )
 
   @property
@@ -529,10 +524,11 @@ class Worker:
     self.set_timeout(call_timeout)
 
   def set_timeout(self, call_timeout: float):
-    self._call_timeout = call_timeout
-    self._client = _cached_client(
-        self.server_name, call_timeout=self.call_timeout
-    )
+    with self._states_lock:
+      self._call_timeout = call_timeout
+      self._client = courier.Client(
+          self.server_name, call_timeout=self.call_timeout
+      )
 
   def is_available(self, worker_pool: WorkerPool) -> bool:
     """Checks whether the worker is available to the worker pool."""
@@ -548,17 +544,19 @@ class Worker:
       self, worker_pool: WorkerPool, *, blocking: bool = False
   ) -> bool:
     """Acquires the worker if not acquired already."""
-    if self._worker_pool is not worker_pool and self._lock.acquire(
-        blocking=blocking
-    ):
-      self._worker_pool = worker_pool
-    return self._worker_pool is worker_pool
+    with self._states_lock:
+      if self._worker_pool is not worker_pool and self._lock.acquire(
+          blocking=blocking
+      ):
+        self._worker_pool = worker_pool
+      return self._worker_pool is worker_pool
 
   def release(self):
     """Releases the worker."""
-    if self._lock.locked():
-      self._lock.release()
-    self._worker_pool = None
+    with self._states_lock:
+      if self._lock.locked():
+        self._lock.release()
+      self._worker_pool = None
 
   @property
   def has_capacity(self) -> bool:
@@ -634,16 +632,18 @@ class Worker:
   @property
   def is_alive(self) -> bool:
     """Checks whether the worker is alive."""
-    if not self._is_heartbeat_fresh():
-      # No last heartbeat recorded, consider it not alive temporarily.
-      self._send_heartbeat()
-      return False
-    return True
+    with self._states_lock:
+      if not self._is_heartbeat_fresh():
+        # No last heartbeat recorded, consider it not alive temporarily.
+        self._send_heartbeat()
+        return False
+      return True
 
   @property
   def pendings(self) -> list[StateWithTime]:
     """Returns the states that are not done."""
-    return [p for p in self._pendings if not p.state.done()]
+    with self._states_lock:
+      return [p for p in self._pendings if not p.state.done()]
 
   def call(
       self, *args, courier_method: str = 'maybe_make', **kwargs
@@ -651,8 +651,9 @@ class Worker:
     """Low level courier call ignoring capacity and lock."""
     args, kwargs = _normalize_args(args, kwargs)
     assert self._client is not None
-    state = getattr(self._client.futures, courier_method)(*args, **kwargs)
-    self._pendings.append(StateWithTime(state, time.time()))
+    with self._states_lock:
+      state = getattr(self._client.futures, courier_method)(*args, **kwargs)
+      self._pendings.append(StateWithTime(state, time.time()))
     return state
 
   def _result_or_exception(self, pickled: bytes) -> Any | Exception:
@@ -733,8 +734,9 @@ class Worker:
   ) -> AsyncIterator[Any]:
     """Iterates the generator task."""
     # Artificially insert a pending state to block other tasks.
-    generator_state = futures.Future()
-    self._pendings.append(StateWithTime(generator_state, time.time()))
+    with self._states_lock:
+      generator_state = futures.Future()
+      self._pendings.append(StateWithTime(generator_state, time.time()))
     batch_cnt = 0
     try:
       init_state = self.call(
@@ -999,9 +1001,13 @@ class WorkerPool:
   def run(self, task: lazy_fns.LazyFn | Task) -> Any:
     """Run lazy object or task within the worker pool."""
     self.wait_until_alive()
-    worker = self.next_idle_worker(maybe_acquire=True)
-    if worker is None:
-      raise ValueError('No worker is available.')
+    worker = None
+    start_time = time.time()
+    while worker is None:
+      worker = self.next_idle_worker(maybe_acquire=True)
+      time.sleep(0)
+      if time.time() - start_time > 180:
+        raise ValueError('No worker is available.')
     # Always set blocking to True as run is blocking.
     task = Task.maybe_as_task(task).set(blocking=True)
     result = worker.submit(task).result()

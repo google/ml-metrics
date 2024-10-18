@@ -178,13 +178,17 @@ class CourierServerWrapper:
     def heartbeat() -> None:
       self._stats['last_heartbeat'] = time.time()
 
+    def shutdown() -> None:
+      # This ignores the returned thread for remote operation.
+      self.stop()
+
     assert self._server is not None, 'Server is not built.'
     self._server.Bind('maybe_make', pickled_maybe_make)
     self._server.Bind('init_generator', pickled_init_iterator)
     self._server.Bind('next_from_generator', next_from_iterator)
     self._server.Bind('next_batch_from_generator', next_batch_from_iterator)
     self._server.Bind('heartbeat', heartbeat)
-    self._server.Bind('shutdown', self.stop)
+    self._server.Bind('shutdown', shutdown)
     # TODO: b/318463291 - Add unit tests.
     self._server.Bind('clear_cache', transform.clear_cache)
     self._server.Bind('cache_info', pickled_cache_info)
@@ -237,6 +241,7 @@ class CourierServerWrapper:
   def stop(self):
     """Stop the server."""
     self._shutdown_requested = True
+    return self._thread
 
   def wait_until_alive(self, deadline_secs: float = 120):
     """Wait until the server is alive."""
