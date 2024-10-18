@@ -36,7 +36,13 @@ SERVER_ADDRS = [f'server_{i}' for i in range(2)]
 def setUpModule():
   # Required for BNS resolution.
   testutil.SetupMockBNS()
-  _ = [courier_server._cached_server(addr) for addr in SERVER_ADDRS]
+  for addr in SERVER_ADDRS:
+    courier_server._cached_server(addr)
+
+
+def tearDownModule():
+  for addr in SERVER_ADDRS:
+    courier_server._cached_server(addr).stop().join()
 
 
 def sharded_ones(
@@ -229,7 +235,7 @@ class OrchestrateTest(absltest.TestCase):
 
   def test_run_pipelines_interleaved_default(self):
     total_examples = 1001
-    runner_state = orchestrate.run_pipeline_interleaved(
+    with orchestrate.run_pipeline_interleaved(
         sharded_pipeline(total_numbers=total_examples, batch_size=32),
         master_server=courier_server.CourierServerWrapper('master_interleaved'),
         ignore_failures=False,
@@ -241,10 +247,9 @@ class OrchestrateTest(absltest.TestCase):
             ),
             'agg': orchestrate.RunnerResource(timeout=15),
         },
-    )
-    result_queue = runner_state.result_queue
-    cnt = mit.ilen(result_queue.dequeue_as_iterator())
-    runner_state.wait_and_maybe_raise()
+    ) as runner:
+      result_queue = runner.result_queue
+      cnt = mit.ilen(result_queue)
     self.assertEqual(cnt, int(total_examples / 32) + 1)
     self.assertLen(result_queue.returned, 1)
     agg_result = result_queue.returned[0]
@@ -268,7 +273,7 @@ class OrchestrateTest(absltest.TestCase):
     )
     with self.assertRaises(ValueError):
       master_server = courier_server.CourierServerWrapper('master_raises')
-      runner_state = orchestrate.run_pipeline_interleaved(
+      with orchestrate.run_pipeline_interleaved(
           pipeline,
           master_server=master_server,
           ignore_failures=False,
@@ -278,8 +283,8 @@ class OrchestrateTest(absltest.TestCase):
                   buffer_size=1,
               ),
           },
-      )
-      runner_state.wait_and_maybe_raise()
+      ) as runner:
+        mit.ilen(runner.result_queue)
 
 
 if __name__ == '__main__':
