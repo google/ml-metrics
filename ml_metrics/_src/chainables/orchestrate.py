@@ -157,6 +157,7 @@ class RunnerState:
   event_loop: asyncio.AbstractEventLoop
   event_loop_thread: threading.Thread
   master_server: courier_server.CourierServerWrapper
+  thread_pool: futures.ThreadPoolExecutor
 
   @property
   def progress(self) -> iter_utils.Progress | None:
@@ -202,6 +203,7 @@ class RunnerState:
           raise ValueError(
               f'chainable: stage {i} failed, stage: {s.name}'
           ) from e
+    self.thread_pool.shutdown()
     return result
 
 
@@ -241,6 +243,7 @@ def _async_run_single_stage(
       resource.buffer_size,
       timeout=resource.timeout,
       name=f'{transform.name}(output)',
+      thread_pool=thread_pool,
   )
 
   def iterate_with_worker_pool():
@@ -267,15 +270,13 @@ def _async_run_single_stage(
     # Make sure the master is connectable before starting the workers.
     master_server.wait_until_alive(deadline_secs=180)
     ticker = time.time()
-    while not result_q.exhausted or iterating:
+    while not result_q.enqueue_done or iterating:
       # Check the workerpool requirements and set up a new one when needed.
-      # No input_queue is considered has input because the transform itself is
-      # a datasource operation.
-      has_input = input_queue is None or input_queue.qsize()
       num_workers = len(iterating)
       # At least schedule min_workers and maximum max_workers when there are
       # still input left.
-      if num_workers < min_workers or (has_input and num_workers < max_workers):
+      still_need_workers = (input_queue and num_workers < max_workers)
+      if num_workers < min_workers or still_need_workers:
         workers = list(set(worker_pool.workers) - set(iterating))
         random.shuffle(workers)
         worker = worker_pool.next_idle_worker(workers, maybe_acquire=True)
@@ -304,9 +305,11 @@ def _async_run_single_stage(
             )
             raise exc
           logging.info(
-              'chainable: worker %s released, remaining %d.',
+              'chainable: worker %s released, remains %d, "%s" enqueue_done=%s',
               worker.server_name,
               len(iterating),
+              result_q.name,
+              result_q.enqueue_done,
           )
       if time.time() - ticker > _LOGGING_INTERVAL_SECS:
         logging.info(
@@ -381,6 +384,7 @@ def run_pipeline_interleaved(
       event_loop=event_loop,
       event_loop_thread=event_loop_thread,
       master_server=master_server,
+      thread_pool=thread_pool,
   )
 
 
