@@ -572,8 +572,7 @@ class Worker:
     if self._heartbeat.state.done() and _is_heartbeat_stale(self._heartbeat):
       # It is possible the client is stale, e.g., server is started after the
       # client is created. This is only applicable for the first heartbeat.
-      if not self._last_heartbeat:
-        self._refresh_courier_client()
+      self._refresh_courier_client()
       heatbeat_future = self._heartbeat_client.futures.heartbeat()
       self._heartbeat = StateWithTime(heatbeat_future, time.time())
       self._pendings.append(self._heartbeat)
