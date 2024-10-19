@@ -194,6 +194,7 @@ class RunnerState:
     return results
 
   def wait_and_maybe_raise(self):
+    """Wait for the pipeline to finish and raise the first exception."""
     result = self.wait()
     for i, s in enumerate(self.stages):
       if s.state.done() and s.state.exception():
@@ -204,6 +205,8 @@ class RunnerState:
               f'chainable: stage {i} failed, stage: {s.name}'
           ) from e
     self.thread_pool.shutdown()
+    if t := self.master_server.stop():
+      t.join()
     return result
 
 

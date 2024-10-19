@@ -238,7 +238,7 @@ class CourierServerWrapper:
     self._thread = server_thread
     return server_thread
 
-  def stop(self):
+  def stop(self) -> threading.Thread | None:
     """Stop the server."""
     self._shutdown_requested = True
     return self._thread

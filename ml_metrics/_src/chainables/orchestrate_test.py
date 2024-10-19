@@ -36,7 +36,13 @@ SERVER_ADDRS = [f'server_{i}' for i in range(2)]
 def setUpModule():
   # Required for BNS resolution.
   testutil.SetupMockBNS()
-  _ = [courier_server._cached_server(addr) for addr in SERVER_ADDRS]
+  for addr in SERVER_ADDRS:
+    courier_server._cached_server(addr)
+
+
+def tearDownModule():
+  for addr in SERVER_ADDRS:
+    courier_server._cached_server(addr).stop().join()
 
 
 def sharded_ones(
