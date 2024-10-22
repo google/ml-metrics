@@ -143,8 +143,9 @@ def sharded_pipelines_as_iterator(
 
 @dataclasses.dataclass(kw_only=True)
 class StageState:
-  state: futures.Future[Any]
+  fn: Callable[..., Any]
   result_queue: iter_utils.IteratorQueue[Any]
+  state: futures.Future[Any] = futures.Future()
   name: str = ''
   progress: iter_utils.Progress | None = None
 
@@ -162,6 +163,17 @@ class RunnerState:
   @property
   def progress(self) -> iter_utils.Progress | None:
     return self.stages[-1].progress if self.stages else None
+
+  def __enter__(self):
+    self.run()
+    return self
+
+  def __exit__(self, *args):
+    self.wait_and_maybe_raise()
+
+  def run(self):
+    for stage in self.stages:
+      stage.state = self.thread_pool.submit(stage.fn)
 
   def wait(self, mode=futures.FIRST_EXCEPTION):
     result = futures.wait(
@@ -347,7 +359,7 @@ def _async_run_single_stage(
 
   iter_fn = iterate_with_worker_pool if worker_pool else iterate_in_process
   return StageState(
-      state=thread_pool.submit(iter_fn),
+      fn=iter_fn,
       result_queue=result_q,
       name=transform.name,
       progress=result_q.progress,
