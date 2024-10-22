@@ -29,6 +29,7 @@ import portpicker
 
 # For test, accelerate the heartbeat interval.
 courier_worker._HRTBT_INTERVAL_SECS = 0.1
+courier_worker._HRTBT_THRESHOLD_SECS = 1
 
 SERVER_ADDRS = [f'server_{i}' for i in range(2)]
 

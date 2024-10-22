@@ -39,7 +39,7 @@ from ml_metrics._src.utils import iter_utils
 _HRTBT_INTERVAL_SECS = 15
 _LOGGING_INTERVAL_SEC = 30
 _NUM_TOTAL_FAILURES_THRESHOLD = 60
-_HRTBT_THRESHOLD_SECS = 15
+_HRTBT_THRESHOLD_SECS = 180
 _T = TypeVar('_T')
 
 
@@ -1080,6 +1080,9 @@ class WorkerPool:
         if task.done():
           if exc := task.exception():
             if isinstance(exc, TimeoutError) or is_timeout(exc):
+              logging.warning(
+                  'chainable: task disconnected, worker: %s', task.worker
+              )
               disconnected_tasks.append(task)
             else:
               logging.exception(
@@ -1094,6 +1097,9 @@ class WorkerPool:
           if task.is_alive:
             still_running_tasks.append(task)
           else:
+            logging.warning(
+                'chainable: worker disconnected, worker: %s', task.worker
+            )
             disconnected_tasks.append(task)
       running_tasks = still_running_tasks
 
