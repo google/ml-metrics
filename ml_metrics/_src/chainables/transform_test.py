@@ -1144,6 +1144,31 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual([13.5], actual_fn())
     self.assertEqual([13.5], actual_fn(input_iterator=input_iterator))
 
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='no_threads',
+          num_threads=0,
+      ),
+      dict(
+          testcase_name='with_one_thread',
+          num_threads=1,
+      ),
+      dict(
+          testcase_name='with_threads',
+          num_threads=8,
+      ),
+  ])
+  def test_transform_with_multiple_threads(self, num_threads):
+    inputs = [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
+    p = (
+        transform.TreeTransform.new(num_threads=num_threads)
+        .data_source(iterator=MockGenerator(inputs))
+        .apply(fn=lambda x: x)
+        .aggregate(fn=MockAverageFn())
+    )
+    actual = p.make()()
+    self.assertEqual([3.0], actual)
+
   def test_prefetched_iterator(self):
     inputs = [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
     p = (

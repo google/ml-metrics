@@ -66,6 +66,7 @@ def sharded_pipeline(
     batch_size: int,
     shard_index: int = 0,
     num_shards: int = 1,
+    num_threads: int = 0,
 ):
   return (
       chainable.Pipeline.new(name='datasource')
@@ -78,7 +79,7 @@ def sharded_pipeline(
           )
       )
       .chain(
-          chainable.Pipeline.new(name='apply').apply(
+          chainable.Pipeline.new(name='apply', num_threads=num_threads).apply(
               fn=lambda batch_size: np.random.randint(100, size=batch_size),
           )
       )
@@ -246,9 +247,11 @@ class OrchestrateTest(parameterized.TestCase):
       ),
   ])
   def test_run_pipelines_interleaved_default(self, with_worker):
-    total_examples = 1001
+    total_examples = 10001
     with orchestrate.run_pipeline_interleaved(
-        sharded_pipeline(total_numbers=total_examples, batch_size=32),
+        sharded_pipeline(
+            total_numbers=total_examples, batch_size=32, num_threads=8
+        ),
         master_server=courier_server.CourierServerWrapper('master_interleaved'),
         ignore_failures=False,
         resources={

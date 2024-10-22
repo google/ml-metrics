@@ -18,6 +18,7 @@ from concurrent import futures
 import itertools as it
 import queue
 import threading
+import time
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -370,6 +371,27 @@ class UtilsTest(parameterized.TestCase):
     expected_outputs = [np.array(x) + 1 for x in expected_orignal]
     np.testing.assert_array_equal(expected_orignal, original)
     np.testing.assert_array_equal(expected_outputs, outputs)
+
+  def test_piter(self):
+    n = 256
+    input_iter = iter_utils.IteratorQueue()
+    input_iter.enqueue_from_iterator(range(n))
+
+    def foo():
+      yield from input_iter
+
+    actual = list(iter_utils.piter(foo, max_parallism=256))
+    self.assertCountEqual(list(range(n)), actual)
+
+  def test_pmap(self):
+
+    def foo(x):
+      time.sleep(0.5)
+      return x + 1
+
+    n = 256
+    actual = list(iter_utils.pmap(foo, range(n), max_parallism=256))
+    self.assertCountEqual(list(range(1, n + 1)), actual)
 
 
 if __name__ == '__main__':

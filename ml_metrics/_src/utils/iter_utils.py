@@ -306,7 +306,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
     if enqueue_done:
       # Unblock dequeue since there is no more values to dequeue.
       with self._dequeue_lock:
-        logging.debug('chainable: %s dequeue done, notify all', self.name)
+        logging.debug('chainable: %s enqueue done, notify all', self.name)
         self._dequeue_lock.notify_all()
 
   def enqueue_from_iterator(self, iterator: Iterable[_ValueT]):
@@ -422,6 +422,59 @@ class _AsyncDequeueIterator:
 
   def __aiter__(self):
     return self
+
+
+def piter(
+    iterator_fn: Callable[..., Iterable[_ValueT]],
+    input_iterator: Iterable[Any] | None = None,
+    *,
+    max_parallism: int = 8,
+    buffer_size: int = 64,
+    thread_pool: futures.ThreadPoolExecutor | None = None,
+) -> Iterable[_ValueT]:
+  """Call a chain of functions in sequence concurrently with multithreads.
+
+  Args:
+    iterator_fn: A generator function that takes an iterable as input.
+    input_iterator: The input iterator to be passed to the iterator_fn.
+    max_parallism: The maximum number of threads to be used.
+    buffer_size: The buffer size of the queue.
+    thread_pool: The thread pool to be used. If None, a new thread pool will be
+      created.
+
+  Returns:
+    An iterable that iterates through the chain of functions.
+  """
+  output_q = IteratorQueue(buffer_size)
+  input_q = None
+  pool = thread_pool or futures.ThreadPoolExecutor()
+  if input_iterator is not None:
+    input_q = IteratorQueue(buffer_size)
+    pool.submit(input_q.enqueue_from_iterator, input_iterator)
+  for _ in range(max_parallism):
+    if input_q is not None:
+      it = iterator_fn(input_q)
+    else:
+      it = iterator_fn()
+    pool.submit(output_q.enqueue_from_iterator, it)
+  return output_q
+
+
+def pmap(
+    fn: Callable[..., Any],
+    input_iterator: Iterable[Any] = (),
+    *,
+    max_parallism: int = 8,
+    buffer_size: int = 64,
+    thread_pool: futures.ThreadPoolExecutor | None = None,
+):
+  return piter(
+      lambda x: map(fn, x),
+      input_iterator,
+      max_parallism=max_parallism,
+      buffer_size=buffer_size,
+      thread_pool=thread_pool,
+  )
 
 
 def is_stop_iteration(e: Exception) -> bool:
