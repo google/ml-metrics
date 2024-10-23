@@ -73,9 +73,7 @@ def tearDownModule():
   for addr in SERVER_ADDRS:
     threads.append(courier_server._cached_server(addr).stop())
   threads.append(ALWAYS_TIMEOUT_SERVER.stop())
-  for t in threads:
-    if t:
-      t.join()
+  _ = [t.join() for t in threads if t]
 
 
 def sharded_ones(
@@ -217,14 +215,14 @@ class RunAsCompletedTest(absltest.TestCase):
     self.assertEmpty(shared_worker_pool.acquired_workers)
 
 
-class OrchestrateTest(parameterized.TestCase):
+class RunShardedIteratorTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.worker_pool = courier_worker.WorkerPool(SERVER_ADDRS)
+    self.worker_pool = courier_worker.WorkerPool(SERVER_ADDRS, call_timeout=6)
     self.worker_pool.wait_until_alive(deadline_secs=12)
 
-  def test_sharded_pipelines_as_iterator(self):
+  def test_iterator(self):
     results_queue = queue.SimpleQueue()
     for elem in orchestrate.sharded_pipelines_as_iterator(
         self.worker_pool,
@@ -243,6 +241,14 @@ class OrchestrateTest(parameterized.TestCase):
     self.assertIsInstance(results['stats'], rolling_stats.MeanAndVariance)
     self.assertEqual(results['stats'].count, 1000)
 
+
+class RunInterleavedTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.worker_pool = courier_worker.WorkerPool(SERVER_ADDRS, call_timeout=6)
+    self.worker_pool.wait_until_alive(deadline_secs=12)
+
   @parameterized.named_parameters([
       dict(
           testcase_name='in_process',
@@ -253,7 +259,7 @@ class OrchestrateTest(parameterized.TestCase):
           with_worker=True,
       ),
   ])
-  def test_run_pipelines_interleaved_default(self, with_worker):
+  def test_default_config(self, with_worker):
     total_examples = 1001
     with orchestrate.run_pipeline_interleaved(
         sharded_pipeline(
@@ -281,7 +287,7 @@ class OrchestrateTest(parameterized.TestCase):
     self.assertIsInstance(results['stats'], rolling_stats.MeanAndVariance)
     self.assertEqual(results['stats'].count, total_examples)
 
-  def test_run_pipelines_interleaved_raises(self):
+  def test_raises_value_error(self):
     pipeline = (
         chainable.Pipeline.new()
         .data_source(
