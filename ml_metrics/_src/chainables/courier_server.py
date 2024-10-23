@@ -87,7 +87,7 @@ class CourierServerWrapper:
   timeout_secs: float
   _server: courier.Server | None
   _thread: threading.Thread | None
-  _stats: dict[str, float]
+  _last_heartbeat: float
   _shutdown_requested: bool
   _generator: iter_utils.PrefetchedIterator | None
 
@@ -105,7 +105,7 @@ class CourierServerWrapper:
     self.timeout_secs = timeout_secs
     self._server = None
     self._thread = None
-    self._stats = {}
+    self._last_heartbeat = 0.0
     self._shutdown_requested = False
     self._generator = None
 
@@ -193,7 +193,7 @@ class CourierServerWrapper:
       return pickler.dumps(_next_batch_from_iterator(batch_size=1)[0])
 
     def heartbeat() -> None:
-      self._stats['last_heartbeat'] = time.time()
+      self._last_heartbeat = time.time()
 
     def shutdown() -> None:
       # This ignores the returned thread for remote operation.
@@ -228,9 +228,9 @@ class CourierServerWrapper:
     assert self._server is not None, 'Server is not built.'
     if not self._server.has_started:
       self._server.Start()
-    self._stats['last_heartbeat'] = time.time()
+    self._last_heartbeat = time.time()
     while not self._shutdown_requested:
-      if time.time() - self._stats['last_heartbeat'] > self.timeout_secs:
+      if time.time() - self._last_heartbeat > self.timeout_secs:
         logging.info('chainable: no ping after %ds.', self.timeout_secs)
         self._shutdown_requested = True
       if self._generator:
