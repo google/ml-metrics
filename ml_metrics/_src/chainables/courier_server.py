@@ -219,10 +219,7 @@ class CourierServerWrapper:
       if self._generator:
         self._generator.prefetch()
       time.sleep(0)
-    logging.info(
-        'chainable: Shutdown requested, shutting down server %s',
-        self._server.address,
-    )
+    logging.info('chainable: Shutdown requested for server %s', self.address)
     self._server.Stop()
     self._server = None
 

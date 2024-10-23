@@ -441,7 +441,7 @@ def as_completed(
           preferred.discard(task.worker)
           if isinstance(exc, TimeoutError) or courier_worker.is_timeout(exc):
             logging.warning(
-                'chainable: deadline exceeded at %s.',
+                'chainable: deadline exceeded at %s, retrying task.',
                 task.server_name,
             )
             tasks.append(task)

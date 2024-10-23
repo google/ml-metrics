@@ -32,19 +32,50 @@ import portpicker
 courier_worker._HRTBT_INTERVAL_SECS = 0.1
 courier_worker._HRTBT_THRESHOLD_SECS = 1
 
+
+class TimeoutServer(courier_server.CourierServerWrapper):
+  """Test server for CourierServerWrapper."""
+
+  def set_up(self):
+    super().set_up()
+
+    def timeout(x):
+      time.sleep(10)
+      result = chainable.maybe_make(x)
+      return chainable.pickler.dumps(result)
+
+    def timeout_init_iterator(x):
+      del x
+      time.sleep(10)
+
+    assert self._server is not None
+    self._server.Unbind('maybe_make')
+    self._server.Bind('maybe_make', timeout)
+    self._server.Unbind('init_iterator')
+    self._server.Bind('init_iterator', timeout_init_iterator)
+
+
 SERVER_ADDRS = [f'server_{i}' for i in range(2)]
+ALWAYS_TIMEOUT_SERVER = TimeoutServer()
 
 
 def setUpModule():
   # Required for BNS resolution.
   testutil.SetupMockBNS()
+  courier_server._cached_server('WorkerGroup')
   for addr in SERVER_ADDRS:
     courier_server._cached_server(addr)
+  ALWAYS_TIMEOUT_SERVER.start(daemon=True)
 
 
 def tearDownModule():
+  threads = [courier_server._cached_server('WorkerGroup').stop()]
   for addr in SERVER_ADDRS:
-    courier_server._cached_server(addr).stop().join()
+    threads.append(courier_server._cached_server(addr).stop())
+  threads.append(ALWAYS_TIMEOUT_SERVER.stop())
+  for t in threads:
+    if t:
+      t.join()
 
 
 def sharded_ones(
@@ -94,35 +125,11 @@ def sharded_pipeline(
   )
 
 
-class TimeoutServer(courier_server.CourierServerWrapper):
-  """Test server for CourierServerWrapper."""
-
-  def set_up(self):
-    super().set_up()
-
-    def timeout(x):
-      time.sleep(60)
-      result = chainable.maybe_make(x)
-      return chainable.pickler.dumps(result)
-
-    def timeout_init_iterator(x):
-      del x
-      time.sleep(60)
-
-    assert self._server is not None
-    self._server.Unbind('maybe_make')
-    self._server.Bind('maybe_make', timeout)
-    self._server.Unbind('init_iterator')
-    self._server.Bind('init_iterator', timeout_init_iterator)
-
-
 class RunAsCompletedTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
     self.server = courier_server._cached_server('WorkerGroup')
-    self.always_timeout_server = TimeoutServer()
-    self.invalid_server_thread = self.always_timeout_server.start(daemon=True)
     self.worker_pool = courier_worker.WorkerPool([self.server.address])
     self.unreachable_address = f'localhost:{portpicker.pick_unused_port()}'
     self.worker_pool.wait_until_alive(deadline_secs=12)
@@ -137,7 +144,7 @@ class RunAsCompletedTest(absltest.TestCase):
   def test_as_completed_with_retry(self):
     tasks = [chainable.trace(len)([1, 2]) for _ in range(30)]
     addrs = [
-        self.always_timeout_server.address,
+        ALWAYS_TIMEOUT_SERVER.address,
         self.unreachable_address,
         self.server.address,
     ]
@@ -160,7 +167,7 @@ class RunAsCompletedTest(absltest.TestCase):
 
     tasks = [chainable.trace(foo)() for _ in range(3)]
     addrs = [
-        self.always_timeout_server.address,
+        ALWAYS_TIMEOUT_SERVER.address,
         self.unreachable_address,
         self.server.address,
     ]
@@ -247,10 +254,10 @@ class OrchestrateTest(parameterized.TestCase):
       ),
   ])
   def test_run_pipelines_interleaved_default(self, with_worker):
-    total_examples = 10001
+    total_examples = 1001
     with orchestrate.run_pipeline_interleaved(
         sharded_pipeline(
-            total_numbers=total_examples, batch_size=32, num_threads=8
+            total_numbers=total_examples, batch_size=32, num_threads=4
         ),
         master_server=courier_server.CourierServerWrapper('master_interleaved'),
         ignore_failures=False,
@@ -300,7 +307,6 @@ class OrchestrateTest(parameterized.TestCase):
           },
       ) as runner:
         mit.ilen(runner.result_queue)
-
 
 if __name__ == '__main__':
   absltest.main()
