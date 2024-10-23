@@ -13,7 +13,6 @@
 # limitations under the License.
 """Courier server that can run a chainable."""
 
-import dataclasses
 import threading
 import time
 from typing import Any, Iterable, TypeVar
@@ -79,21 +78,39 @@ def make_remote_queue(
   )
 
 
-@dataclasses.dataclass
 class CourierServerWrapper:
   """Courier server that runs a chainable."""
 
-  server_name: str | None = None
-  port: int | None = None
-  prefetch_size: int = 2
-  timeout_secs: float = 10200
-  _server: courier.Server | None = None
-  _thread: threading.Thread | None = None
-  _stats: dict[str, float] = dataclasses.field(default_factory=dict)
-  _shutdown_requested: bool = False
-  _generator: iter_utils.PrefetchedIterator | None = dataclasses.field(
-      default=None, init=False
-  )
+  server_name: str | None
+  port: int | None
+  prefetch_size: int
+  timeout_secs: float
+  _server: courier.Server | None
+  _thread: threading.Thread | None
+  _stats: dict[str, float]
+  _shutdown_requested: bool
+  _generator: iter_utils.PrefetchedIterator | None
+
+  def __init__(
+      self,
+      server_name: str | None = None,
+      *,
+      port: int | None = None,
+      prefetch_size: int = 2,
+      timeout_secs: float = 10200,
+  ):
+    self.server_name = server_name
+    self.port = port
+    self.prefetch_size = prefetch_size
+    self.timeout_secs = timeout_secs
+    self._server = None
+    self._thread = None
+    self._stats = {}
+    self._shutdown_requested = False
+    self._generator = None
+
+  def __str__(self):
+    return f'CourierServer("{self.address}")'
 
   @property
   def address(self) -> str:
