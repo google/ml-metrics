@@ -118,7 +118,7 @@ class CourierServerTest(parameterized.TestCase):
     client.init_generator(pickler.dumps(lazy_fns.trace(test_generator)(10)))
     actual = []
     while True:
-      states = pickler.loads(client.next_batch_from_generator())
+      states = pickler.loads(client.next_batch_from_generator(2))
       if states and iter_utils.is_stop_iteration(states[-1]):
         actual.extend(states[:-1])
         returned = states[-1].value
