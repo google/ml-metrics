@@ -241,18 +241,21 @@ class IteratorQueue(IterableQueue[_ValueT]):
     with self._dequeue_lock:
       while True:
         try:
-          result = self.get_nowait()
-          break
+          value = self.get_nowait()
+          self._dequeue_lock.release()
+          try:
+            with self._enqueue_lock:
+              self._enqueue_lock.notify()
+          finally:
+            self._dequeue_lock.acquire()
+          logging.debug('chainable: "%s" dequeued a %s', self.name, type(value))
+          return value
         except (queue.Empty, asyncio.QueueEmpty) as e:
           logging.debug('chainable: "%s" dequeue empty, waiting', self.name)
           if self._dequeue_lock.wait(timeout=self.timeout):
             logging.debug('chainable: "%s" dequeue retry', self.name)
             continue
           raise TimeoutError(f'Dequeue timeout={self.timeout}secs.') from e
-    with self._enqueue_lock:
-      self._enqueue_lock.notify()
-    logging.debug('chainable: "%s" dequeued a %s', self.name, type(result))
-    return result
 
   def put_nowait(self, value: _ValueT) -> None:
     """Puts a value to the queue, raieses if queue is full immediately."""
@@ -272,14 +275,18 @@ class IteratorQueue(IterableQueue[_ValueT]):
       while True:
         try:
           self.put_nowait(value)
+          self._enqueue_lock.release()
+          try:
+            with self._dequeue_lock:
+              self._dequeue_lock.notify()
+          finally:
+            self._enqueue_lock.acquire()
           break
         except (queue.Full, asyncio.QueueFull) as e:
           logging.debug('chainable: %s enqueue full, waiting', self.name)
           if self._enqueue_lock.wait(timeout=self.timeout):
             continue
           raise TimeoutError(f'Enqueue timeout={self.timeout}secs.') from e
-    with self._dequeue_lock:
-      self._dequeue_lock.notify()
 
   def _start_enqueue(self):
     with self._states_lock:
