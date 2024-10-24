@@ -370,6 +370,7 @@ class CourierWorkerTest(absltest.TestCase):
 
   def test_worker_not_started(self):
     server = courier_server._cached_server('unknown_worker')
+    server.wait_until_alive(deadline_secs=12)
     worker = courier_worker.cached_worker(
         'unknown_worker', heartbeat_threshold_secs=1, call_timeout=0.1
     )
@@ -528,9 +529,9 @@ class CourierWorkerTest(absltest.TestCase):
 
   def test_worker_shutdown(self):
     server = courier_server.CourierServerWrapper()
-    server.build_server()
     t = server.start()
     worker = courier_worker.cached_worker(server.address)
+    worker.wait_until_alive(deadline_secs=12)
     self.assertTrue(worker.call(True))
     self.assertTrue(t.is_alive())
     worker.shutdown()
@@ -725,11 +726,12 @@ class CourierWorkerPoolTest(parameterized.TestCase):
       if time.time() - ticker > 10:
         self.fail('Server is not shutdown after 10 seconds.')
 
-  def test_worker_pool_failed_to_start(self):
-    server = courier_server.CourierServerWrapper('bad_server')
-    thread = server.start()
-    courier_worker.Worker('bad_server').shutdown()
-    thread.join()
+  def test_worker_pool_fail_to_start(self):
+    server = courier_server._cached_server('bad_server')
+    worker = courier_worker.Worker('bad_server', heartbeat_threshold_secs=1)
+    worker.wait_until_alive(deadline_secs=12)
+    if t := server.stop():
+      t.join()
 
     worker_pool = courier_worker.WorkerPool(
         ['bad_server'],
