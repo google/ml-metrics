@@ -556,7 +556,7 @@ class TestServer(courier_server.CourierServerWrapper):
     self._server.Bind('plus_one', plus_one)
 
 
-class CourierWorkerPoolTest(absltest.TestCase):
+class CourierWorkerPoolTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -566,6 +566,36 @@ class CourierWorkerPoolTest(absltest.TestCase):
     self.worker_pool = courier_worker.WorkerPool([self.server.address])
     self.unreachable_address = f'localhost:{portpicker.pick_unused_port()}'
     self.worker_pool.wait_until_alive(deadline_secs=15)
+
+  @parameterized.named_parameters([
+      dict(testcase_name='from_workers'),
+      dict(
+          testcase_name='with_different_timeout',
+          workerpool_params=dict(call_timeout=1),
+      ),
+      dict(
+          testcase_name='with_different_max_parallelism',
+          workerpool_params=dict(max_parallelism=1),
+      ),
+      dict(
+          testcase_name='with_different_heartbeat_threshold_secs',
+          workerpool_params=dict(heartbeat_threshold_secs=1),
+      ),
+      dict(
+          testcase_name='with_different_iterate_batch_size',
+          workerpool_params=dict(iterate_batch_size=1),
+      ),
+  ])
+  def test_worker_pool_construct_from_workers(self, workerpool_params=None):
+    workerpool_params = workerpool_params or {}
+    worker_pool = courier_worker.WorkerPool(
+        self.worker_pool.all_workers, **workerpool_params
+    )
+    assert len(worker_pool.all_workers) == 1
+    worker = worker_pool.all_workers[0]
+    self.assertIsNot(worker, self.worker_pool.all_workers[0])
+    for x in workerpool_params:
+      self.assertEqual(getattr(worker, x), workerpool_params[x])
 
   def test_worker_pool_call(self):
     actual = self.worker_pool.call_and_wait('echo')

@@ -19,6 +19,7 @@ import abc
 import asyncio
 from collections.abc import AsyncIterator, Iterable, Iterator
 from concurrent import futures
+import copy
 import dataclasses as dc
 import queue
 import random
@@ -43,7 +44,13 @@ _HRTBT_THRESHOLD_SECS = 180
 _T = TypeVar('_T')
 
 
-@func_utils.lru_cache(settable_kwargs=('max_parallelism', 'iterate_batch_size'))
+@func_utils.lru_cache(
+    settable_kwargs=(
+        'max_parallelism',
+        'iterate_batch_size',
+        'heartbeat_threshold_secs',
+    )
+)
 def cached_worker(
     addr: str,
     *,
@@ -52,6 +59,7 @@ def cached_worker(
     heartbeat_threshold_secs: float = _HRTBT_THRESHOLD_SECS,
     iterate_batch_size: int = 1,
 ):
+  """Returns a courier worker and cache it if possible."""
   return Worker(
       addr,
       call_timeout=call_timeout,
@@ -836,15 +844,17 @@ class WorkerPool:
       iterate_batch_size: int = 0,
   ):
     if all(isinstance(name, str) for name in names_or_workers):
-      self._workers = [cached_worker(name) for name in names_or_workers]
+      workers = [cached_worker(name) for name in names_or_workers]
     elif all(isinstance(worker, Worker) for worker in names_or_workers):
-      self._workers = typing.cast(list[Worker], list(names_or_workers))
+      workers = typing.cast(list[Worker], list(names_or_workers))
     else:
       raise TypeError(
           'Expected either a list of names or a list of workers, got'
           f' {names_or_workers}'
       )
-    for worker in self._workers:
+    self._workers = []
+    for worker in workers:
+      worker = copy.copy(worker)
       worker.call_timeout = call_timeout or worker.call_timeout
       worker.max_parallelism = max_parallelism or worker.max_parallelism
       worker.heartbeat_threshold_secs = (
@@ -853,6 +863,7 @@ class WorkerPool:
       worker.iterate_batch_size = (
           iterate_batch_size or worker.iterate_batch_size
       )
+      self._workers.append(worker)
 
   @property
   def server_names(self) -> list[str]:
