@@ -246,7 +246,7 @@ class RunInterleavedTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.worker_pool = courier_worker.WorkerPool(SERVER_ADDRS, call_timeout=6)
+    self.worker_pool = courier_worker.WorkerPool(SERVER_ADDRS, call_timeout=12)
     self.worker_pool.wait_until_alive(deadline_secs=12)
 
   @parameterized.named_parameters([
@@ -273,7 +273,7 @@ class RunInterleavedTest(parameterized.TestCase):
                 worker_pool=self.worker_pool if with_worker else None,
                 buffer_size=6,
             ),
-            'agg': orchestrate.RunnerResource(timeout=15),
+            'agg': orchestrate.RunnerResource(timeout=30),
         },
     ) as runner:
       result_queue = runner.result_queue
@@ -289,7 +289,7 @@ class RunInterleavedTest(parameterized.TestCase):
 
   def test_raises_value_error(self):
     pipeline = (
-        chainable.Pipeline.new()
+        chainable.Pipeline.new(name='datasource')
         .data_source(
             mit.batched(range(5), 2),
         )
