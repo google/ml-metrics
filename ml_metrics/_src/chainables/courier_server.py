@@ -110,7 +110,10 @@ class CourierServerWrapper:
     self._generator = None
 
   def __str__(self):
-    return f'CourierServer("{self.address}")'
+    addr = self.server_name or ''
+    if self._server is not None:
+      addr += f'@{self._server.address}'
+    return f'CourierServer("{addr}")'
 
   @property
   def address(self) -> str:

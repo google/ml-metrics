@@ -57,8 +57,23 @@ class CourierServerTest(parameterized.TestCase):
     self.server = courier_server._cached_server()
     self.server.wait_until_alive(deadline_secs=12)
 
-  def test_server_str(self):
-    self.assertRegex(str(self.server), r'CourierServer\(\"localhost\:\d+\"\)')
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='unnamed',
+          server_name=None,
+          expected_regex=r'CourierServer\(\"@localhost\:\d+\"\)',
+      ),
+      dict(
+          testcase_name='named',
+          server_name='named_server',
+          expected_regex=r'CourierServer\(\"named_server@localhost\:\d+\"\)',
+      ),
+  ])
+  def test_server_str(
+      self, server_name: str | None, expected_regex: str | None
+  ):
+    server = courier_server._cached_server(server_name)
+    self.assertRegex(str(server), expected_regex)
 
   def test_courier_server_maybe_make(self):
     client = courier.Client(self.server.address, call_timeout=1)
