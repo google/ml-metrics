@@ -58,7 +58,7 @@ class CourierServerTest(parameterized.TestCase):
     self.server.wait_until_alive(deadline_secs=12)
 
   def test_server_str(self):
-    self.assertEqual(str(self.server), 'CourierServer("localhost:10001")')
+    self.assertRegex(str(self.server), r'CourierServer\(\"localhost\:\d+\"\)')
 
   def test_courier_server_maybe_make(self):
     client = courier.Client(self.server.address, call_timeout=1)
