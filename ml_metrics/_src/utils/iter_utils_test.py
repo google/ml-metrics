@@ -59,8 +59,11 @@ class MockIterable:
     return iter(self._iteratable)
 
 
-def range_with_return(n):
-  yield from range(n)
+def range_with_return(n, sleep: float = 0):
+  for i in range(n):
+    if sleep:
+      time.sleep(sleep)
+    yield i
   return n
 
 
@@ -199,6 +202,44 @@ class UtilsTest(parameterized.TestCase):
     self.assertEqual(2, iterator.cnt)
     self.assertEqual([0, 1], iterator.flush_prefetched())
     self.assertEqual(list(range(2, 10)), list(iterator))
+
+  def test_iterator_queue_flush_raises(self):
+    def range_with_exc(n):
+      yield from range(n)
+      raise ValueError('foo')
+
+    iterator = iter_utils.IteratorQueue(2)
+    with futures.ThreadPoolExecutor() as thread_pool:
+      thread_pool.submit(iterator.enqueue_from_iterator, range_with_exc(10))
+      with self.assertRaises(ValueError):
+        _ = iterator.flush(block=True)
+
+  def test_iterator_queue_flush_normal(self):
+    iterator = iter_utils.IteratorQueue(2)
+    result = []
+    with futures.ThreadPoolExecutor() as thread_pool:
+      thread_pool.submit(iterator.enqueue_from_iterator, range_with_return(10))
+      qsize = iterator._queue.qsize()
+      result += iterator.flush()
+      result += iterator.flush(2, block=True)
+      result += iterator.flush(block=True)
+    self.assertLessEqual(qsize, 2)
+    self.assertEqual(list(range(10)), result)
+    self.assertEqual([10], iterator.returned)
+
+  def test_iterator_queue_flush_early_stop(self):
+    iterator = iter_utils.IteratorQueue()
+    num_examples = 3
+    with futures.ThreadPoolExecutor() as thread_pool:
+      thread_pool.submit(
+          iterator.enqueue_from_iterator, range_with_return(10, sleep=0.25)
+      )
+      while iterator._queue.qsize() < num_examples:
+        time.sleep(0)
+      iterator.stop_enqueue()
+      result = iterator.flush(block=True)
+    self.assertGreaterEqual(len(result), num_examples)
+    self.assertLess(len(result), 10)
 
   @parameterized.named_parameters([
       dict(
