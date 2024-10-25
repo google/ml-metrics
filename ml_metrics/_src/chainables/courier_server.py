@@ -29,6 +29,7 @@ from ml_metrics._src.utils import iter_utils
 
 _T = TypeVar('_T')
 pickler = lazy_fns.pickler
+_INTERVAL_SECS = 30
 
 
 @func_utils.lru_cache(settable_kwargs=('timeout_secs',))
@@ -88,8 +89,9 @@ class CourierServerWrapper:
   _server: courier.Server | None
   _thread: threading.Thread | None
   _last_heartbeat: float
-  _shutdown_requested: bool
   _generator: iter_utils.PrefetchedIterator | None
+  _shutdown_lock: threading.Condition
+  _shutdown_requested: bool
 
   def __init__(
       self,
@@ -106,6 +108,7 @@ class CourierServerWrapper:
     self._server = None
     self._thread = None
     self._last_heartbeat = 0.0
+    self._shutdown_lock = threading.Condition()
     self._shutdown_requested = False
     self._generator = None
 
@@ -138,9 +141,7 @@ class CourierServerWrapper:
           raise e
         result = e
         if isinstance(e, (ValueError, TypeError, RuntimeError)):
-          logging.exception(
-              'chainable: server side exception for %s.', lazy_obj
-          )
+          logging.exception('chainable: maybe_make exception for %s.', lazy_obj)
       if isinstance(result, lazy_fns.LazyObject):
         result = courier_worker.RemoteObject.new(result, worker=self.address)
       try:
@@ -148,7 +149,7 @@ class CourierServerWrapper:
       except TypeError as e:
         lazy_obj = f'{lazy_fns.pickler.loads(maybe_lazy)}'
         logging.exception(
-            'chainable: server side pickle error for %s from %s',
+            'chainable: maybe_make pickle error for %s from %s',
             type(result),
             lazy_obj,
         )
@@ -169,6 +170,8 @@ class CourierServerWrapper:
           result,
           prefetch_size=self.prefetch_size,
       )
+      with self._shutdown_lock:
+        self._shutdown_lock.notify_all()
 
     def pickled_cache_info():
       return pickler.dumps(lazy_fns.cache_info())
@@ -200,6 +203,8 @@ class CourierServerWrapper:
 
     def shutdown() -> None:
       # This ignores the returned thread for remote operation.
+      # Cannot directly call self.stop() because this will not return a response
+      # to the client.
       self.stop()
 
     assert self._server is not None, 'Server is not built.'
@@ -221,7 +226,7 @@ class CourierServerWrapper:
     self._shutdown_requested = False
     self._server = courier.Server(self.server_name, port=self.port)
     self.set_up()
-    logging.info('chainable: constructed server %s', self.address)
+    logging.info('chainable: constructed server %s', self)
     return self._server
 
   # TODO: b/372935688 - Makes this optional, and uses to start() and stop().
@@ -229,19 +234,23 @@ class CourierServerWrapper:
     """Run until shutdown requested."""
     self.build_server()
     assert self._server is not None, 'Server is not built.'
-    if not self._server.has_started:
+    if not self.has_started:
       self._server.Start()
     self._last_heartbeat = time.time()
-    while not self._shutdown_requested:
-      if time.time() - self._last_heartbeat > self.timeout_secs:
-        logging.info('chainable: no ping after %ds.', self.timeout_secs)
-        self._shutdown_requested = True
-      if self._generator:
-        self._generator.prefetch()
-      time.sleep(0)
-    logging.info('chainable: Shutdown requested for server %s', self.address)
-    self._server.Stop()
-    self._server = None
+    with self._shutdown_lock:
+      while not self._shutdown_requested:
+        if time.time() - self._last_heartbeat > self.timeout_secs:
+          logging.info('chainable: no ping after %ds.', self.timeout_secs)
+          self._shutdown_requested = True
+        if self._generator:
+          self._generator.prefetch()
+          self._shutdown_lock.wait(0)
+          continue
+        self._shutdown_lock.wait(_INTERVAL_SECS)
+    if self.has_started:
+      logging.info('chainable: Shutting down for server %s', self)
+      self._server.Stop()
+      self._server = None
 
   def start(self, *, daemon: bool = None) -> threading.Thread:
     """Start the server from a different thread."""
@@ -257,7 +266,9 @@ class CourierServerWrapper:
 
   def stop(self) -> threading.Thread | None:
     """Stop the server."""
-    self._shutdown_requested = True
+    with self._shutdown_lock:
+      self._shutdown_requested = True
+      self._shutdown_lock.notify_all()
     return self._thread
 
   def wait_until_alive(self, deadline_secs: float = 120):
