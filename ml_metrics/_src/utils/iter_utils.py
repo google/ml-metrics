@@ -40,10 +40,10 @@ class _QueueLike(Protocol[_ValueT]):
   """Protocol of the same interfaces of queue.Queue."""
 
   def get_nowait(self) -> _ValueT:
-    """Similar to queue.Queue().get_nowait."""
+    """Same as queue.Queue().get_nowait."""
 
   def put_nowait(self, value: _ValueT):
-    """Similar to queue.Queue().put_nowait."""
+    """Same as queue.Queue().put_nowait."""
 
 
 STOP_ITERATION = StopIteration()
@@ -133,11 +133,41 @@ def _async_get(iterator_queue: IterableQueue):
     raise StopAsyncIteration(*e.args) from e
 
 
+def _release_and_notify(
+    lock: threading.Lock | threading.Condition | threading.RLock,
+    notify: threading.Condition,
+    notify_all: bool = False,
+):
+  """Temporarily releases the lock and notifies the notify_lock."""
+  lock.release()
+  try:
+    with notify:
+      if notify_all:
+        notify.notify_all()
+      else:
+        notify.notify()
+  finally:
+    lock.acquire()
+
+
 class IteratorQueue(IterableQueue[_ValueT]):
-  """Enqueue elements from an iterator and record exhausted and returned."""
+  """Enqueue elements from an iterator and record exhausted and returned.
+
+  Attributes:
+    name: The name of the queue.
+    timeout: The timeout in seconds for enqueue and dequeue.
+    ignore_error: Whether to ignore errors during enqueue and dequeue.
+    exhausted: Whether the queue is exhausted.
+    exception: The exception raised during enqueue.
+    enqueue_done: Whether all the enqueue threads exhausted their input
+      iterators.
+    returned: The values returned from the input generators.
+    progress: The progress of the queue.
+  """
 
   timeout: float | None
   name: str
+  ignore_error: bool
   _queue: _QueueLike[_ValueT]
   # The lock here manages enqueue (put) and dequeue (get).
   _enqueue_lock: threading.Condition
@@ -149,6 +179,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
   _exception: Exception | None
   _progress: Progress
   _exhausted: bool
+  _run_enqueue: bool
 
   def __init__(
       self,
@@ -156,6 +187,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
       *,
       name: str = '',
       timeout: float | None = None,
+      ignore_error: bool = False,
   ):
     if isinstance(queue_or_size, int):
       self._queue = self._default_queue(queue_or_size)
@@ -171,6 +203,8 @@ class IteratorQueue(IterableQueue[_ValueT]):
     self._exception = None
     self._exhausted = False
     self._iterator_cnt = None
+    self._run_enqueue = True
+    self.ignore_error = ignore_error
 
   @classmethod
   def _default_queue(cls, maxsize: int) -> _QueueLike[_ValueT]:
@@ -242,12 +276,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
       while True:
         try:
           value = self.get_nowait()
-          self._dequeue_lock.release()
-          try:
-            with self._enqueue_lock:
-              self._enqueue_lock.notify()
-          finally:
-            self._dequeue_lock.acquire()
+          _release_and_notify(self._dequeue_lock, notify=self._enqueue_lock)
           logging.debug('chainable: "%s" dequeued a %s', self.name, type(value))
           return value
         except (queue.Empty, asyncio.QueueEmpty) as e:
@@ -256,6 +285,32 @@ class IteratorQueue(IterableQueue[_ValueT]):
             logging.debug('chainable: "%s" dequeue retry', self.name)
             continue
           raise TimeoutError(f'Dequeue timeout={self.timeout}secs.') from e
+
+  def flush(self, batch_size: int = 0, *, block: bool = False) -> list[_ValueT]:
+    """Flushes the queue, raises Empty immediately if empty and non-blocking."""
+    result = []
+    run_until_exhausted = not batch_size
+    with self._dequeue_lock:
+      while run_until_exhausted or len(result) < batch_size:
+        try:
+          result.append(self.get_nowait())
+          _release_and_notify(self._dequeue_lock, notify=self._enqueue_lock)
+        except StopIteration:
+          break
+        except (queue.Empty, asyncio.QueueEmpty) as e:
+          if not block:
+            break
+          logging.debug('chainable: "%s" flush empty, waiting', self.name)
+          if self._dequeue_lock.wait(timeout=self.timeout):
+            logging.debug('chainable: "%s" flush retry', self.name)
+            continue
+          raise TimeoutError(f'Flush timeout={self.timeout}secs.') from e
+        except Exception as e:  # pylint: disable=broad-exception-caught
+          if self.ignore_error:
+            return result
+          raise e
+    logging.debug('chainable: flush_prefetched: %s', len(result))
+    return result
 
   def put_nowait(self, value: _ValueT) -> None:
     """Puts a value to the queue, raieses if queue is full immediately."""
@@ -272,16 +327,11 @@ class IteratorQueue(IterableQueue[_ValueT]):
   def put(self, value: _ValueT) -> None:
     """Puts a value to the queue, waits for timeout if queue is full."""
     with self._enqueue_lock:
-      while True:
+      while self._run_enqueue:
         try:
           self.put_nowait(value)
-          self._enqueue_lock.release()
-          try:
-            with self._dequeue_lock:
-              self._dequeue_lock.notify()
-          finally:
-            self._enqueue_lock.acquire()
-          break
+          _release_and_notify(self._enqueue_lock, notify=self._dequeue_lock)
+          return
         except (queue.Full, asyncio.QueueFull) as e:
           logging.debug('chainable: %s enqueue full, waiting', self.name)
           if self._enqueue_lock.wait(timeout=self.timeout):
@@ -296,7 +346,6 @@ class IteratorQueue(IterableQueue[_ValueT]):
 
   def _stop_enqueue(self, *values):
     """Stops enqueueing and records the returned values."""
-    enqueue_done = False
     with self._states_lock:
       self._iterator_cnt -= 1
       if self._iterator_cnt < 0:
@@ -309,18 +358,26 @@ class IteratorQueue(IterableQueue[_ValueT]):
           self.exception is not None,
       )
       if self.enqueue_done:
-        enqueue_done = True
-    if enqueue_done:
-      # Unblock dequeue since there is no more values to dequeue.
-      with self._dequeue_lock:
+        _release_and_notify(
+            self._states_lock, notify=self._dequeue_lock, notify_all=True
+        )
         logging.debug('chainable: %s enqueue done, notify all', self.name)
-        self._dequeue_lock.notify_all()
+
+  def stop_enqueue(self):
+    self._run_enqueue = False
+    with self._states_lock:
+      self._iterator_cnt = 0
+    with self._enqueue_lock:
+      self._enqueue_lock.notify_all()
+    with self._dequeue_lock:
+      self._dequeue_lock.notify_all()
 
   def enqueue_from_iterator(self, iterator: Iterable[_ValueT]):
     """Iterates through a generator while enqueue its elements."""
     iterator = iter(iterator)
     self._start_enqueue()
-    while True:
+    self._run_enqueue = True
+    while self._run_enqueue:
       try:
         self.put(next(iterator))
       except StopIteration as e:
@@ -329,9 +386,10 @@ class IteratorQueue(IterableQueue[_ValueT]):
       except Exception as e:  # pylint: disable=broad-exception-caught
         e.add_note(f'Exception during enqueueing "{self.name}".')
         logging.exception('chainable: "%s" enqueue failed.', self.name)
-        with self._states_lock:
-          self._exception = e
+        self._exception = e
         self._stop_enqueue()
+        if self.ignore_error:
+          return
         raise e
 
 
@@ -356,7 +414,14 @@ class _DequeueIterator:
 
 
 class AsyncIteratorQueue(IteratorQueue[_ValueT], AsyncIterableQueue[_ValueT]):
-  """A queue that can enqueue from and dequeue to an iterator."""
+  """A queue that can enqueue from and dequeue to an iterator.
+
+  Attributes:
+    name: The name of the queue.
+    timeout: The timeout in seconds for enqueue and dequeue.
+    thread_pool: The thread pool to be used for enqueue and dequeue.
+    ignore_error: Whether to ignore errors during enqueue and dequeue.
+  """
   _thread_pool: futures.ThreadPoolExecutor | None
 
   def __init__(
@@ -366,11 +431,13 @@ class AsyncIteratorQueue(IteratorQueue[_ValueT], AsyncIterableQueue[_ValueT]):
       name: str = '',
       timeout: float | None = None,
       thread_pool: futures.ThreadPoolExecutor | None = None,
+      ignore_error: bool = False,
   ):
     super().__init__(
         queue_or_size=queue_or_size,
         name=name,
         timeout=timeout,
+        ignore_error=ignore_error,
     )
     self._thread_pool = thread_pool
 
@@ -403,9 +470,10 @@ class AsyncIteratorQueue(IteratorQueue[_ValueT], AsyncIterableQueue[_ValueT]):
       except Exception as e:  # pylint: disable=broad-exception-caught
         e.add_note(f'Exception during async enqueueing {self.name}')
         logging.exception('chainable: %s enqueue failed.', self.name)
-        with self._states_lock:
-          self._exception = e
+        self._exception = e
         self._stop_enqueue()
+        if self.ignore_error:
+          return
         raise e
 
 
@@ -488,6 +556,7 @@ def is_stop_iteration(e: Exception) -> bool:
   return e is STOP_ITERATION or isinstance(e, StopIteration)
 
 
+# TODO: b/375249519 - Deprecate this in favor of IteratorQueue.
 class PrefetchedIterator:
   """An iterator that can also prefetch before iterated."""
 

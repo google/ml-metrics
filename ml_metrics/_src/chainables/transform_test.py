@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from collections.abc import Callable, Iterable
+from concurrent import futures
 import dataclasses
 import functools
 import itertools
@@ -1184,6 +1185,22 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual(inputs[:2], iterator.flush_prefetched())
     self.assertEqual([inputs[-1]], list(iterator))
     self.assertEqual([3.0], iterator.returned.agg_result)
+
+  def test_iterator_queue_with_transform(self):
+    inputs = [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
+    p = (
+        transform.TreeTransform.new()
+        .data_source(iterator=MockGenerator(inputs))
+        .aggregate(fn=MockAverageFn())
+    )
+    iterator = iter_utils.IteratorQueue(2)
+    with futures.ThreadPoolExecutor() as thread_pool:
+      thread_pool.submit(
+          iterator.enqueue_from_iterator, p.make().iterate(with_agg_result=True)
+      )
+      result = iterator.flush(block=True)
+    self.assertEqual(inputs, result)
+    self.assertEqual([3.0], iterator.returned[0].agg_result)
 
 
 if __name__ == '__main__':
