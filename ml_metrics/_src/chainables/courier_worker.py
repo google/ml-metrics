@@ -538,9 +538,11 @@ class Worker:
           self.server_name, call_timeout=self.call_timeout
       )
 
-  def is_available(self, worker_pool: WorkerPool) -> bool:
+  # TODO: b/375668959 - Revamp _locker as a normal thread lock and uses
+  # worker_pool to indicate the lock owner.
+  def is_available(self, worker_pool: WorkerPool | None = None) -> bool:
     """Checks whether the worker is available to the worker pool."""
-    return not self._lock.locked() or (self._worker_pool is worker_pool)
+    return not self._lock.locked() or self._worker_pool is worker_pool
 
   def is_locked(self, worker_pool: WorkerPool | None = None) -> bool:
     """Checks whether the worker is locked optionally with a worker pool."""
@@ -603,6 +605,7 @@ class Worker:
   def wait_until_alive(
       self,
       deadline_secs: float = 0.0,
+      check_capacity: bool = False,
   ):
     """Waits for the worker to be alive with retries."""
     if self.is_alive:
@@ -610,7 +613,8 @@ class Worker:
     ticker = time.time()
     deadline_secs = deadline_secs or self.heartbeat_threshold_secs
     while (delta_time := time.time() - ticker) < deadline_secs:
-      if self.is_alive:
+      has_capacity_ = not check_capacity or self.has_capacity
+      if self.is_alive and has_capacity_:
         return
       time.sleep(0.1)
     raise RuntimeError(

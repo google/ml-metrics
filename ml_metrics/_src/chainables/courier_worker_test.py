@@ -461,12 +461,15 @@ class CourierWorkerTest(absltest.TestCase):
         # During iteration, the worker is considered occupied.
         self.assertFalse(self.worker.has_capacity)
         batch_outputs.append(elem)
-      # After iteration, the worker is considered idle.
-      self.assertTrue(self.worker.has_capacity)
 
     asyncio.run(run())
     self.assertEqual(list(range(3)), batch_outputs)
     self.assertEqual(3, agg_q.get())
+    # After iteration, the worker should return the capacity.
+    try:
+      self.worker.wait_until_alive(deadline_secs=1, check_capacity=True)
+    except Exception:  # pylint: disable=broad-exception-caught
+      self.fail('Worker is not idle after iteration.')
 
   def test_legacy_async_iterate_raise(self):
 
