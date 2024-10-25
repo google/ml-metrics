@@ -182,7 +182,7 @@ class RunnerState:
     )
     self.event_loop.call_soon_threadsafe(self.event_loop.stop)
     if self.master_server.has_started:
-      courier_worker.cached_worker(self.master_server.address).shutdown()
+      self.master_server.stop()
     self.event_loop_thread.join()
     stage_names = ','.join(f'"{s.name}"' for s in self.stages)
     logging.info('chainable: pipeline with stages %s finished.', stage_names)
@@ -328,17 +328,19 @@ def _async_run_single_stage(
           )
       if time.time() - ticker > _LOGGING_INTERVAL_SECS:
         logging.info(
-            'chainable: %s async_iter progress %d and througput %.2f/sec',
+            'chainable: %s async_iter processed %d and througput %.2f/sec',
             transform.name,
             result_q.progress.cnt,
             result_q.progress.cnt / (time.time() - start_time),
         )
         ticker = time.time()
       time.sleep(0)
+    delta_time = time.time() - start_time
     logging.info(
-        'chainable: "%s" done with worker pool, average throughput: %.2f/sec',
+        'chainable: "%s" done (remote) in %d secs, throughput: %.2f/sec',
         transform.name,
-        result_q.progress.cnt / (time.time() - start_time),
+        delta_time,
+        result_q.progress.cnt / delta_time,
     )
 
   def iterate_in_process():
@@ -351,10 +353,12 @@ def _async_run_single_stage(
         input_iterator=input_iterator
     )
     result_q.enqueue_from_iterator(iterator)
+    delta_time = time.time() - start_time
     logging.info(
-        'chainable: "%s" done in process, average throughput: %.2f/sec.',
+        'chainable: "%s" done (local) in %d secs, throughput: %.2f/sec.',
         transform.name,
-        result_q.progress.cnt / (time.time() - start_time),
+        delta_time,
+        result_q.progress.cnt / delta_time,
     )
 
   iter_fn = iterate_with_worker_pool if worker_pool else iterate_in_process
