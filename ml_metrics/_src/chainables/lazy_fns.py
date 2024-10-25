@@ -36,6 +36,7 @@ from ml_metrics._src.utils import func_utils
 _KeyT = TypeVar('_KeyT')
 _T = TypeVar('_T')
 Fn = Callable[..., _T]
+_LAZY_OBJECT_CACHE_SIZE = 1024
 
 
 def _maybe_lru_cache(maxsize: int):
@@ -368,7 +369,7 @@ class LazyObject(base_types.Resolvable[_T]):
   def set_(self, **kwargs):
     return dc.replace(self, **kwargs)
 
-  @_maybe_lru_cache(maxsize=128)
+  @_maybe_lru_cache(maxsize=_LAZY_OBJECT_CACHE_SIZE)
   def result_(self) -> _T | LazyObject[_T]:
     """Dereference the lazy object."""
     result = self.value
