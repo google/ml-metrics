@@ -89,7 +89,8 @@ class CourierServerWrapper:
   _server: courier.Server | None
   _thread: threading.Thread | None
   _last_heartbeat: float
-  _generator: iter_utils.PrefetchedIterator | None
+  _generator: iter_utils.IteratorQueue | None
+  _enqueue_thread: threading.Thread | None
   _shutdown_lock: threading.Condition
   _shutdown_requested: bool
 
@@ -111,6 +112,7 @@ class CourierServerWrapper:
     self._shutdown_lock = threading.Condition()
     self._shutdown_requested = False
     self._generator = None
+    self._enqueue_thread = None
 
   def __str__(self):
     addr = self.server_name or ''
@@ -166,10 +168,20 @@ class CourierServerWrapper:
             'chainable: A new generator is initialized while the previous one'
             ' is not exhausted.'
         )
-      self._generator = iter_utils.PrefetchedIterator(
-          result,
-          prefetch_size=self.prefetch_size,
+        self._generator.stop_enqueue()
+        if self._enqueue_thread:
+          self._enqueue_thread.join()
+      self._generator = iter_utils.IteratorQueue(
+          self.prefetch_size,
+          ignore_error=True,
+          name=f'prefetch_queue@{self.address}',
       )
+      self._enqueue_thread = threading.Thread(
+          target=self._generator.enqueue_from_iterator,
+          args=(result,),
+          daemon=True,
+      )
+      self._enqueue_thread.start()
       with self._shutdown_lock:
         self._shutdown_lock.notify_all()
 
@@ -181,14 +193,18 @@ class CourierServerWrapper:
           'Generator is not set, the worker might crashed unexpectedly'
           ' previously.'
       )
-      result = self._generator.flush_prefetched(batch_size)
+      try:
+        result = self._generator.flush(batch_size, block=True)
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        logging.exception('chainable: exception when flushing generator.')
+        raise e
       # The sequence of the result will always end with an exception.
       # Any non-StopIteration means the generator crashed.
-      if not self._generator.data_size:
-        if self._generator.exceptions:
-          result.append(self._generator.exceptions[-1])
-        elif self._generator.exhausted:
-          result.append(StopIteration(self._generator.returned))
+      if not self._generator:
+        if self._generator.exception:
+          result.append(self._generator.exception)
+        else:
+          result.append(StopIteration(*self._generator.returned))
       return result
 
     def next_batch_from_iterator(batch_size: int | bytes = 0) -> bytes:
@@ -242,10 +258,7 @@ class CourierServerWrapper:
         if time.time() - self._last_heartbeat > self.timeout_secs:
           logging.info('chainable: no ping after %ds.', self.timeout_secs)
           self._shutdown_requested = True
-        if self._generator:
-          self._generator.prefetch()
-          self._shutdown_lock.wait(0)
-          continue
+          break
         self._shutdown_lock.wait(_INTERVAL_SECS)
     if self.has_started:
       logging.info('chainable: Shutting down for server %s', self)

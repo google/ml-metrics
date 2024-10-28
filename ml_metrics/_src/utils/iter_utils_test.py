@@ -196,13 +196,6 @@ class UtilsTest(parameterized.TestCase):
     with self.assertRaises(TimeoutError):
       asyncio.run(q.async_enqueue_from_iterator(async_iter()))
 
-  def test_prefetched_iterator(self):
-    iterator = iter_utils.PrefetchedIterator(range(10), prefetch_size=2)
-    iterator.prefetch()
-    self.assertEqual(2, iterator.cnt)
-    self.assertEqual([0, 1], iterator.flush_prefetched())
-    self.assertEqual(list(range(2, 10)), list(iterator))
-
   def test_iterator_queue_flush_raises(self):
     def range_with_exc(n):
       yield from range(n)

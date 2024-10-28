@@ -1170,22 +1170,6 @@ class TransformTest(parameterized.TestCase):
     actual = p.make()()
     self.assertEqual([3.0], actual)
 
-  def test_prefetched_iterator(self):
-    inputs = [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
-    p = (
-        transform.TreeTransform.new()
-        .data_source(iterator=MockGenerator(inputs))
-        .aggregate(fn=MockAverageFn())
-    )
-    iterator = iter_utils.PrefetchedIterator(
-        p.make().iterate(with_agg_result=True), prefetch_size=2
-    )
-    iterator.prefetch()
-    self.assertEqual(2, iterator.cnt)
-    self.assertEqual(inputs[:2], iterator.flush_prefetched())
-    self.assertEqual([inputs[-1]], list(iterator))
-    self.assertEqual([3.0], iterator.returned.agg_result)
-
   def test_iterator_queue_with_transform(self):
     inputs = [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
     p = (

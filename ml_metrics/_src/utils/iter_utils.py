@@ -24,7 +24,6 @@ import dataclasses as dc
 import functools
 import queue
 import threading
-import time
 from typing import Any, Generic, Protocol, Self, TypeVar
 
 from absl import logging
@@ -554,106 +553,6 @@ def pmap(
 
 def is_stop_iteration(e: Exception) -> bool:
   return e is STOP_ITERATION or isinstance(e, StopIteration)
-
-
-# TODO: b/375249519 - Deprecate this in favor of IteratorQueue.
-class PrefetchedIterator:
-  """An iterator that can also prefetch before iterated."""
-
-  def __init__(self, iterator, prefetch_size: int = 2):
-    self._data = queue.SimpleQueue()
-    self._returned = None
-    iterator = iter(iterator)
-    self._iterator = iterator
-    self._exceptions = []
-    self._prefetch_size = prefetch_size
-    self._exhausted = False
-    self._error_cnt = 0
-    self._cnt = 0
-    self._data_size = 0
-
-  @property
-  def cnt(self) -> int:
-    return self._cnt
-
-  @property
-  def returned(self) -> Any:
-    assert (
-        self._exhausted
-    ), 'Generator is not exhausted, returned is not available.'
-    return self._returned
-
-  @property
-  def data_size(self) -> int:
-    return self._data_size
-
-  @property
-  def exhausted(self) -> bool:
-    return self._exhausted
-
-  @property
-  def exceptions(self) -> list[Exception]:
-    return self._exceptions
-
-  def flush_prefetched(self, batch_size: int = 0) -> list[Any]:
-    """Flushes the prefetched data.
-
-    Args:
-      batch_size: the batch size of the data to be flushed. If batch_size = 0,
-        it takes all prefetche immediately.
-
-    Returns:
-      The flushed data.
-    """
-    result = []
-    while (
-        self.data_size < batch_size
-        and not self._exhausted
-        and not self._exceptions
-    ):
-      time.sleep(0)
-    batch_size = batch_size or self.data_size
-    while self.data_size and len(result) < batch_size:
-      result.append(self._data.get())
-      self._data_size -= 1
-    logging.info('chainable: flush_prefetched: %s', len(result))
-    return result
-
-  def __next__(self):
-    self.prefetch(1)
-    if not self._data.empty():
-      return self._data.get()
-    else:
-      logging.info('chainable: Generator exhausted from %s.', self._iterator)
-      raise StopIteration(self._returned)
-
-  def __iter__(self):
-    return self
-
-  def prefetch(self, num_items: int = 0):
-    """Prefeches items from the undelrying generator."""
-    while not self._exhausted and self._data.qsize() < (
-        num_items or self._prefetch_size
-    ):
-      try:
-        self._data.put(next(self._iterator))
-        self._cnt += 1
-        self._data_size += 1
-      except StopIteration as e:
-        self._exhausted = True
-        self._returned = e.value
-        logging.info(
-            'chainable: prefetch exhausted after %d items.', self._cnt
-        )
-      except Exception as e:  # pylint: disable=broad-exception-caught
-        logging.exception('chainable: Got error during prefetch.')
-        if 'generator already executing' != str(e):
-          self._exceptions.append(e)
-          if len(self._exceptions) > 3:
-            logging.exception('chainable: Too many errors, stop prefetching.')
-            break
-
-        time.sleep(0)
 
 
 class _TeeIterator(Iterator[_ValueT]):
