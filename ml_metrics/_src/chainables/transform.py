@@ -653,9 +653,10 @@ class TreeTransform(Generic[TreeFnT]):
         num_threads=self.num_threads,
     )
 
-  # TODO: b/356633410 - support rebatching.
   def assign(
       self,
+      assign_keys: TreeMapKey | TreeMapKeys = (),
+      # TODO: b/376296013 - output_keys is deprecated, use assign_keys instead.
       output_keys: TreeMapKey | TreeMapKeys = (),
       *,
       fn: base_types.MaybeResolvable[Callable[..., Any]] | None = None,
@@ -664,8 +665,14 @@ class TreeTransform(Generic[TreeFnT]):
       batch_size: int = 0,
   ) -> TreeTransform:
     """Assign some key value pairs back to the input mapping."""
+    if output_keys:
+      logging.warning(
+          '`output_keys` is deprecated, use positional arguments or'
+          ' `assign_keys` instead.'
+      )
+    assign_keys = assign_keys or output_keys
     fn = tree_fns.Assign.new(
-        output_keys=output_keys,
+        output_keys=assign_keys,
         fn=fn,
         input_keys=input_keys,
         fn_batch_size=fn_batch_size,

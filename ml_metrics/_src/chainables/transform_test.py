@@ -565,7 +565,7 @@ class TransformTest(parameterized.TestCase):
       output_keys=tree.Key.SELF,
   ):
     t = transform.TreeTransform.new().assign(
-        output_keys=output_keys,
+        assign_keys=output_keys,
         fn=fn,
         input_keys=input_keys,
         fn_batch_size=fn_batch_size,
