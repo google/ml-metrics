@@ -159,7 +159,7 @@ def _transform_make(
   if mode == RunnerMode.AGGREGATE:
     input_iterator = None
     input_nodes = []
-    assert agg_node, 'No aggregation is required for "Aggregate" mode.'
+    assert agg_node, 'Aggregation fn is required for "Aggregate" mode.'
   elif mode == RunnerMode.SAMPLE:
     agg_node = None
     output_nodes = []
@@ -426,7 +426,7 @@ class CombinedTreeFn:
     """
     input_iterator = self._actual_inputs(None, input_iterator)
     state = state or self.create_state()
-    with_agg_state = with_agg_state or with_agg_result
+    with_agg_state = state and (with_agg_state or with_agg_result)
     prev_ticker = time.time()
     batch_index = -1
     for batch_index, batch_output in enumerate(self._iterate(input_iterator)):
@@ -441,7 +441,7 @@ class CombinedTreeFn:
       logging.debug('chainable: "%s" batch cnt %d.', self.name, batch_index + 1)
     # This can collect the agg_state and the agg_result at the end of
     # the iteration and return them as the generator return value.
-    agg_result = self.get_result(state) if with_agg_result else None
+    agg_result = self.get_result(state) if state and with_agg_result else None
     if with_agg_state:
       logging.info(
           'chainable: "%s" iterator returns after %d batches.',

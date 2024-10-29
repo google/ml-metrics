@@ -1046,7 +1046,8 @@ class TransformTest(parameterized.TestCase):
         .apply(fn=sum)
     )
     actual_fn = t.make()
-    self.assertEqual([6, 9], list(actual_fn.iterate()))
+    iterator = transform.iterate_with_returned(actual_fn.iterate())
+    self.assertEqual([6, 9, None], list(iterator))
     self.assertEqual([6, 9], list(actual_fn.iterate(input_iterator)))
     self.assertEqual([6, 9], actual_fn(input_iterator=input_iterator))
 
