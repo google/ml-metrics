@@ -67,13 +67,11 @@ def topk_word_ngrams(
     )
 
   return aggregates.MergeableMetricAggFn(
-      lazy_fns.MakeableLazyFn(
-          lazy_fns.trace(text.TopKWordNGrams)(
-              k=k,
-              n=n,
-              use_first_ngram_only=use_first_ngram_only,
-              count_duplicate=count_duplicate,
-          )
+      lazy_fns.trace(text.TopKWordNGrams)(
+          k=k,
+          n=n,
+          use_first_ngram_only=use_first_ngram_only,
+          count_duplicate=count_duplicate,
       )
   )(texts)
 
@@ -108,10 +106,8 @@ def pattern_frequency(
     raise ValueError(f'Patterns must be unique: {patterns}')
 
   return aggregates.MergeableMetricAggFn(
-      lazy_fns.MakeableLazyFn(
-          lazy_fns.trace(text.PatternFrequency)(
-              patterns=patterns, count_duplicate=count_duplicate
-          )
+      lazy_fns.trace(text.PatternFrequency)(
+          patterns=patterns, count_duplicate=count_duplicate
       )
   )(texts)
 
@@ -126,9 +122,7 @@ def avg_alphabetical_char_count(
 
   batch_scorer_fn = pipeline.iterate_fn(text_scores.alphabetical_char_count)
   return aggregates.MergeableMetricAggFn(
-      lazy_fns.MakeableLazyFn(
-          lazy_fns.trace(rolling_stats.MeanAndVariance)(
-              batch_score_fn=batch_scorer_fn
-          )
+      lazy_fns.trace(rolling_stats.MeanAndVariance)(
+          batch_score_fn=batch_scorer_fn
       )
   )(texts)
