@@ -519,7 +519,7 @@ def piter(
   Returns:
     An iterable that iterates through the chain of functions.
   """
-  output_q = IteratorQueue(buffer_size)
+  output_queue = IteratorQueue(buffer_size)
   input_q = None
   pool = thread_pool or futures.ThreadPoolExecutor()
   if input_iterator is not None:
@@ -530,8 +530,8 @@ def piter(
       it = iterator_fn(input_q)
     else:
       it = iterator_fn()
-    pool.submit(output_q.enqueue_from_iterator, it)
-  return output_q
+    pool.submit(output_queue.enqueue_from_iterator, it)
+  return output_queue
 
 
 def pmap(
