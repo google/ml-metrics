@@ -227,6 +227,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
           outputs = self.actual_fn(**dict(zip(self.input_argkeys, fn_inputs)))
         else:
           outputs = self.actual_fn(*fn_inputs)
+        outputs = lazy_fns.maybe_resolve(outputs)
       except Exception as e:
         raise ValueError(
             f'Failed to call {self.fn} with inputs:'

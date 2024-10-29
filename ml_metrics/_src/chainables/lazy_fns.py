@@ -173,7 +173,7 @@ class _Makers(collections.UserDict):
 makeables = _Makers()
 
 
-def _maybe_make(
+def maybe_resolve(
     maybe_lazy: base_types.MaybeResolvable[_T],
 ) -> base_types.MaybeResolvable[_T]:
   if isinstance(maybe_lazy, base_types.Resolvable):
@@ -188,7 +188,7 @@ def maybe_make(
 ) -> base_types.MaybeResolvable[_T]:
   """Dereference a lazy object or lazy function when applicable."""
   maybe_lazy = maybe_unpickle(maybe_lazy)
-  return _maybe_make(maybe_lazy)
+  return maybe_resolve(maybe_lazy)
 
 
 def _as_awaitable(fn: Callable[..., Any], *args, **kwargs):
@@ -487,12 +487,12 @@ class LazyFn(LazyObject[_T]):
     if self.value is None:
       result = None
     else:
-      fn = _maybe_make(self.value)
+      fn = maybe_resolve(self.value)
       if not callable(fn):
         raise TypeError(f'fn is not callable from {self}.')
-      args = tuple(_maybe_make(arg) for arg in self.args)
-      kwargs = {k: _maybe_make(v) for k, v in self.kwargs}
-      result = _maybe_make(fn(*args, **kwargs))
+      args = tuple(maybe_resolve(arg) for arg in self.args)
+      kwargs = {k: maybe_resolve(v) for k, v in self.kwargs}
+      result = maybe_resolve(fn(*args, **kwargs))
     if self._lazy_result:
       result = LazyObject.new(result)
     return result
