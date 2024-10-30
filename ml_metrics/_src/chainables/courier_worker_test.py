@@ -152,38 +152,72 @@ class RemoteObjectTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='remote_self',
-          submit=True,
+          get_result=True,
           value=lazy_fns.trace([1, 2, 3], lazy_result=True),
           fn=lambda remote_value: remote_value,
           expected=[1, 2, 3],
       ),
       dict(
           testcase_name='remote_with_index',
-          submit=True,
+          get_result=True,
           value=lazy_fns.trace([1, 2, 3], lazy_result=True),
           fn=lambda remote_value: remote_value[0],
           expected=1,
       ),
       dict(
           testcase_name='remote_call',
-          submit=True,
+          get_result=True,
           value=lazy_fns.trace(len)([1, 2, 3], lazy_result_=True),
           fn=lambda remote_value: remote_value,
           expected=3,
       ),
       dict(
           testcase_name='remote_attribute',
+          get_result=True,
+          value=lazy_fns.trace([1, 2, 3], lazy_result=True),
+          fn=lambda remote_value: remote_value.count(2),
+          expected=1,
+      ),
+      dict(
+          testcase_name='submit_remote_self',
+          submit=True,
+          value=lazy_fns.trace([1, 2, 3], lazy_result=True),
+          fn=lambda remote_value: remote_value,
+          expected=[1, 2, 3],
+      ),
+      dict(
+          testcase_name='submit_remote_with_index',
+          submit=True,
+          value=lazy_fns.trace([1, 2, 3], lazy_result=True),
+          fn=lambda remote_value: remote_value[0],
+          expected=1,
+      ),
+      dict(
+          testcase_name='submit_remote_call',
+          submit=True,
+          value=lazy_fns.trace(len)([1, 2, 3], lazy_result_=True),
+          fn=lambda remote_value: remote_value,
+          expected=3,
+      ),
+      dict(
+          testcase_name='submit_remote_attribute',
           submit=True,
           value=lazy_fns.trace([1, 2, 3], lazy_result=True),
           fn=lambda remote_value: remote_value.count(2),
           expected=1,
       ),
   ])
-  def test_maybe_make_remote_object(self, value, fn, expected, submit=False):
+  def test_maybe_make_remote_object(
+      self, value, fn, expected, submit=False, get_result=False
+  ):
     lazy_fns.clear_object()
     self.assertEqual(lazy_fns.object_info().currsize, 0)
     if submit:
-      remote_value = self.worker.submit(value).result()
+      remote_value = courier_worker.RemoteObject.new(
+          self.worker.submit(value).result(), worker=self.worker
+      )
+    elif get_result:
+      remote_value = self.worker.get_result(value)
     else:
       remote_value = courier_worker.RemoteObject.new(value, worker=self.worker)
       if isinstance(value, lazy_fns.LazyObject):
@@ -236,9 +270,9 @@ class RemoteObjectTest(parameterized.TestCase):
       asyncio.run(self.worker.async_get_result(lazy_fns.trace(foo)()))
 
   def test_async_remote_iterator_iterate_elemnwise(self):
-    remote_iterable = self.worker.submit(
+    remote_iterable = self.worker.get_result(
         lazy_fns.trace(range)(3, lazy_result_=True)
-    ).result()
+    )
     self.assertIsInstance(remote_iterable, courier_worker.RemoteObject)
 
     async def run():
@@ -276,9 +310,9 @@ class RemoteObjectTest(parameterized.TestCase):
     self.assertLen(logs, 1)
 
   def test_remote_iterator_iterate_elemnwise(self):
-    remote_iterable = self.worker.submit(
+    remote_iterable = self.worker.get_result(
         lazy_fns.trace(range)(3, lazy_result_=True)
-    ).result()
+    )
     self.assertIsInstance(remote_iterable, courier_worker.RemoteObject)
     remote_iterator = iter(remote_iterable)
     self.assertIsInstance(remote_iterator, courier_worker.RemoteIterator)
@@ -292,10 +326,10 @@ class RemoteObjectTest(parameterized.TestCase):
     self.assertEqual([0, 1, 2], list(remote_iterable))
 
   def test_remote_iterator_iterate_remotely(self):
-    remote_iterable = self.worker.submit(
+    remote_iterable = self.worker.get_result(
         lazy_fns.trace(range)(3, lazy_result_=True)
-    ).result()
-    actual = self.worker.submit(lazy_fns.trace(list)(remote_iterable)).result()
+    )
+    actual = self.worker.get_result(lazy_fns.trace(list)(remote_iterable))
     self.assertEqual([0, 1, 2], actual)
 
   def test_remote_iterator_direct(self):
@@ -303,7 +337,7 @@ class RemoteObjectTest(parameterized.TestCase):
     remote_iterable = courier_worker.RemoteObject.new(
         range(3), worker=self.worker
     )
-    actual = self.worker.submit(lazy_fns.trace(list)(remote_iterable)).result()
+    actual = self.worker.get_result(lazy_fns.trace(list)(remote_iterable))
     self.assertEqual([0, 1, 2], actual)
 
   def test_remote_iterator_queue_async(self):

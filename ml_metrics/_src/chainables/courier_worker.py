@@ -506,6 +506,10 @@ class Worker:
     )
 
   @property
+  def address(self) -> str:
+    return self.server_name or self._client.address
+
+  @property
   def call_timeout(self) -> float | None:
     return self._call_timeout
 
@@ -515,7 +519,7 @@ class Worker:
 
   def __str__(self) -> str:
     return (
-        f'Worker({self.server_name}, timeout={self.call_timeout},'
+        f'Worker({self.address}, timeout={self.call_timeout},'
         f' max_parallelism={self.max_parallelism},'
         f' from_last_heartbeat={(time.time() - self._last_heartbeat):.2f}s)'
     )
@@ -671,6 +675,8 @@ class Worker:
     result = lazy_fns.pickler.loads(pickled)
     if isinstance(result, Exception):
       raise result
+    if isinstance(result, lazy_fns.LazyObject):
+      return RemoteObject.new(result, worker=self.address)
     return result
 
   def get_result(self, lazy_obj: base_types.Resolvable[_T]) -> _T:

@@ -144,8 +144,6 @@ class CourierServerWrapper:
         result = e
         if isinstance(e, (ValueError, TypeError, RuntimeError)):
           logging.exception('chainable: maybe_make exception for %s.', lazy_obj)
-      if isinstance(result, lazy_fns.LazyObject):
-        result = courier_worker.RemoteObject.new(result, worker=self.address)
       try:
         return pickler.dumps(result)
       except TypeError as e:
