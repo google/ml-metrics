@@ -763,11 +763,6 @@ class TreeTransform(Generic[TreeFnT]):
           num_threads=self.num_threads,
       )
     else:
-      if self.name:
-        raise ValueError(
-            f'Cannot add aggregate to a named transform {self.name}. Separate '
-            'the transforms into two and connect theme with `chain()`.'
-        )
       return AggregateTransform(
           input_transform=self,
           fns=(fn,),

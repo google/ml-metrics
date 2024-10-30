@@ -250,10 +250,6 @@ def _async_run_single_stage(
     raise ValueError(
         'chainable: input_iterator is not supported with worker_pool.'
     )
-  if worker_pool and isinstance(transform, transform_lib.AggregateTransform):
-    raise ValueError(
-        'chainable: AggregateTransform is not supported with worker_pool.'
-    )
   result_q = iter_utils.AsyncIteratorQueue(
       resource.buffer_size,
       timeout=resource.timeout,
@@ -277,7 +273,9 @@ def _async_run_single_stage(
       )
       input_iterator = remote_input_q
     lazy_iterator = (
-        lazy_fns.trace(transform).make(recursive=False).iterate(input_iterator)
+        lazy_fns.trace(transform)
+        .make(recursive=False)
+        .iterate(input_iterator, with_agg_result=False)
     )
     iterating = {}
     min_workers, max_workers = 1, resource.num_workers
@@ -335,6 +333,35 @@ def _async_run_single_stage(
         )
         ticker = time.time()
       time.sleep(0)
+
+    # Merge the intermediate aggregation states as aggregation result if there
+    # are any.
+    if result_q.returned:
+      agg_states = []
+      for agg_result in result_q.returned:
+        assert isinstance(agg_result, transform_lib.AggregateResult)
+        if agg_result.agg_state is not None:
+          agg_states.append(agg_result.agg_state)
+      agg_fn = transform.make(mode=transform_lib.RunnerMode.AGGREGATE)
+      logging.debug(
+          'chainable: %s merging %d agg states.',
+          transform.name,
+          len(agg_states),
+      )
+      agg_state = agg_fn.merge_states(agg_states)
+      agg_result = agg_fn.get_result(agg_state)
+      result_q.returned.clear()
+      result_q.returned.append(
+          transform_lib.AggregateResult(
+              agg_state=agg_state, agg_result=agg_result
+          )
+      )
+      logging.debug(
+          'chainable: %s merged %d agg states.',
+          transform.name,
+          len(agg_states),
+      )
+
     delta_time = time.time() - start_time
     logging.info(
         'chainable: "%s" done (remote) in %d secs, throughput: %.2f/sec',

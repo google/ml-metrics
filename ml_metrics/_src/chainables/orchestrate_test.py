@@ -252,28 +252,36 @@ class RunInterleavedTest(parameterized.TestCase):
   @parameterized.named_parameters([
       dict(
           testcase_name='in_process',
-          with_worker=False,
       ),
       dict(
-          testcase_name='with_worker',
-          with_worker=True,
+          testcase_name='with_worker_on_apply',
+          with_worker_on_apply=True,
+      ),
+      dict(
+          testcase_name='with_worker_on_agg',
+          with_worker_on_agg=True,
       ),
   ])
-  def test_default_config(self, with_worker):
+  def test_default_config(
+      self, with_worker_on_apply=False, with_worker_on_agg=False
+  ):
     total_examples = 1001
     with orchestrate.run_pipeline_interleaved(
         sharded_pipeline(
             total_numbers=total_examples, batch_size=32, num_threads=4
         ),
-        master_server=courier_server.CourierServerWrapper('master_interleaved'),
+        master_server=courier_server.CourierServerWrapper(),
         ignore_failures=False,
         resources={
             'datasource': orchestrate.RunnerResource(buffer_size=6),
             'apply': orchestrate.RunnerResource(
-                worker_pool=self.worker_pool if with_worker else None,
+                worker_pool=self.worker_pool if with_worker_on_apply else None,
                 buffer_size=6,
             ),
-            'agg': orchestrate.RunnerResource(timeout=30),
+            'agg': orchestrate.RunnerResource(
+                worker_pool=self.worker_pool if with_worker_on_agg else None,
+                timeout=30,
+            ),
         },
     ) as runner:
       result_queue = runner.result_queue
