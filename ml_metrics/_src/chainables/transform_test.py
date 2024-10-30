@@ -814,6 +814,83 @@ class TransformTest(parameterized.TestCase):
     }
     self.assertEqual(expected, agg.make()(inputs))
 
+  def test_aggregate_slice_fn_fanout_with_multiple_inputs(self):
+    # Here is an example of using slice_fn to fanout the input as slices.
+    # Here, each example generates two slices a and then b by slice_fn, the new
+    # slice is named as 'a_or_b'. The following explains the computations:
+    # Inputs after applying slice_fn.
+    # a    b   a_or_b
+    # 1    1   [1, 1]
+    # 2    9   [2, 9]
+    # 1    5   [1, 5]
+    # This fans out to:
+    # a    b   a_or_b
+    # 1    1     1
+    # 1    1     1
+    # 2    9     2
+    # 2    9     9
+    # 1    5     1
+    # 1    5     5
+    # After group by:
+    # a_or_b
+    #   1       [{a: 1, b: 1}, {a: 1, b: 1} (duplicate), {a: 1, b: 5}]
+    #   2       [{a: 2, b: 9}]
+    #   5       [{a: 1, b: 5}]
+    #   9       [{a: 2, b: 9}]
+    # We are calculating the average of b for each a_or_b value. So we get:
+    # a_or_b  avg_b
+    # 1        (1 + 5) / 2 = 3
+    # 2        9
+    # 5        3
+    # 9        9
+    inputs = {'a': np.array([1, 2, 1]), 'b': np.array([1, 9, 5])}
+    agg = (
+        transform.TreeTransform.new().aggregate(
+            fn=MockAverageFn(input_key='b'),
+            output_keys='avg_b',
+        )
+        # x.item() is needed to convert a non-hashable np.array to a hashable
+        # one. While np.array scalar is hashable, it is not hashable in
+        # Jax numpy array.
+        .add_slice(
+            ('a', 'b'),
+            slice_name='a_or_b',
+            slice_fn=lambda x, y: (x.item(), y.item()),
+        )
+    )
+    expected = {
+        'avg_b': [5.0],
+        MetricKey('avg_b', SliceKey(('a_or_b',), (1,))): [3.0],
+        MetricKey('avg_b', SliceKey(('a_or_b',), (2,))): [9.0],
+        MetricKey('avg_b', SliceKey(('a_or_b',), (5,))): [5.0],
+        MetricKey('avg_b', SliceKey(('a_or_b',), (9,))): [9.0],
+    }
+    self.assertEqual(expected, agg.make()(inputs))
+
+  def test_aggregate_slice_fn_with_crosses(self):
+    inputs = {'a': np.array([1, 2, 1]), 'b': np.array([1, 9, 5])}
+    agg = (
+        transform.TreeTransform.new().aggregate(
+            fn=MockAverageFn(input_key='b'),
+            output_keys='avg_b',
+        )
+        # x.item() is needed to convert a non-hashable np.array to a hashable
+        # one. While np.array scalar is hashable, it is not hashable in
+        # Jax numpy array.
+        .add_slice(
+            ('a', 'b'),
+            slice_name=('a_', 'b_'),
+            slice_fn=lambda x, y: ((str(x), str(y)),),
+        )
+    )
+    expected = {
+        'avg_b': [5.0],
+        MetricKey('avg_b', SliceKey(('a_', 'b_'), ('1', '1'))): [1.0],
+        MetricKey('avg_b', SliceKey(('a_', 'b_'), ('2', '9'))): [9.0],
+        MetricKey('avg_b', SliceKey(('a_', 'b_'), ('1', '5'))): [5.0],
+    }
+    self.assertEqual(expected, agg.make()(inputs))
+
   def test_aggregate_with_slice_crosses(self):
     inputs = {'a': [1, 2, 1], 'b': [1, 9, 5]}
     agg = (
