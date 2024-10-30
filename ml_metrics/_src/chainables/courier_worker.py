@@ -790,9 +790,8 @@ class Worker:
       buffer_size: int = 0,
       timeout: float | None = None,
       name: str = '',
-  ) -> AsyncIterator[_T]:
+  ) -> RemoteIteratorQueue[_T]:
     """Async iterates the generator task."""
-    batch_cnt = 0
     remote_iterator = await async_remote_iter(
         lazy_iterable,
         worker=self,
@@ -800,21 +799,7 @@ class Worker:
         buffer_size=buffer_size,
         name=name,
     )
-    logging.info('chainable: %s remote iterator constructed.', self.server_name)
-    async for batch in remote_iterator:
-      yield batch
-      batch_cnt += 1
-      logging.debug(
-          'chainable: "%s" async iter yield %d batch of a type %s.',
-          self.server_name,
-          batch_cnt,
-          type(batch),
-      )
-    logging.info(
-        'chainable: remote iterator at %s exhausted after %d batches',
-        self.server_name,
-        batch_cnt,
-    )
+    return remote_iterator
 
   def clear_cache(self):
     return self.call(courier_method='clear_cache')

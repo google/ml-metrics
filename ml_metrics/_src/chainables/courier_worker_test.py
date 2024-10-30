@@ -263,7 +263,7 @@ class RemoteObjectTest(parameterized.TestCase):
     iterator_fn = functools.partial(map, lambda x: x + 1)
 
     async def run():
-      remote_iterator = self.worker.async_iter(
+      remote_iterator = await self.worker.async_iter(
           lazy_fns.trace(iterator_fn)(input_iterator), name='remote_iter'
       )
       return [elem async for elem in remote_iterator]
@@ -430,7 +430,7 @@ class CourierWorkerTest(absltest.TestCase):
     remote_iterator = self.worker.async_iter(lazy_iterator)
 
     async def alist(remote_iterator):
-      return [elem async for elem in remote_iterator]
+      return [elem async for elem in await remote_iterator]
 
     self.assertEqual([1, 2, 3], asyncio.run(alist(remote_iterator)))
 

@@ -18,7 +18,7 @@ from __future__ import annotations
 import abc
 import asyncio
 import collections
-from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable, Iterator, Sequence
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable, Iterator, Sequence
 from concurrent import futures
 import dataclasses as dc
 import functools
@@ -412,6 +412,9 @@ class _DequeueIterator:
     return self
 
 
+_MaybeAwaitable = _ValueT | Awaitable[_ValueT]
+
+
 class AsyncIteratorQueue(IteratorQueue[_ValueT], AsyncIterableQueue[_ValueT]):
   """A queue that can enqueue from and dequeue to an iterator.
 
@@ -455,8 +458,12 @@ class AsyncIteratorQueue(IteratorQueue[_ValueT], AsyncIterableQueue[_ValueT]):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(self._thread_pool, self.put, value)
 
-  async def async_enqueue_from_iterator(self, iterator: AsyncIterable[_ValueT]):
+  async def async_enqueue_from_iterator(
+      self, iterator: _MaybeAwaitable[AsyncIterable[_ValueT]]
+  ):
     """Iterates through a generator while enqueue its elements."""
+    if isinstance(iterator, Awaitable):
+      iterator = await iterator
     if not isinstance(iterator, AsyncIterator):
       iterator = aiter(iterator)
     self._start_enqueue()
@@ -488,8 +495,24 @@ class _AsyncDequeueIterator:
   async def __anext__(self):
     if self._run_until_exhausted or self._cnt < self._num_steps:
       # AsyncIteratorQueue.get() can raise StopAsyncIteration.
-      value = await self._iterator_queue.async_get()
+      try:
+        value = await self._iterator_queue.async_get()
+      except StopAsyncIteration as e:
+        logging.info(
+            'chainable: async iterator at %s exhausted after %d batches with'
+            ' %d returns',
+            getattr(self._iterator_queue, 'name', ''),
+            self._cnt,
+            len(e.args),
+        )
+        raise e
       self._cnt += 1
+      logging.debug(
+          'chainable: "%s" async iter yield %d batch of a type %s.',
+          getattr(self._iterator_queue, 'name', ''),
+          self._cnt,
+          type(value),
+      )
       return value
     else:
       raise StopAsyncIteration()
