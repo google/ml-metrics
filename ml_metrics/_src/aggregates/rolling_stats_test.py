@@ -575,7 +575,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
     self.assertTrue(all(bucket < max_final_count for bucket in sample_histo))
 
 
-class RollingStateTest(parameterized.TestCase):
+class MeanAndVarianceTest(parameterized.TestCase):
 
   def assertDataclassAlmostEqual(
       self,
@@ -835,6 +835,33 @@ class RollingStateTest(parameterized.TestCase):
     self.assertDataclassAlmostEqual(
         get_expected_mean_and_variance(batches), actual
     )
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='1d_batch',
+          batch=[1, 2],
+          expected_str=(
+              'count: 2, total: 3.0, mean: 1.5, var: 0.25, stddev: 0.5'
+          ),
+      ),
+      dict(
+          testcase_name='multi_dim_batch',
+          batch=[[1, 2], [2, 4]],
+          expected_str=(
+              'count: [2 2], total: [3. 6.], mean: [1.5 3. ], var: [0.25 1.  ],'
+              ' stddev: [0.5 1. ]'
+          ),
+      ),
+      dict(
+          testcase_name='empty_batch',
+          batch=[],
+          expected_str='count: 0, total: 0.0, mean: nan, var: nan, stddev: nan',
+      ),
+  ])
+  def test_mean_and_variance_string_representation(self, batch, expected_str):
+    state = rolling_stats.MeanAndVariance()
+    state.add(batch)
+    self.assertEqual(str(state), expected_str)
 
 
 class MinMaxAndCountTest(parameterized.TestCase):

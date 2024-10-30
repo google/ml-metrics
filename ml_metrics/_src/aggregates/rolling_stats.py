@@ -339,6 +339,12 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
   def result(self) -> 'MeanAndVariance':
     return self
 
+  def __str__(self):
+    return (
+        f'count: {self.count}, total: {self.total}, mean: {self.mean}, '
+        f'var: {self.var}, stddev: {self.stddev}'
+    )
+
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class MeanAndVarianceAggFn(base.MergeableMetricAggFn):
