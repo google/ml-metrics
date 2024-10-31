@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Courier server that can run a chainable."""
+from __future__ import annotations
 
 import threading
 import time
@@ -80,11 +81,23 @@ class CourierServerWrapper:
       addr += f'@{self._server.address}'
     return f'CourierServer("{addr}")'
 
+  def __hash__(self) -> int:
+    return hash((self.address, self.prefetch_size, self.timeout_secs))
+
+  def __eq__(self, other: CourierServerWrapper) -> bool:
+    return (
+        self.address == other.address
+        and self.prefetch_size == other.prefetch_size
+        and self.timeout_secs == other.timeout_secs
+    )
+
   @property
   def address(self) -> str:
+    """The server has to be built before accessing the address."""
     if server_name := self.server_name:
       return server_name
-    assert self._server is not None, 'Server is not built.'
+    if self._server is None:
+      raise RuntimeError('Server is not built, the address is not available.')
     return self._server.address
 
   @property

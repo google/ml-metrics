@@ -75,6 +75,42 @@ class CourierServerTest(parameterized.TestCase):
     server = courier_server._cached_server(server_name)
     self.assertRegex(str(server), expected_regex)
 
+  @parameterized.named_parameters([
+      dict(testcase_name='unnamed', config1={}, config2={}, equal=False),
+      dict(
+          testcase_name='same_names',
+          config1=dict(server_name='hash_server1'),
+          config2=dict(server_name='hash_server1'),
+          equal=True,
+      ),
+      dict(
+          testcase_name='same_names_different_timeouts',
+          config1=dict(server_name='hash_server1', timeout_secs=10),
+          config2=dict(server_name='hash_server1', timeout_secs=1),
+      ),
+      dict(
+          testcase_name='same_names_different_prefetch_sizes',
+          config1=dict(server_name='hash_server1'),
+          config2=dict(server_name='hash_server1', prefetch_size=1),
+      ),
+      dict(
+          testcase_name='different_names',
+          config1=dict(server_name='hash_server2'),
+          config2=dict(server_name='hash_server1'),
+      ),
+  ])
+  def test_server_hash(self, config1, config2, equal=False):
+    server = courier_server.CourierServerWrapper(**config1)
+    server.build_server()
+    server_set = {server}
+    # This createes a new server with a different port.
+    server1 = courier_server.CourierServerWrapper(**config2)
+    server1.build_server()
+    if equal:
+      self.assertIn(server1, server_set)
+    else:
+      self.assertNotIn(server1, server_set)
+
   def test_courier_server_maybe_make(self):
     client = courier.Client(self.server.address, call_timeout=1)
     self.assertEqual('hello', pickler.loads(client.maybe_make('hello')))
