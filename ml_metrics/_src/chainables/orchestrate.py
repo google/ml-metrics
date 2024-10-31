@@ -266,7 +266,7 @@ def _async_run_single_stage(
       if not master_server.has_started:
         logging.debug('chainable: starting master %s', master_server.address)
         master_server.start(daemon=True)
-      remote_input_q = courier_server.make_remote_queue(
+      remote_input_q = courier_worker.RemoteIteratorQueue.new(
           input_queue,
           server_addr=master_server.address,
           name=f'{transform.name}(input@{master_server.address})',

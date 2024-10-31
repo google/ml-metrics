@@ -343,6 +343,19 @@ class RemoteIteratorQueue(iter_utils.AsyncIterableQueue[_T]):
     self._queue = q
     self.name = name
 
+  @classmethod
+  def new(
+      cls,
+      q: base_types.MaybeResolvable[iter_utils.IteratorQueue[_T]],
+      *,
+      server_addr: str,
+      name: str = '',
+  ) -> Self:
+    q = lazy_fns.maybe_make(q)
+    assert isinstance(q, iter_utils.IteratorQueue), f'got {type(q)}'
+    name = name or q.name
+    return cls(RemoteObject.new(q, worker=server_addr), name=name)
+
   def get(self):
     logging.debug('chainable: remote queue "%s" get', self.name)
     return self._queue.get().result_()
@@ -359,6 +372,16 @@ class RemoteIterator(Iterator[_T]):
 
   def __init__(self, iterator: RemoteObject[Iterator[_T]]):
     self.iterator = iterator
+
+  @classmethod
+  def new(
+      cls,
+      iterator: base_types.MaybeResolvable[Iterable[_T]],
+      *,
+      server_addr: str,
+  ) -> Self:
+    iterator = lazy_fns.maybe_make(iterator)
+    return cls(RemoteObject.new(iter(iterator), worker=server_addr))
 
   def __next__(self) -> _T:
     return self.iterator.worker.get_result(

@@ -291,7 +291,7 @@ class RemoteObjectTest(parameterized.TestCase):
     num_elem = 30
     local_queue.enqueue_from_iterator(range(num_elem))
     # input_iterator is remote and lives in local server.
-    input_iterator = courier_server.make_remote_iterator(
+    input_iterator = courier_worker.RemoteIterator.new(
         local_queue.dequeue_as_iterator(), server_addr=self.server.address
     )
     iterator_fn = functools.partial(map, lambda x: x + 1)
@@ -353,7 +353,7 @@ class RemoteObjectTest(parameterized.TestCase):
 
     local_queue.enqueue_from_iterator(foo(num_elem))
     # input_iterator is remote and lives in local server.
-    input_queue = courier_server.make_remote_queue(
+    input_queue = courier_worker.RemoteIteratorQueue.new(
         local_queue, server_addr=local_server.address, name='remote_iter'
     )
     # Remotely constructs an iteraotor as the input_iterator.

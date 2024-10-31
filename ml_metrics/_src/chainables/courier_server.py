@@ -19,7 +19,6 @@ from typing import Any, Iterable, TypeVar
 
 from absl import logging
 import courier
-from ml_metrics._src import base_types
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
@@ -38,45 +37,6 @@ def _cached_server(name: str | None = None, *, timeout_secs: float = 10200):
   result.build_server()
   result.start(daemon=True)
   return result
-
-
-def make_remote_iterator(
-    iterator: base_types.MaybeResolvable[Iterable[_T]],
-    *,
-    server_addr: str,
-) -> courier_worker.RemoteIterator[_T]:
-  """Constructs a remote iterator given a maybe lazy iterator."""
-  iterator = lazy_fns.maybe_make(iterator)
-  # Creates a local iterator that can be served as remote iterator.
-  return courier_worker.RemoteIterator(
-      courier_worker.RemoteObject.new(iter(iterator), worker=server_addr)
-  )
-
-
-def make_remote_object(
-    q: base_types.MaybeResolvable[iter_utils.IteratorQueue[_T]],
-    *,
-    server_addr: str,
-) -> courier_worker.RemoteObject[_T]:
-  """Constructs a remote queue given a maybe lazy queue."""
-  q = lazy_fns.maybe_make(q)
-  return courier_worker.RemoteObject.new(q, worker=server_addr)
-
-
-def make_remote_queue(
-    q: base_types.MaybeResolvable[iter_utils.IteratorQueue[_T]],
-    *,
-    server_addr: str,
-    name: str = '',
-) -> courier_worker.RemoteIteratorQueue[_T]:
-  """Constructs a remote queue given a maybe lazy queue."""
-  q = lazy_fns.maybe_make(q)
-  assert isinstance(q, iter_utils.IteratorQueue), f'got {type(q)}'
-  name = name or q.name
-  return courier_worker.RemoteIteratorQueue(
-      make_remote_object(q, server_addr=server_addr),
-      name=name,
-  )
 
 
 class CourierServerWrapper:
