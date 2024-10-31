@@ -69,6 +69,11 @@ def cached_worker(
   )
 
 
+def wait_until_alive(address: str, deadline_secs: float = 120):
+  """Wait until the worker at the address is alive."""
+  cached_worker(address).wait_until_alive(deadline_secs=deadline_secs)
+
+
 class _FutureLike(Protocol[_T]):
 
   @abc.abstractmethod

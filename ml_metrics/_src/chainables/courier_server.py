@@ -20,7 +20,6 @@ from typing import Any, Iterable, TypeVar
 
 from absl import logging
 import courier
-from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
 from ml_metrics._src.utils import func_utils
@@ -254,9 +253,3 @@ class CourierServerWrapper:
       self._shutdown_requested = True
       self._shutdown_lock.notify_all()
     return self._thread
-
-  def wait_until_alive(self, deadline_secs: float = 120):
-    """Wait until the server is alive."""
-    courier_worker.cached_worker(self.address).wait_until_alive(
-        deadline_secs=deadline_secs
-    )

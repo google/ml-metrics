@@ -281,7 +281,7 @@ def _async_run_single_stage(
     min_workers, max_workers = 1, resource.num_workers
     worker_pool.wait_until_alive(deadline_secs=600)
     # Make sure the master is connectable before starting the workers.
-    master_server.wait_until_alive(deadline_secs=180)
+    courier_worker.wait_until_alive(master_server.address, deadline_secs=180)
     ticker = time.time()
     while not result_q.enqueue_done or iterating:
       # Check the workerpool requirements and set up a new one when needed.

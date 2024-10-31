@@ -93,7 +93,7 @@ class RemoteObjectTest(parameterized.TestCase):
     super().setUp()
     self.server = courier_server._cached_server('RemoteObject')
     self.worker = courier_worker.cached_worker(self.server.address)
-    self.server.wait_until_alive(deadline_secs=12)
+    courier_worker.wait_until_alive(self.server.address, deadline_secs=12)
 
   @parameterized.named_parameters([
       dict(
@@ -404,7 +404,7 @@ class CourierWorkerTest(absltest.TestCase):
 
   def test_worker_not_started(self):
     server = courier_server._cached_server('unknown_worker')
-    server.wait_until_alive(deadline_secs=12)
+    courier_worker.wait_until_alive(server.address, deadline_secs=12)
     worker = courier_worker.cached_worker(
         'unknown_worker', heartbeat_threshold_secs=1, call_timeout=0.1
     )
@@ -643,7 +643,7 @@ class CourierWorkerPoolTest(parameterized.TestCase):
   def test_worker_pool_call_with_method_in_task(self):
     server = TestServer()
     server.start(daemon=True)
-    server.wait_until_alive(deadline_secs=15)
+    courier_worker.wait_until_alive(server.address, deadline_secs=15)
     worker_pool = courier_worker.WorkerPool([server.address])
     task = courier_worker.Task.new(1, courier_method='plus_one')
     # We only have one task, so just return the first element.

@@ -55,7 +55,7 @@ class CourierServerTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     self.server = courier_server._cached_server()
-    self.server.wait_until_alive(deadline_secs=12)
+    courier_worker.wait_until_alive(self.server.address, deadline_secs=12)
 
   @parameterized.named_parameters([
       dict(
@@ -167,7 +167,7 @@ class CourierServerTest(parameterized.TestCase):
   def test_courier_server_shutdown_and_restart(self):
     server = courier_server.CourierServerWrapper('test_restart')
     server.start()
-    server.wait_until_alive(deadline_secs=12)
+    courier_worker.wait_until_alive(server.address, deadline_secs=12)
     assert server._thread is not None
     self.assertTrue(server._thread.is_alive())
     self.assertTrue(server.has_started)
@@ -175,7 +175,7 @@ class CourierServerTest(parameterized.TestCase):
     server._thread.join()
     # Restart.
     server.start()
-    server.wait_until_alive(deadline_secs=12)
+    courier_worker.wait_until_alive(server.address, deadline_secs=12)
     server.stop()
 
   def test_courier_exception_during_prefetch(self):
