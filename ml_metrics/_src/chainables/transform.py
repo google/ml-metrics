@@ -61,7 +61,7 @@ from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
 from ml_metrics._src.chainables import tree_fns
 from ml_metrics._src.utils import iter_utils
-import more_itertools
+import more_itertools as mit
 
 
 TreeMapKey = tree.TreeMapKey
@@ -88,13 +88,6 @@ def iterate_with_returned(
   yield returned
 
 
-def get_generator_returned(
-    generator: Generator[Any, None, _ValueT],
-) -> _ValueT | None:
-  """Returns the aggregate result by from a TreeTransform based generator."""
-  return more_itertools.last(iterate_with_returned(generator), None)
-
-
 class RunnerMode(base_types.StrEnum):
   DEFAULT = 'default'
   AGGREGATE = 'aggregate'
@@ -106,6 +99,29 @@ class RunnerMode(base_types.StrEnum):
 class AggregateResult:
   agg_state: Any = None
   agg_result: Any = None
+
+
+class IteratorWithAggResult(Iterable[_ValueT]):
+  """An iterator that returns the last value."""
+
+  def __init__(self, iterator: Iterable[_ValueT]):
+    super().__init__()
+    self._iterator = iter(iterator)
+    self.agg_result = None
+    self.agg_state = None
+
+  def __next__(self) -> _ValueT:
+    try:
+      return next(self._iterator)
+    except StopIteration as e:
+      if e.value is not None:
+        assert isinstance(e.value, AggregateResult)
+        self.agg_result = e.value.agg_result
+        self.agg_state = e.value.agg_state
+      raise e
+
+  def __iter__(self):
+    return self
 
 
 @dataclasses.dataclass(frozen=True)
@@ -373,8 +389,16 @@ class CombinedTreeFn:
   def _iterate(
       self,
       input_iterator: Iterable[tree.MapLikeTree | None] = (),
-  ) -> Iterable[tree.MapLikeTree | None]:
+      *,
+      with_result: bool = True,
+      with_agg_state: bool = True,
+      with_agg_result: bool = True,
+      state: Any = None,
+  ) -> Iterator[tree.MapLikeTree | None]:
     """Call a chain of functions in sequence."""
+
+    state = state or self.create_state()
+    with_agg_state = state and (with_agg_state or with_agg_result)
 
     def iterate_fn(
         input_iterator: Iterable[tree.MapLikeTree | None] = (),
@@ -386,14 +410,36 @@ class CombinedTreeFn:
       yield from result
 
     if not self.num_threads:
-      return iterate_fn(input_iterator)
+      iterator = iterate_fn(input_iterator)
     else:
-      return iter_utils.piter(
+      iterator = iter_utils.piter(
           iterate_fn,
           input_iterator=input_iterator,
           thread_pool=_get_thread_pool(),
           max_parallism=self.num_threads,
       )
+    prev_ticker = time.time()
+    batch_index = -1
+    for batch_index, batch_output in enumerate(iterator):
+      if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SECS:
+        logging.info(
+            'chainable: "%s" calculating for batch %d.', self.name, batch_index
+        )
+        prev_ticker = ticker
+      yield batch_output if with_result else None
+      if with_agg_state:
+        state = self._update_state(state, batch_output)
+      logging.debug('chainable: "%s" batch cnt %d.', self.name, batch_index + 1)
+    if with_agg_state:
+      # This can collect the agg_state and the agg_result at the end of
+      # the iteration and return them as the generator return value.
+      agg_result = self.get_result(state) if state and with_agg_result else None
+      logging.info(
+          'chainable: "%s" iterator returns after %d batches.',
+          self.name,
+          batch_index + 1,
+      )
+      return AggregateResult(agg_state=state, agg_result=agg_result)
 
   def iterate(
       self,
@@ -403,7 +449,7 @@ class CombinedTreeFn:
       with_agg_state: bool = True,
       with_agg_result: bool = True,
       state: Any = None,
-  ) -> Generator[Any, None, AggregateResult | None]:
+  ) -> IteratorWithAggResult[Any]:
     """An iterator runner that takes an input_iterator runs the transform.
 
     The iterator by default yields the output of all the input_functions before
@@ -420,35 +466,18 @@ class CombinedTreeFn:
         iteration.
       state: an optional initial aggregation state.
 
-    Yields:
-      The output of the input_fns, optionally the aggregation state and the
-      aggregation result.
+    Returns:
+      An iterator that also optionally keeps the aggregation result and state.
     """
-    input_iterator = self._actual_inputs(None, input_iterator)
-    state = state or self.create_state()
-    with_agg_state = state and (with_agg_state or with_agg_result)
-    prev_ticker = time.time()
-    batch_index = -1
-    for batch_index, batch_output in enumerate(self._iterate(input_iterator)):
-      if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SECS:
-        logging.info(
-            'chainable: "%s" calculating for batch %d.', self.name, batch_index
+    return IteratorWithAggResult(
+        self._iterate(
+            self._actual_inputs(None, input_iterator),
+            with_result=with_result,
+            with_agg_state=with_agg_state,
+            with_agg_result=with_agg_result,
+            state=state,
         )
-        prev_ticker = ticker
-      yield batch_output if with_result else None
-      if with_agg_state:
-        state = self._update_state(state, batch_output)
-      logging.debug('chainable: "%s" batch cnt %d.', self.name, batch_index + 1)
-    # This can collect the agg_state and the agg_result at the end of
-    # the iteration and return them as the generator return value.
-    agg_result = self.get_result(state) if state and with_agg_result else None
-    if with_agg_state:
-      logging.info(
-          'chainable: "%s" iterator returns after %d batches.',
-          self.name,
-          batch_index + 1,
-      )
-      return AggregateResult(agg_state=state, agg_result=agg_result)
+    )
 
   def update_state(
       self,
@@ -456,25 +485,24 @@ class CombinedTreeFn:
       inputs=None,
       *,
       input_iterator: Iterable[Any] | None = None,
-  ):
+  ) -> dict[MetricKey, Any]:
     """Updates the state by either the inputs or an iterator of the inputs."""
     input_iterator = self._actual_inputs(inputs, input_iterator)
-    agg_result = get_generator_returned(
-        self.iterate(input_iterator, with_agg_state=True, state=state)
-    )
-    assert agg_result is not None
-    return agg_result.agg_state
+    iter_result = self.iterate(input_iterator, with_agg_state=True, state=state)
+    mit.last(iter_result)
+    return iter_result.agg_state or {}
 
   def __call__(self, inputs=None, *, input_iterator=None):
     iter_input = self._actual_inputs(inputs, input_iterator)
-    if self.agg_fns:
-      return self.get_result(self.update_state(input_iterator=iter_input))
-    else:
-      result = list(self.iterate(iter_input))
-      # Directly returns the result when inputs (vs. iterator) is fed.
-      if inputs is not None:
-        return result[0]
-      return result
+    iter_result = self.iterate(iter_input)
+    result = mit.last(iter_result) if self.agg_fns else list(iter_result)
+    if iter_result.agg_result is not None:
+      return iter_result.agg_result
+    # When inputs (vs. iterator) is fed, there is only one batch to compute,
+    # directly returns the only element in the result.
+    if inputs is not None:
+      return result[0]
+    return result
 
 
 def _eq(a, b):

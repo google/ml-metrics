@@ -1143,19 +1143,11 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual(
         [13.5], actual_fn(input_iterator=MockGenerator(input_iterator))
     )
-
-    result = transform.get_generator_returned(
-        actual_fn.iterate(with_agg_result=True)
-    )
-    assert result is not None
+    # Exhausting the iterator is necessary to get the aggregate result.
+    mit.last(result := actual_fn.iterate())
     self.assertEqual([13.5], result.agg_result)
 
-    result = transform.get_generator_returned(
-        actual_fn.iterate(
-            input_iterator=MockGenerator(input_iterator), with_agg_result=True
-        )
-    )
-    assert result is not None
+    mit.last(result := actual_fn.iterate(MockGenerator(input_iterator)))
     self.assertEqual([13.5], result.agg_result)
 
   def test_input_iterator_aggregate_incorrect_states_count_raises_error(self):
@@ -1170,10 +1162,9 @@ class TransformTest(parameterized.TestCase):
     )
     actual_fn: transform.CombinedTreeFn = t.make()
     with self.assertRaises(ValueError):
-      state = transform.get_generator_returned(
-          actual_fn.iterate(with_agg_state=True)
-      )
-      assert state is not None
+      # Exhausting the iterator is necessary to get the aggregate result.
+      mit.last(state := actual_fn.iterate())
+      assert state.agg_state is not None
       actual_fn.merge_states([state.agg_state], strict_states_cnt=2)
 
   def test_flatten_transform(self):
@@ -1257,9 +1248,7 @@ class TransformTest(parameterized.TestCase):
     )
     iterator = iter_utils.IteratorQueue(2)
     with futures.ThreadPoolExecutor() as thread_pool:
-      thread_pool.submit(
-          iterator.enqueue_from_iterator, p.make().iterate(with_agg_result=True)
-      )
+      thread_pool.submit(iterator.enqueue_from_iterator, p.make().iterate())
       result = iterator.flush(block=True)
     self.assertEqual(inputs, result)
     self.assertEqual([3.0], iterator.returned[0].agg_result)
