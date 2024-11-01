@@ -84,7 +84,7 @@ def iterate_with_returned(
     iterator: Iterable[_ValueT],
 ) -> Generator[_ValueT, None, Any]:
   """Converts a generator to an iterator with returned value as the last."""
-  returned = yield from iterator
+  returned = yield from iter(iterator)
   yield returned
 
 
@@ -440,6 +440,9 @@ class CombinedTreeFn:
           batch_index + 1,
       )
       return AggregateResult(agg_state=state, agg_result=agg_result)
+
+  def __iter__(self):
+    return self._iterate(self.input_iterator)
 
   def iterate(
       self,

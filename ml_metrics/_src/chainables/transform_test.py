@@ -308,7 +308,7 @@ class TransformTest(parameterized.TestCase):
         .apply(fn=lambda x: x + 1, output_keys='a')
         .assign('b', fn=lambda x: x + 1, input_keys='a')
     )
-    actual = list(itertools.islice(t.make().iterate(), 2))
+    actual = list(itertools.islice(t.make(), 2))
     self.assertEqual(actual, [{'a': 1, 'b': 2}, {'a': 2, 'b': 3}])
 
   @parameterized.named_parameters([
@@ -1119,11 +1119,11 @@ class TransformTest(parameterized.TestCase):
     input_iterator = [[1, 2, 3], [2, 3, 4]]
     t = (
         transform.TreeTransform.new()
-        .data_source(iterator=MockGenerator(input_iterator))
+        .data_source(MockGenerator(input_iterator))
         .apply(fn=sum)
     )
     actual_fn = t.make()
-    iterator = transform.iterate_with_returned(actual_fn.iterate())
+    iterator = transform.iterate_with_returned(actual_fn)
     self.assertEqual([6, 9, None], list(iterator))
     self.assertEqual([6, 9], list(actual_fn.iterate(input_iterator)))
     self.assertEqual([6, 9], actual_fn(input_iterator=input_iterator))
@@ -1248,7 +1248,7 @@ class TransformTest(parameterized.TestCase):
     )
     iterator = iter_utils.IteratorQueue(2)
     with futures.ThreadPoolExecutor() as thread_pool:
-      thread_pool.submit(iterator.enqueue_from_iterator, p.make().iterate())
+      thread_pool.submit(iterator.enqueue_from_iterator, p.make())
       result = iterator.flush(block=True)
     self.assertEqual(inputs, result)
     self.assertEqual([3.0], iterator.returned[0].agg_result)
