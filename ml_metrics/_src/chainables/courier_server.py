@@ -28,7 +28,7 @@ from ml_metrics._src.utils import iter_utils
 
 _T = TypeVar('_T')
 pickler = lazy_fns.pickler
-_INTERVAL_SECS = 30
+_HRTBT_INTERVAL_SECS = 30
 
 
 @func_utils.lru_cache(settable_kwargs=('timeout_secs',))
@@ -39,13 +39,12 @@ def _cached_server(name: str | None = None, *, timeout_secs: float = 10200):
   return result
 
 
-class CourierServerWrapper:
+class Server:
   """Courier server that runs a chainable."""
 
   server_name: str | None
   port: int | None
-  prefetch_size: int
-  timeout_secs: float
+  _states_lock: threading.Lock
   _server: courier.Server | None
   _thread: threading.Thread | None
   _last_heartbeat: float
@@ -59,13 +58,9 @@ class CourierServerWrapper:
       server_name: str | None = None,
       *,
       port: int | None = None,
-      prefetch_size: int = 2,
-      timeout_secs: float = 10200,
   ):
     self.server_name = server_name
     self.port = port
-    self.prefetch_size = prefetch_size
-    self.timeout_secs = timeout_secs
     self._server = None
     self._thread = None
     self._last_heartbeat = 0.0
@@ -73,6 +68,8 @@ class CourierServerWrapper:
     self._shutdown_requested = False
     self._generator = None
     self._enqueue_thread = None
+    self._states_lock = threading.Lock()
+    self.build_server()
 
   def __str__(self):
     addr = self.server_name or ''
@@ -81,14 +78,10 @@ class CourierServerWrapper:
     return f'CourierServer("{addr}")'
 
   def __hash__(self) -> int:
-    return hash((self.address, self.prefetch_size, self.timeout_secs))
+    return hash(self.address)
 
   def __eq__(self, other: CourierServerWrapper) -> bool:
-    return (
-        self.address == other.address
-        and self.prefetch_size == other.prefetch_size
-        and self.timeout_secs == other.timeout_secs
-    )
+    return self.address == other.address
 
   @property
   def address(self) -> str:
@@ -102,6 +95,11 @@ class CourierServerWrapper:
   @property
   def has_started(self) -> bool:
     return self._server is not None and self._server.has_started
+
+  def notify_shutdown(self):
+    with self._shutdown_lock:
+      self._shutdown_requested = True
+      self._shutdown_lock.notify_all()
 
   def set_up(self) -> None:
     """Set up (e.g. binding to methods) at server build time."""
@@ -126,6 +124,71 @@ class CourierServerWrapper:
             lazy_obj,
         )
         raise e
+
+    def pickled_cache_info():
+      return pickler.dumps(lazy_fns.cache_info())
+
+    def heartbeat() -> None:
+      self._last_heartbeat = time.time()
+
+    assert self._server is not None, 'Server is not built.'
+    self._server.Bind('maybe_make', pickled_maybe_make)
+    self._server.Bind('heartbeat', heartbeat)
+    self._server.Bind('shutdown', self.notify_shutdown)
+    self._server.Bind('clear_cache', transform.clear_cache)
+    self._server.Bind('cache_info', pickled_cache_info)
+
+  def build_server(self, start_server: bool = False) -> courier.Server:
+    """Build and run a courier server."""
+    assert self.server_name != '', f'illegal {self.server_name=}'  # pylint: disable=g-explicit-bool-comparison
+    if self._server is None:
+      self._shutdown_requested = False
+      self._server = courier.Server(self.server_name, port=self.port)
+      self.set_up()
+      logging.info('chainable: constructed server %s', self)
+    if start_server and not self.has_started:
+      self._server.Start()
+    return self._server
+
+  def shutdown_server(self):
+    if self.has_started:
+      logging.info('chainable: Shutting down for server %s', self)
+      assert self._server is not None, 'Server is not built.'
+      self._server.Stop()
+      self._server = None
+
+
+# TODO: b/372935688 - Deprecate this in favor of simpler Server above.
+class CourierServerWrapper(Server):
+  """Courier server that can prefetch an iterator."""
+
+  prefetch_size: int
+  timeout_secs: float
+
+  def __init__(
+      self,
+      server_name: str | None = None,
+      *,
+      port: int | None = None,
+      prefetch_size: int = 2,
+      timeout_secs: float = 10200,
+  ):
+    super().__init__(server_name, port=port)
+    self.prefetch_size = prefetch_size
+    self.timeout_secs = timeout_secs
+
+  def __hash__(self) -> int:
+    return super().__hash__()
+
+  def __eq__(self, other: CourierServerWrapper) -> bool:
+    return (
+        self.address == other.address
+        and self.prefetch_size == other.prefetch_size
+        and self.timeout_secs == other.timeout_secs
+    )
+
+  def set_up(self) -> None:
+    """Set up (e.g. binding to methods) at server build time."""
 
     def pickled_init_iterator(maybe_lazy):
       result = lazy_fns.maybe_make(maybe_lazy)
@@ -155,9 +218,6 @@ class CourierServerWrapper:
       with self._shutdown_lock:
         self._shutdown_lock.notify_all()
 
-    def pickled_cache_info():
-      return pickler.dumps(lazy_fns.cache_info())
-
     def _next_batch_from_iterator(batch_size: int = 0) -> list[Any]:
       assert self._generator is not None, (
           'Generator is not set, the worker might crashed unexpectedly'
@@ -184,44 +244,15 @@ class CourierServerWrapper:
     def next_from_iterator() -> bytes:
       return pickler.dumps(_next_batch_from_iterator(batch_size=1)[0])
 
-    def heartbeat() -> None:
-      self._last_heartbeat = time.time()
-
-    def shutdown() -> None:
-      # This ignores the returned thread for remote operation.
-      # Cannot directly call self.stop() because this will not return a response
-      # to the client.
-      self.stop()
-
     assert self._server is not None, 'Server is not built.'
-    self._server.Bind('maybe_make', pickled_maybe_make)
+    super().set_up()
     self._server.Bind('init_generator', pickled_init_iterator)
     self._server.Bind('next_from_generator', next_from_iterator)
     self._server.Bind('next_batch_from_generator', next_batch_from_iterator)
-    self._server.Bind('heartbeat', heartbeat)
-    self._server.Bind('shutdown', shutdown)
-    # TODO: b/318463291 - Add unit tests.
-    self._server.Bind('clear_cache', transform.clear_cache)
-    self._server.Bind('cache_info', pickled_cache_info)
 
-  def build_server(self) -> courier.Server:
-    """Build and run a courier server."""
-    assert self.server_name != '', f'illegal {self.server_name=}'  # pylint: disable=g-explicit-bool-comparison
-    if self._server is not None:
-      return self._server
-    self._shutdown_requested = False
-    self._server = courier.Server(self.server_name, port=self.port)
-    self.set_up()
-    logging.info('chainable: constructed server %s', self)
-    return self._server
-
-  # TODO: b/372935688 - Makes this optional, and uses to start() and stop().
   def run_until_shutdown(self):
     """Run until shutdown requested."""
-    self.build_server()
-    assert self._server is not None, 'Server is not built.'
-    if not self.has_started:
-      self._server.Start()
+    self.build_server(start_server=True)
     self._last_heartbeat = time.time()
     with self._shutdown_lock:
       while not self._shutdown_requested:
@@ -229,11 +260,8 @@ class CourierServerWrapper:
           logging.info('chainable: no ping after %ds.', self.timeout_secs)
           self._shutdown_requested = True
           break
-        self._shutdown_lock.wait(_INTERVAL_SECS)
-    if self.has_started:
-      logging.info('chainable: Shutting down for server %s', self)
-      self._server.Stop()
-      self._server = None
+        self._shutdown_lock.wait(_HRTBT_INTERVAL_SECS)
+    self.shutdown_server()
 
   def start(self, *, daemon: bool = None) -> threading.Thread:
     """Start the server from a different thread."""
@@ -249,7 +277,5 @@ class CourierServerWrapper:
 
   def stop(self) -> threading.Thread | None:
     """Stop the server."""
-    with self._shutdown_lock:
-      self._shutdown_requested = True
-      self._shutdown_lock.notify_all()
+    self.notify_shutdown()
     return self._thread
