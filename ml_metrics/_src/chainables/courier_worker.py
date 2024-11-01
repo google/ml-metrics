@@ -553,11 +553,16 @@ class Worker:
     )
 
   def __hash__(self):
-    assert self.server_name, 'server_name must be set for hashing.'
-    return hash(self.server_name)
+    return hash(self.address)
 
-  def __eq__(self, other):
-    return self.server_name == other.server_name
+  def __eq__(self, other: Worker):
+    return (
+        self.address == other.address
+        and self.call_timeout == other.call_timeout
+        and self.max_parallelism == other.max_parallelism
+        and self.heartbeat_threshold_secs == other.heartbeat_threshold_secs
+        and self.iterate_batch_size == other.iterate_batch_size
+    )
 
   @call_timeout.setter
   def call_timeout(self, call_timeout: float):
