@@ -155,7 +155,7 @@ class Task(_FutureLike[_T]):
   @property
   def server_name(self) -> str:
     assert self.worker is not None
-    return self.worker.server_name
+    return self.worker.address
 
   @property
   def is_alive(self) -> bool:
@@ -263,7 +263,7 @@ class RemoteObject(Generic[_T], base_types.Resolvable[_T]):
   ) -> Self:
     if not isinstance(value, lazy_fns.LazyObject):
       value = lazy_fns.LazyObject.new(value)
-    worker_addr = worker.server_name if isinstance(worker, Worker) else worker
+    worker_addr = worker.address if isinstance(worker, Worker) else worker
     return cls(value, worker_addr=worker_addr, call_timeout=call_timeout)
 
   def __hash__(self) -> int:
@@ -427,7 +427,7 @@ async def async_remote_iter(
       lazy_fns.trace(iter_utils.IteratorQueue)(
           buffer_size,
           timeout=timeout,
-          name=f'{name}@{worker.server_name}',
+          name=f'{name}@{worker.address}',
           lazy_result_=True,
       )
   )
@@ -483,7 +483,7 @@ def _is_heartbeat_stale(state_with_time: StateWithTime) -> bool:
 class Worker:
   """Courier client wrapper that works as a chainable worker."""
 
-  server_name: str
+  address: str
   max_parallelism: int
   heartbeat_threshold_secs: float
   iterate_batch_size: int
@@ -500,14 +500,14 @@ class Worker:
 
   def __init__(
       self,
-      server_name: str | None = '',
+      address: str,
       *,
       call_timeout: float | None = 60,
       max_parallelism: int = 1,
       heartbeat_threshold_secs: float = _HRTBT_THRESHOLD_SECS,
       iterate_batch_size: int = 1,
   ):
-    self.server_name = server_name or ''
+    self.address = address
     self.max_parallelism = max_parallelism
     self.heartbeat_threshold_secs = heartbeat_threshold_secs
     self.iterate_batch_size = iterate_batch_size
@@ -523,19 +523,13 @@ class Worker:
     self._last_heartbeat = 0.0
 
   def _refresh_courier_client(self):
-    assert self.server_name, f'empty server_name: "{self.server_name}"'
-    logging.debug('chainable: refresh courier client at %s', self.server_name)
-    self._client = courier.Client(
-        self.server_name, call_timeout=self.call_timeout
-    )
+    assert self.address, f'empty address: "{self.address}"'
+    logging.debug('chainable: refresh courier client at %s', self.address)
+    self._client = courier.Client(self.address, call_timeout=self.call_timeout)
     self._heartbeat_client = courier.Client(
-        self.server_name,
+        self.address,
         call_timeout=self.heartbeat_threshold_secs,
     )
-
-  @property
-  def address(self) -> str:
-    return self.server_name or self._client.address
 
   @property
   def call_timeout(self) -> float | None:
@@ -566,13 +560,10 @@ class Worker:
 
   @call_timeout.setter
   def call_timeout(self, call_timeout: float):
-    self.set_timeout(call_timeout)
-
-  def set_timeout(self, call_timeout: float):
     with self._states_lock:
       self._call_timeout = call_timeout
       self._client = courier.Client(
-          self.server_name, call_timeout=self.call_timeout
+          self.address, call_timeout=self.call_timeout
       )
 
   # TODO: b/375668959 - Revamp _locker as a normal thread lock and uses
@@ -635,7 +626,7 @@ class Worker:
         return
     await asyncio.sleep(0.1)
     raise RuntimeError(
-        f'Failed to connect to async worker {self.server_name} after'
+        f'Failed to connect to async worker {self.address} after'
         f' {delta_time:.2f}s.'
     )
 
@@ -655,8 +646,7 @@ class Worker:
         return
       time.sleep(0.1)
     raise RuntimeError(
-        f'Failed to connect to worker {self.server_name} after'
-        f' {delta_time:.2f}s.'
+        f'Failed to connect to worker {self.address} after {delta_time:.2f}s.'
     )
 
   def _is_heartbeat_fresh(self) -> bool:
@@ -813,7 +803,7 @@ class Worker:
           batch_cnt += 1
       logging.info(
           'chainable: worker %s generator exhausted after %d batches',
-          self.server_name,
+          self.address,
           batch_cnt,
       )
     except Exception as e:  # pylint: disable=broad-exception-caught
@@ -895,7 +885,7 @@ class WorkerPool:
 
   @property
   def server_names(self) -> list[str]:
-    return [worker.server_name for worker in self._workers]
+    return [worker.address for worker in self._workers]
 
   @property
   def acquired_workers(self) -> list[Worker]:
@@ -1014,7 +1004,7 @@ class WorkerPool:
 
   @property
   def num_workers(self):
-    return len(self.server_names)
+    return len(self._workers)
 
   def shutdown(self, blocking: bool = False):
     """Attemping to shut down workers."""
@@ -1094,7 +1084,7 @@ class WorkerPool:
         if tasks:
           task = tasks.pop().set(worker=worker)
           logging.info(
-              'chainable: submitting task to worker %s', worker.server_name
+              'chainable: submitting task to worker %s', worker.address
           )
           aiter_until_complete = iterate_until_complete(
               worker.async_iterate(

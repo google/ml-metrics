@@ -312,14 +312,14 @@ def _async_run_single_stage(
           if exc := state.exception():
             logging.exception(
                 'chainable: worker %s failed with exception: %s, %s',
-                worker.server_name,
+                worker,
                 type(exc),
                 exc,
             )
             raise exc
           logging.info(
               'chainable: worker %s released, remains %d, "%s" enqueue_done=%s',
-              worker.server_name,
+              worker,
               len(iterating),
               result_q.name,
               result_q.enqueue_done,

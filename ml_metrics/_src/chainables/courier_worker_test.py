@@ -568,7 +568,7 @@ class CourierWorkerTest(absltest.TestCase):
     self.assertIsInstance(exceptions[0], Exception)
 
   def test_worker_timeout(self):
-    self.worker.set_timeout(0.01)
+    self.worker.call_timeout = 0.01
     state = self.worker.call(lazy_fns.trace(time.sleep)(0.3))
     exceptions = courier_worker.get_exceptions([state])
     self.assertLen(exceptions, 1)
