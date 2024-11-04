@@ -425,14 +425,13 @@ class CourierWorkerTest(absltest.TestCase):
       asyncio.run(worker.async_get_result(lazy_fns.trace(time.sleep)(0.3)))
 
   def test_worker_hash(self):
-    s = courier_server._cached_server('a')
-    d = {courier_worker.Worker('a')}
-    self.assertIn(courier_worker.Worker('a'), d)
-    self.assertNotIn(courier_worker.Worker('a', call_timeout=1), d)
-    self.assertNotIn(courier_worker.Worker('a', max_parallelism=2), d)
-    self.assertNotIn(courier_worker.Worker('a', heartbeat_threshold_secs=2), d)
-    self.assertNotIn(courier_worker.Worker('a', iterate_batch_size=2), d)
-    s.stop()
+    addr = self.server.address
+    d = {courier_worker.Worker(addr)}
+    self.assertIn(courier_worker.Worker(addr), d)
+    self.assertNotIn(courier_worker.Worker(addr, call_timeout=1), d)
+    self.assertNotIn(courier_worker.Worker(addr, max_parallelism=2), d)
+    self.assertNotIn(courier_worker.Worker(addr, heartbeat_threshold_secs=2), d)
+    self.assertNotIn(courier_worker.Worker(addr, iterate_batch_size=2), d)
 
   def test_worker_str(self):
     self.assertRegex(
