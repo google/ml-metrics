@@ -250,21 +250,19 @@ def wait(
 class RemoteObject(Generic[_T], base_types.Resolvable[_T]):
   """Remote object holds remote reference that behaves like a local object."""
   value: lazy_fns.LazyObject[_T]
-  worker_addr: str = dc.field(kw_only=True)
-  call_timeout: float | None = dc.field(kw_only=True, default=None)
+  worker_configs: WorkerConfig
 
   @classmethod
-  def new(
-      cls,
-      value,
-      *,
-      worker: str | Worker,
-      call_timeout: float | None = None,
-  ) -> Self:
+  def new(cls, value, worker: str | Worker | WorkerConfig) -> Self:
     if not isinstance(value, lazy_fns.LazyObject):
       value = lazy_fns.LazyObject.new(value)
-    worker_addr = worker.address if isinstance(worker, Worker) else worker
-    return cls(value, worker_addr=worker_addr, call_timeout=call_timeout)
+    if isinstance(worker, str):
+      worker = Worker(worker).configs
+    elif isinstance(worker, Worker):
+      worker = worker.configs
+    elif not isinstance(worker, WorkerConfig):
+      raise TypeError(f'Unsupported worker type: {type(worker)}')
+    return cls(value, worker)
 
   def __hash__(self) -> int:
     return hash(self.value)
@@ -273,7 +271,7 @@ class RemoteObject(Generic[_T], base_types.Resolvable[_T]):
     return self.value == other.value
 
   def __str__(self) -> str:
-    return f'<@{self.worker_addr}:object(id={self.id})>'
+    return f'<@{self.worker_configs.address}:object(id={self.id})>'
 
   @property
   def id(self) -> int:
@@ -282,7 +280,7 @@ class RemoteObject(Generic[_T], base_types.Resolvable[_T]):
 
   @property
   def worker(self) -> Worker:
-    return cached_worker(self.worker_addr, call_timeout=self.call_timeout)
+    return self.worker_configs.make_worker()
 
   def future_(self) -> futures.Future[bytes]:
     # Remote object will forward any exception as the result.
@@ -307,22 +305,16 @@ class RemoteObject(Generic[_T], base_types.Resolvable[_T]):
   def __call__(self, *args, **kwargs) -> RemoteObject:
     """Calling a LazyFn records a lazy result of the call."""
     return RemoteObject.new(
-        self.value(*args, **kwargs),
-        worker=self.worker_addr,
-        call_timeout=self.call_timeout,
+        self.value(*args, **kwargs), worker=self.worker_configs
     )
 
   def __getattr__(self, name: str) -> RemoteObject:
     return RemoteObject.new(
-        getattr(self.value, name),
-        worker=self.worker_addr,
-        call_timeout=self.call_timeout,
+        getattr(self.value, name), worker=self.worker_configs
     )
 
   def __getitem__(self, key) -> RemoteObject:
-    return RemoteObject.new(
-        self.value[key], worker=self.worker_addr, call_timeout=self.call_timeout
-    )
+    return RemoteObject.new(self.value[key], worker=self.worker_configs)
 
   # TODO: b/356633410 - Replaces RemoteIterator with RemoteIteratorQueue using
   # courier_server.make_remote_queue.
@@ -479,6 +471,18 @@ def _is_heartbeat_stale(state_with_time: StateWithTime) -> bool:
   return time.time() - state_with_time.time > _HRTBT_INTERVAL_SECS
 
 
+@dc.dataclass(frozen=True, kw_only=True)
+class WorkerConfig:
+  address: str
+  max_parallelism: int
+  heartbeat_threshold_secs: float
+  iterate_batch_size: int
+  call_timeout: float | None
+
+  def make_worker(self) -> Worker:
+    return Worker(**dc.asdict(self))
+
+
 # TODO(b/311207032): Adds unit test to cover logic for disconneted worker.
 class Worker:
   """Courier client wrapper that works as a chainable worker."""
@@ -519,6 +523,16 @@ class Worker:
     self._heartbeat = None
     self._pendings = []
     self._last_heartbeat = 0.0
+
+  @property
+  def configs(self) -> WorkerConfig:
+    return WorkerConfig(
+        address=self.address,
+        max_parallelism=self.max_parallelism,
+        heartbeat_threshold_secs=self.heartbeat_threshold_secs,
+        iterate_batch_size=self.iterate_batch_size,
+        call_timeout=self._call_timeout,
+    )
 
   def _refresh_courier_client(self):
     assert self.address, f'empty address: "{self.address}"'
@@ -699,7 +713,7 @@ class Worker:
     if isinstance(result, Exception):
       raise result
     if isinstance(result, lazy_fns.LazyObject):
-      return RemoteObject.new(result, worker=self.address)
+      return RemoteObject.new(result, worker=self)
     return result
 
   def get_result(self, lazy_obj: base_types.Resolvable[_T]) -> _T:
