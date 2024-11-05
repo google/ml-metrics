@@ -20,6 +20,7 @@ import dataclasses as dc
 import functools
 import itertools as itt
 from typing import TypeVar
+from absl import logging
 import more_itertools as mit
 
 
@@ -113,6 +114,7 @@ def lru_cache(
       if not cache_insert_ and key in cache_:
         result = cache_[key]
       else:
+        logging.debug('chainable: cache miss %s: %s, %s', fn, args, kwargs)
         result = fn(*args, **kwargs)
         cache_[key] = result
       result_new = None
@@ -128,3 +130,31 @@ def lru_cache(
     return wrapped
 
   return decorator if fn is None else decorator(fn)
+
+
+class SingletonMeta(type):
+  """A metaclass that makes a class a singleton of any "equivalent" instance.
+
+  The actual class instance has to be hashable to test equivalence. This also
+  works with inherited classes.
+  Example:
+  ```
+  @dc.dataclass(frozen=True)
+  class Foo(metaclass=SingletonMeta):
+    a: int
+    b: str = 'b'
+
+  # The following should be true.
+  assert Foo(1) is Foo(1)
+  assert Foo(1, 'b') is Foo(1)
+  assert Foo(1, b='b') is not Foo(1)
+  assert Foo(2) is not Foo(1)
+  assert Foo(1, 'a') is not Foo(1)
+  ```
+  """
+
+  _instances = {}
+
+  def __call__(cls, *args, **kwargs):
+    new_cls = super(SingletonMeta, cls).__call__(*args, **kwargs)
+    return cls._instances.setdefault(new_cls, new_cls)

@@ -137,5 +137,22 @@ class LruCacheTest(absltest.TestCase):
     self.assertEqual(['b', 'a'], list(cache))
 
 
+@dc.dataclass(frozen=True)
+class SingletonA(metaclass=func_utils.SingletonMeta):
+  a: int
+  b: str = 'b'
+
+
+class SingletonMetaTest(absltest.TestCase):
+
+  def test_singleton(self):
+
+    self.assertIs(SingletonA(1, 'b'), SingletonA(1))
+    self.assertIs(SingletonA(1), SingletonA(1))
+    self.assertIs(SingletonA(1, b='b'), SingletonA(1))
+    self.assertIsNot(SingletonA(1, b='b1'), SingletonA(1))
+    self.assertIsNot(SingletonA(2), SingletonA(1))
+
+
 if __name__ == '__main__':
   absltest.main()
