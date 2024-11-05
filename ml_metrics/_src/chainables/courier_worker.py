@@ -495,7 +495,7 @@ class Worker:
   _client: courier.Client
   _pendings: list[StateWithTime]
   _heartbeat_client: courier.Client
-  _heartbeat: StateWithTime
+  _heartbeat: StateWithTime | None
   _last_heartbeat: float
 
   def __init__(
@@ -516,10 +516,8 @@ class Worker:
     self._states_lock = threading.RLock()
     self._worker_pool = None
     self._refresh_courier_client()
-    self._heartbeat = StateWithTime(
-        self._heartbeat_client.futures.heartbeat(), time.time()
-    )
-    self._pendings = [self._heartbeat]
+    self._heartbeat = None
+    self._pendings = []
     self._last_heartbeat = 0.0
 
   def _refresh_courier_client(self):
@@ -607,7 +605,9 @@ class Worker:
   def _send_heartbeat(self):
     """Ping the worker to check the heartbeat once."""
     # Only renews the heartbeat one at a time.
-    if self._heartbeat.state.done() and _is_heartbeat_stale(self._heartbeat):
+    if not self._heartbeat or (
+        self._heartbeat.state.done() and _is_heartbeat_stale(self._heartbeat)
+    ):
       # It is possible the client is stale, e.g., server is started after the
       # client is created. This is only applicable for the first heartbeat.
       self._refresh_courier_client()
