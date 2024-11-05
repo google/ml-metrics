@@ -31,12 +31,31 @@ pickler = lazy_fns.pickler
 _HRTBT_INTERVAL_SECS = 30
 
 
-@func_utils.lru_cache(settable_kwargs=('timeout_secs',))
-def _cached_server(name: str | None = None, *, timeout_secs: float = 10200):
-  result = CourierServerWrapper(name, timeout_secs=timeout_secs)
-  result.build_server()
-  result.start(daemon=True)
-  return result
+class HeartbeatRegistry:
+  """A singleton class to track the clients of a server."""
+
+  _clients: dict[str, float]
+
+  def __init__(self):
+    self._clients = {}
+
+  def get(self, address: str):
+    """Get the last heartbeat of a client."""
+    return self._clients.get(address, None)
+
+  def update(self, address: str, time_: float):
+    """Update the heartbeat of any existing client."""
+    if address in self._clients:
+      self._clients[address] = max(self._clients.get(address, 0), time_)
+    raise ValueError(f'address {address} is not registered.')
+
+  def register(self, address: str, time_: float):
+    """Register a new client."""
+    self._clients[address] = time_
+
+  def unregister(self, address: str):
+    """Unregister a client."""
+    self._clients.pop(address, None)
 
 
 class Server:
@@ -52,6 +71,7 @@ class Server:
   _enqueue_thread: threading.Thread | None
   _shutdown_lock: threading.Condition
   _shutdown_requested: bool
+  _heartbeats: HeartbeatRegistry
 
   def __init__(
       self,
@@ -69,6 +89,7 @@ class Server:
     self._generator = None
     self._enqueue_thread = None
     self._states_lock = threading.Lock()
+    self._heartbeats = HeartbeatRegistry()
     self.build_server()
 
   def __str__(self):
@@ -80,8 +101,11 @@ class Server:
   def __hash__(self) -> int:
     return hash(self.address)
 
-  def __eq__(self, other: CourierServerWrapper) -> bool:
+  def __eq__(self, other: Server) -> bool:
     return self.address == other.address
+
+  def client_heartbeat(self, client_addrs: str) -> float:
+    return self._heartbeats.get(client_addrs) or 0.0
 
   @property
   def address(self) -> str:
@@ -128,8 +152,15 @@ class Server:
     def pickled_cache_info():
       return pickler.dumps(lazy_fns.cache_info())
 
-    def heartbeat() -> None:
+    def heartbeat(sender_addr: str = '', is_alive: bool = True) -> None:
       self._last_heartbeat = time.time()
+      if not sender_addr:
+        return
+      with self._states_lock:
+        if is_alive:
+          self._heartbeats.register(sender_addr, self._last_heartbeat)
+        else:
+          self._heartbeats.unregister(sender_addr)
 
     assert self._server is not None, 'Server is not built.'
     self._server.Bind('maybe_make', pickled_maybe_make)
@@ -158,7 +189,7 @@ class Server:
       self._server = None
 
 
-# TODO: b/372935688 - Deprecate this in favor of simpler Server above.
+# TODO: b/372935688 - Rename this to PrefetchingServer.
 class CourierServerWrapper(Server):
   """Courier server that can prefetch an iterator."""
 
@@ -181,6 +212,8 @@ class CourierServerWrapper(Server):
     return super().__hash__()
 
   def __eq__(self, other: CourierServerWrapper) -> bool:
+    if not isinstance(other, CourierServerWrapper):
+      return False
     return (
         self.address == other.address
         and self.prefetch_size == other.prefetch_size
@@ -265,17 +298,29 @@ class CourierServerWrapper(Server):
 
   def start(self, *, daemon: bool = None) -> threading.Thread:
     """Start the server from a different thread."""
-    if self.has_started and self._thread is not None:
-      return self._thread
-    self.build_server()
-    server_thread = threading.Thread(
-        target=self.run_until_shutdown, daemon=daemon
-    )
-    server_thread.start()
-    self._thread = server_thread
-    return server_thread
+    with self._states_lock:
+      if self.has_started:
+        assert self._thread is not None, 'Threading is having issue locking.'
+        return self._thread
+      self.build_server()
+      server_thread = threading.Thread(
+          target=self.run_until_shutdown, daemon=daemon
+      )
+      server_thread.start()
+      self._thread = server_thread
+      return server_thread
 
   def stop(self) -> threading.Thread | None:
     """Stop the server."""
     self.notify_shutdown()
     return self._thread
+
+
+@func_utils.lru_cache(settable_kwargs=('timeout_secs',))
+def _cached_server(
+    name: str | None = None, *, timeout_secs: float = 10200
+):
+  result = CourierServerWrapper(name, timeout_secs=timeout_secs)
+  result.build_server()
+  result.start(daemon=True)
+  return result

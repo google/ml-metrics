@@ -125,10 +125,21 @@ class CourierServerTest(parameterized.TestCase):
     server.stop()
     thread.join()
 
-  def test_courier_server_heartbeat(self):
+  @parameterized.named_parameters([
+      dict(testcase_name='no_sender'),
+      dict(testcase_name='alive', sender_addr='a'),
+      dict(testcase_name='dead', sender_addr='a', is_alive=False),
+  ])
+  def test_courier_server_heartbeat(
+      self, sender_addr: str = '', is_alive: bool = True
+  ):
     client = courier.Client(self.server.address, call_timeout=1)
-    f = client.futures.heartbeat()
+    f = client.futures.heartbeat(sender_addr, is_alive)
     self.assertIsNone(f.result())
+    if sender_addr and is_alive:
+      self.assertIsNotNone(self.server.client_heartbeat(sender_addr))
+    else:
+      self.assertEqual(self.server.client_heartbeat(sender_addr), 0.0)
 
   def test_courier_server_generator(self):
     client = courier.Client(self.server.address, call_timeout=1)
