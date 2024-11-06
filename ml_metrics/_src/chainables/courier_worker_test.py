@@ -31,40 +31,6 @@ courier_worker._HRTBT_THRESHOLD_SECS = 1
 Task = courier_worker.Task
 
 
-def setUpModule():
-  # Required for BNS resolution.
-  testutil.SetupMockBNS()
-  # Setup the server for the test group below.
-  courier_server._cached_server('RemoteObject')
-  courier_server._cached_server('CourierWorker')
-  courier_server._cached_server('WorkerPool')
-
-
-def tearDownModule():
-  # Required for BNS resolution.
-  testutil.SetupMockBNS()
-  # Setup the server for the test group below.
-  courier_server._cached_server('RemoteObject').stop().join()
-  courier_server._cached_server('CourierWorker').stop().join()
-  courier_server._cached_server('WorkerPool').stop().join()
-
-
-def lazy_q_fn(n, stop=False):
-  q = queue.SimpleQueue()
-  for i in range(n):
-    q.put(i)
-  if stop:
-    q.put(iter_utils.STOP_ITERATION)
-  return q
-
-
-def mock_generator(n, sleep_interval=0.0):
-  for i in range(n):
-    yield i
-    time.sleep(sleep_interval)
-  return n
-
-
 class TimeoutServer(courier_server.CourierServerWrapper):
   """Test server for CourierServerWrapper."""
 
@@ -85,6 +51,48 @@ class TimeoutServer(courier_server.CourierServerWrapper):
     self._server.Bind('maybe_make', timeout)
     self._server.Unbind('init_iterator')
     self._server.Bind('init_iterator', timeout_init_iterator)
+
+
+TIMEOUT_SERVER = TimeoutServer('timeout_server', port=10099)
+
+
+def setUpModule():
+  # Required for BNS resolution.
+  testutil.SetupMockBNS()
+  # Setup the server for the test group below.
+  courier_server._cached_server('RemoteObject')
+  courier_server._cached_server('CourierWorker')
+  courier_server._cached_server('WorkerPool')
+  courier_server._cached_server('host')
+  TIMEOUT_SERVER.start(daemon=True)
+
+
+def tearDownModule():
+  # Required for BNS resolution.
+  testutil.SetupMockBNS()
+  # Setup the server for the test group below.
+  courier_server._cached_server('RemoteObject').stop().join()
+  courier_server._cached_server('CourierWorker').stop().join()
+  courier_server._cached_server('WorkerPool').stop().join()
+  courier_server._cached_server('host').stop().join()
+  if t := TIMEOUT_SERVER.stop():
+    t.join()
+
+
+def lazy_q_fn(n, stop=False):
+  q = queue.SimpleQueue()
+  for i in range(n):
+    q.put(i)
+  if stop:
+    q.put(iter_utils.STOP_ITERATION)
+  return q
+
+
+def mock_generator(n, sleep_interval=0.0):
+  for i in range(n):
+    yield i
+    time.sleep(sleep_interval)
+  return n
 
 
 class RemoteObjectTest(parameterized.TestCase):
@@ -608,8 +616,7 @@ class CourierWorkerPoolTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     self.server = courier_server._cached_server('WorkerPool')
-    self.always_timeout_server = TimeoutServer()
-    self.timeout_server_thread = self.always_timeout_server.start(daemon=True)
+    self.always_timeout_server = TIMEOUT_SERVER
     self.worker_pool = courier_worker.WorkerPool([self.server.address])
     self.unreachable_address = f'localhost:{portpicker.pick_unused_port()}'
     self.worker_pool.wait_until_alive(deadline_secs=15)
