@@ -358,8 +358,10 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
       elif not isinstance(k, Index) and isinstance(data, Mapping):
         data = data[k]
       else:
-        raise ValueError(
-            f'Cannot use {type(k)} ({k}) as a key for {type(data)} data.'
+        raise TypeError(
+            f'Cannot use "{k}" of as a mapping key on a type of'
+            f' "{type(data).__name__}", which has to implement a Mapping'
+            ' interface such as a dict.'
         )
     return self._maybe_map(data)
 

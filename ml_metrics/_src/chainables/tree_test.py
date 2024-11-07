@@ -131,7 +131,7 @@ class TreeMapViewTest(parameterized.TestCase):
 
   def test_incorrect_keys_raises_error(self):
     # pylint: disable=expression-not-assigned
-    with self.assertRaises(ValueError):
+    with self.assertRaises(TypeError):
       TreeMapView([1, 2, 3])[0]
     with self.assertRaises(IndexError):
       TreeMapView([1, 2, 3])[Key.Index(9)]
