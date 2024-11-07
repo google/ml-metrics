@@ -26,6 +26,7 @@ import more_itertools as mit
 
 _KeyT = TypeVar('_KeyT')
 _ValueT = TypeVar('_ValueT')
+_T = TypeVar('_T')
 
 
 @dc.dataclass(slots=True, frozen=True)
@@ -155,6 +156,11 @@ class SingletonMeta(type):
 
   _instances = {}
 
-  def __call__(cls, *args, **kwargs):
-    new_cls = super(SingletonMeta, cls).__call__(*args, **kwargs)
-    return cls._instances.setdefault(new_cls, new_cls)
+  def __call__(cls: type[_T], *args, **kwargs) -> _T:
+    obj = super(SingletonMeta, cls).__call__(*args, **kwargs)
+    key = (cls, obj)
+    if (result := cls._instances.get(key, None)) is not None:
+      return result
+    logging.info('%s', f'chainable: singleton {cls.__name__}, {obj}')
+    cls._instances[key] = obj
+    return obj
