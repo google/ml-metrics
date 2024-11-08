@@ -140,10 +140,9 @@ class LruCacheTest(absltest.TestCase):
 @dc.dataclass(frozen=True, eq=True)
 class SingletonA(metaclass=func_utils.SingletonMeta):
   a: int
-  b: str = 'b'
 
   def __eq__(self, other):
-    return self.a == other.a and self.b == other.b
+    return isinstance(other, SingletonA) and self.a == other.a
 
 
 @dc.dataclass(frozen=True, eq=True)
@@ -152,25 +151,22 @@ class SingletonB(SingletonA):
   b: str = 'b'
 
   def __eq__(self, other):
-    return super().__eq__(other) and self.b == other.b
+    return (
+        super().__eq__(other)
+        and isinstance(other, SingletonB)
+        and self.b == other.b
+    )
 
 
 class SingletonMetaTest(absltest.TestCase):
 
-  def test_singleton_single_class(self):
-
-    self.assertIs(SingletonA(1, 'b'), SingletonA(1))
+  def test_singleton(self):
     self.assertIs(SingletonA(1), SingletonA(1))
-    self.assertIs(SingletonA(1, b='b'), SingletonA(1))
-    self.assertIsNot(SingletonA(1, b='b1'), SingletonA(1))
     self.assertIsNot(SingletonA(2), SingletonA(1))
-
-  def test_singleton_two_classes(self):
-    a, b = SingletonA(1), SingletonB(1)
-    # Even though they are hashed the same, but still will be distinguished
-    # by the class.
-    self.assertIn(b, {a})
-    self.assertIsNot(a, b)
+    self.assertIsNot(SingletonA(1), SingletonB(1))
+    self.assertIs(SingletonB(1, 'b'), SingletonB(1))
+    self.assertIs(SingletonB(1, b='b'), SingletonB(1))
+    self.assertIsNot(SingletonB(1, b='b1'), SingletonB(1))
 
 
 if __name__ == '__main__':
