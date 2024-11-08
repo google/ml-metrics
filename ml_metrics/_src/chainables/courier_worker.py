@@ -464,7 +464,7 @@ class Worker(metaclass=func_utils.SingletonMeta):
   max_parallelism: int
   heartbeat_threshold_secs: float
   iterate_batch_size: int
-  _call_timeout: float | None
+  _call_timeout: float
   _lock: threading.Lock
   # "_states_lock" guards all the variables below.
   _states_lock: threading.RLock
@@ -479,11 +479,23 @@ class Worker(metaclass=func_utils.SingletonMeta):
       self,
       address: str,
       *,
-      call_timeout: float | None = 60,
+      call_timeout: float = 0.0,
       max_parallelism: int = 1,
       heartbeat_threshold_secs: float = _HRTBT_THRESHOLD_SECS,
       iterate_batch_size: int = 1,
   ):
+    """Initiates a new worker that will connect to a courier server.
+
+    Args:
+      address: Address of the worker. If the string does not start with "/" or
+        "localhost" then it will be interpreted as a custom BNS registered
+        server_name (constructor passed to Server).
+      call_timeout: Sets a timeout to apply to the calls. If 0 then no timeout
+        is applied.
+      max_parallelism: The maximum number of parallel calls to the worker.
+      heartbeat_threshold_secs: The threshold to consider the worker alive.
+      iterate_batch_size: The batch size to use when iterating an iterator.
+    """
     self.address = address
     self.max_parallelism = max_parallelism
     self.heartbeat_threshold_secs = heartbeat_threshold_secs
