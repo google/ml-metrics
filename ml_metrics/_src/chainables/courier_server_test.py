@@ -32,8 +32,7 @@ def setUpModule():
 
 def tearDownModule():
   server = courier_server._cached_server()
-  w = courier_worker.cached_worker(server.address)
-  assert not w.pendings, f'{w.pendings=}'
+  assert not courier_worker.Worker(server.address).pendings
   server.stop().join()
 
 

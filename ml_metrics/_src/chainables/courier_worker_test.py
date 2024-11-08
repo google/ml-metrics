@@ -53,30 +53,33 @@ class TimeoutServer(courier_server.CourierServerWrapper):
     self._server.Bind('init_iterator', timeout_init_iterator)
 
 
-TIMEOUT_SERVER = TimeoutServer('timeout_server', port=10099)
+TIMEOUT_SERVER = TimeoutServer('timeout_server')
+UNREACHABLE_SERVER = courier_server.PrefetchedCourierServer(
+    'unreachable_server'
+)
 
 
 def setUpModule():
   # Required for BNS resolution.
   testutil.SetupMockBNS()
+  # Manually start and stop the server to avoid mocked courier BNS error.
+  UNREACHABLE_SERVER.start()
+  UNREACHABLE_SERVER.stop().join()
   # Setup the server for the test group below.
   courier_server._cached_server('RemoteObject')
   courier_server._cached_server('CourierWorker')
   courier_server._cached_server('WorkerPool')
-  courier_server._cached_server('host')
   TIMEOUT_SERVER.start(daemon=True)
 
 
 def tearDownModule():
   # Required for BNS resolution.
   testutil.SetupMockBNS()
-  # Setup the server for the test group below.
+  # Shutdown the servers for the test group below.
   courier_server._cached_server('RemoteObject').stop().join()
   courier_server._cached_server('CourierWorker').stop().join()
   courier_server._cached_server('WorkerPool').stop().join()
-  courier_server._cached_server('host').stop().join()
-  if t := TIMEOUT_SERVER.stop():
-    t.join()
+  TIMEOUT_SERVER.stop().join()
 
 
 def lazy_q_fn(n, stop=False):
@@ -100,7 +103,7 @@ class RemoteObjectTest(parameterized.TestCase):
   def setUp(self):
     super().setUp()
     self.server = courier_server._cached_server('RemoteObject')
-    self.worker = courier_worker.cached_worker(self.server.address)
+    self.worker = courier_worker.Worker(self.server.address)
     courier_worker.wait_until_alive(self.server.address, deadline_secs=12)
 
   @parameterized.named_parameters([
@@ -391,6 +394,8 @@ class RemoteObjectTest(parameterized.TestCase):
     self.assertEqual([], list(local_queue))
     self.assertCountEqual(list(range(1, num_elem + 1)), actual)
     self.assertEqual(num_elem, local_result_queue.returned[0])
+    local_server.stop().join()
+    remote_server.stop().join()
 
 
 class CourierWorkerTest(absltest.TestCase):
@@ -398,9 +403,10 @@ class CourierWorkerTest(absltest.TestCase):
   def setUp(self):
     super().setUp()
     self.server = courier_server._cached_server('CourierWorker')
-    self.worker = courier_worker.cached_worker(self.server.address)
+    self.worker = courier_worker.Worker(self.server.address)
 
   def test_heartbeat_interval(self):
+    assert self.worker._heartbeat is not None
     first_heartbeat_time = self.worker._heartbeat.time
     while not courier_worker._is_heartbeat_stale(self.worker._heartbeat):
       time.sleep(0.1)
@@ -411,22 +417,18 @@ class CourierWorkerTest(absltest.TestCase):
     )
 
   def test_worker_not_started(self):
-    server = courier_server._cached_server('unknown_worker')
-    courier_worker.wait_until_alive(server.address, deadline_secs=12)
-    worker = courier_worker.cached_worker(
-        'unknown_worker', heartbeat_threshold_secs=1, call_timeout=0.1
+    worker = courier_worker.Worker(
+        UNREACHABLE_SERVER.address,
+        heartbeat_threshold_secs=1,
+        call_timeout=0.1,
     )
-    worker.shutdown()
-    server._thread.join()
     with self.assertRaises(RuntimeError):
-      worker.get_result(None)
+      worker.get_result(lazy_fns.trace(None))
     with self.assertRaises(RuntimeError):
-      asyncio.run(worker.async_get_result(None))
+      asyncio.run(worker.async_get_result(lazy_fns.trace(None)))
 
   def test_worker_get_result_timeout(self):
-    worker = courier_worker.cached_worker(
-        self.server.address, call_timeout=0.01
-    )
+    worker = courier_worker.Worker(self.server.address, call_timeout=0.01)
     with self.assertRaises(TimeoutError):
       worker.get_result(lazy_fns.trace(time.sleep)(0.3))
     with self.assertRaises(TimeoutError):
@@ -584,7 +586,7 @@ class CourierWorkerTest(absltest.TestCase):
   def test_worker_shutdown(self):
     server = courier_server.CourierServerWrapper()
     t = server.start()
-    worker = courier_worker.cached_worker(server.address)
+    worker = courier_worker.Worker(server.address)
     worker.wait_until_alive(deadline_secs=12)
     self.assertTrue(worker.call(True))
     self.assertTrue(t.is_alive())
@@ -618,7 +620,6 @@ class CourierWorkerPoolTest(parameterized.TestCase):
     self.server = courier_server._cached_server('WorkerPool')
     self.always_timeout_server = TIMEOUT_SERVER
     self.worker_pool = courier_worker.WorkerPool([self.server.address])
-    self.unreachable_address = f'localhost:{portpicker.pick_unused_port()}'
     self.worker_pool.wait_until_alive(deadline_secs=15)
 
   @parameterized.named_parameters([
@@ -629,15 +630,15 @@ class CourierWorkerPoolTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='with_different_max_parallelism',
-          workerpool_params=dict(max_parallelism=1),
+          workerpool_params=dict(max_parallelism=2),
       ),
       dict(
           testcase_name='with_different_heartbeat_threshold_secs',
-          workerpool_params=dict(heartbeat_threshold_secs=1),
+          workerpool_params=dict(heartbeat_threshold_secs=2),
       ),
       dict(
           testcase_name='with_different_iterate_batch_size',
-          workerpool_params=dict(iterate_batch_size=1),
+          workerpool_params=dict(iterate_batch_size=2),
       ),
   ])
   def test_worker_pool_construct_from_workers(self, workerpool_params=None):
@@ -647,7 +648,10 @@ class CourierWorkerPoolTest(parameterized.TestCase):
     )
     assert len(worker_pool.all_workers) == 1
     worker = worker_pool.all_workers[0]
-    self.assertIsNot(worker, self.worker_pool.all_workers[0])
+    if workerpool_params:
+      self.assertIsNot(worker, self.worker_pool.all_workers[0])
+    else:
+      self.assertIs(worker, self.worker_pool.all_workers[0])
     for x in workerpool_params:
       self.assertEqual(getattr(worker, x), workerpool_params[x])
 
@@ -674,7 +678,7 @@ class CourierWorkerPoolTest(parameterized.TestCase):
     worker_pool = courier_worker.WorkerPool(
         [
             self.always_timeout_server.address,
-            self.unreachable_address,
+            UNREACHABLE_SERVER.address,
             self.server.address,
         ],
         max_parallelism=1,
@@ -781,10 +785,7 @@ class CourierWorkerPoolTest(parameterized.TestCase):
 
   def test_worker_pool_fail_to_start(self):
     server = courier_server._cached_server('bad_server')
-    worker = courier_worker.Worker('bad_server', heartbeat_threshold_secs=1)
-    worker.wait_until_alive(deadline_secs=12)
-    if t := server.stop():
-      t.join()
+    server.stop().join()
 
     worker_pool = courier_worker.WorkerPool(
         ['bad_server'],

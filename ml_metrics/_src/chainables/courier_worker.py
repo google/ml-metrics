@@ -19,13 +19,11 @@ import abc
 import asyncio
 from collections.abc import AsyncIterator, Iterable, Iterator
 from concurrent import futures
-import copy
 import dataclasses as dc
 import queue
 import random
 import threading
 import time
-import typing
 from typing import Any, Generic, NamedTuple, Protocol, Self, TypeVar
 
 from absl import logging
@@ -44,34 +42,9 @@ _HRTBT_THRESHOLD_SECS = 180
 _T = TypeVar('_T')
 
 
-@func_utils.lru_cache(
-    settable_kwargs=(
-        'max_parallelism',
-        'iterate_batch_size',
-        'heartbeat_threshold_secs',
-    )
-)
-def cached_worker(
-    addr: str,
-    *,
-    call_timeout: float | None = None,
-    max_parallelism: int = 1,
-    heartbeat_threshold_secs: float = _HRTBT_THRESHOLD_SECS,
-    iterate_batch_size: int = 1,
-):
-  """Returns a courier worker and cache it if possible."""
-  return Worker(
-      addr,
-      call_timeout=call_timeout,
-      max_parallelism=max_parallelism,
-      heartbeat_threshold_secs=heartbeat_threshold_secs,
-      iterate_batch_size=iterate_batch_size,
-  )
-
-
 def wait_until_alive(address: str, deadline_secs: float = 120):
   """Wait until the worker at the address is alive."""
-  cached_worker(address).wait_until_alive(deadline_secs=deadline_secs)
+  Worker(address).wait_until_alive(deadline_secs=deadline_secs)
 
 
 class _FutureLike(Protocol[_T]):
@@ -411,7 +384,7 @@ async def async_remote_iter(
     iterator = iterator.value
   elif isinstance(iterator, lazy_fns.LazyObject):
     if not isinstance(worker, Worker):
-      worker = cached_worker(worker, call_timeout=timeout)
+      worker = Worker(worker, call_timeout=timeout)
   else:
     raise TypeError(f'Unsupported {type(iterator)}.')
   # Create a queue at the worker, this returns a remote object.
@@ -471,7 +444,7 @@ def _is_heartbeat_stale(state_with_time: StateWithTime) -> bool:
   return time.time() - state_with_time.time > _HRTBT_INTERVAL_SECS
 
 
-@dc.dataclass(frozen=True, kw_only=True)
+@dc.dataclass(frozen=True, kw_only=True, eq=True)
 class WorkerConfig:
   address: str
   max_parallelism: int
@@ -484,7 +457,7 @@ class WorkerConfig:
 
 
 # TODO(b/311207032): Adds unit test to cover logic for disconneted worker.
-class Worker:
+class Worker(metaclass=func_utils.SingletonMeta):
   """Courier client wrapper that works as a chainable worker."""
 
   address: str
@@ -561,14 +534,8 @@ class Worker:
   def __hash__(self):
     return hash(self.address)
 
-  def __eq__(self, other: Worker):
-    return (
-        self.address == other.address
-        and self.call_timeout == other.call_timeout
-        and self.max_parallelism == other.max_parallelism
-        and self.heartbeat_threshold_secs == other.heartbeat_threshold_secs
-        and self.iterate_batch_size == other.iterate_batch_size
-    )
+  def __eq__(self, other: Any):
+    return isinstance(other, Worker) and self.configs == other.configs
 
   @call_timeout.setter
   def call_timeout(self, call_timeout: float):
@@ -862,40 +829,37 @@ class Worker:
 
 
 class WorkerPool:
-  """Worker group that constructs a group of courier workers."""
+  """Worker group that constructs a group of courier workers.
+
+  Default configs of the workers are set by `Worker()`, and can be overridden
+  by explicitly setting non-zero values for the arguments.
+  """
 
   _workers: list[Worker]
 
   def __init__(
       self,
-      names_or_workers: Iterable[str] | Iterable[Worker] = (),
+      names_or_workers: Iterable[str | Worker] = (),
       *,
       call_timeout: float = 0,
       max_parallelism: int = 0,
-      heartbeat_threshold_secs: int = 0,
+      heartbeat_threshold_secs: float = 0,
       iterate_batch_size: int = 0,
   ):
-    if all(isinstance(name, str) for name in names_or_workers):
-      workers = [cached_worker(name) for name in names_or_workers]
-    elif all(isinstance(worker, Worker) for worker in names_or_workers):
-      workers = typing.cast(list[Worker], list(names_or_workers))
-    else:
-      raise TypeError(
-          'Expected either a list of names or a list of workers, got'
-          f' {names_or_workers}'
-      )
     self._workers = []
-    for worker in workers:
-      worker = copy.copy(worker)
-      worker.call_timeout = call_timeout or worker.call_timeout
-      worker.max_parallelism = max_parallelism or worker.max_parallelism
-      worker.heartbeat_threshold_secs = (
-          heartbeat_threshold_secs or worker.heartbeat_threshold_secs
+    for worker in names_or_workers:
+      worker = Worker(worker) if isinstance(worker, str) else worker
+      self._workers.append(
+          Worker(
+              worker.address,
+              call_timeout=call_timeout or worker.call_timeout,
+              max_parallelism=max_parallelism or worker.max_parallelism,
+              heartbeat_threshold_secs=heartbeat_threshold_secs
+              or worker.heartbeat_threshold_secs,
+              iterate_batch_size=iterate_batch_size
+              or worker.iterate_batch_size,
+          )
       )
-      worker.iterate_batch_size = (
-          iterate_batch_size or worker.iterate_batch_size
-      )
-      self._workers.append(worker)
 
   @property
   def server_names(self) -> list[str]:

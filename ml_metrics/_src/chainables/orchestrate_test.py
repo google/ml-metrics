@@ -63,8 +63,7 @@ def setUpModule():
   # Required for BNS resolution.
   testutil.SetupMockBNS()
   courier_server._cached_server('WorkerGroup')
-  for addr in SERVER_ADDRS:
-    courier_server._cached_server(addr)
+  _ = [courier_server._cached_server(addr) for addr in SERVER_ADDRS]
   ALWAYS_TIMEOUT_SERVER.start(daemon=True)
 
 
@@ -185,11 +184,11 @@ class RunAsCompletedTest(absltest.TestCase):
     )
 
   def test_shared_worker_pool_run(self):
-    shared_worker_pool = courier_worker.WorkerPool(
-        self.worker_pool.all_workers, call_timeout=6
-    )
+    shared_worker_pool = courier_worker.WorkerPool(self.worker_pool.all_workers)
     shared_worker_pool.wait_until_alive(deadline_secs=12)
     self.assertNotEmpty(shared_worker_pool.workers)
+    self.assertLen(shared_worker_pool.workers, 1)
+    self.assertIs(shared_worker_pool.workers[0], self.worker_pool.workers[0])
     blocked = [True]
 
     def blocking_fn(n):
@@ -208,7 +207,7 @@ class RunAsCompletedTest(absltest.TestCase):
     # The worker is not acquirable while blocked.
     self.assertSameElements([], self.worker_pool._acquire_all())
     blocked[0] = False
-    time.sleep(0)
+    t.join()
     tasks = [chainable.trace(len)([1, 2])]
     actual = list(orchestrate.as_completed(self.worker_pool, tasks))
     self.assertEqual([2], actual)
@@ -246,7 +245,7 @@ class RunInterleavedTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.worker_pool = courier_worker.WorkerPool(SERVER_ADDRS, call_timeout=12)
+    self.worker_pool = courier_worker.WorkerPool(SERVER_ADDRS, call_timeout=30)
     self.worker_pool.wait_until_alive(deadline_secs=12)
 
   @parameterized.named_parameters([

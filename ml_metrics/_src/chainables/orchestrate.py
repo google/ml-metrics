@@ -217,8 +217,8 @@ class RunnerState:
               f'chainable: stage {i} failed, stage: {s.name}'
           ) from e
     self.thread_pool.shutdown()
-    if t := self.master_server.stop():
-      t.join()
+    if (server:=self.master_server).has_started:
+      server.stop().join()
     return result
 
 

@@ -58,7 +58,7 @@ class HeartbeatRegistry:
     self._clients.pop(address, None)
 
 
-class Server:
+class CourierServer(metaclass=func_utils.SingletonMeta):
   """Courier server that runs a chainable."""
 
   server_name: str | None
@@ -101,8 +101,11 @@ class Server:
   def __hash__(self) -> int:
     return hash(self.address)
 
-  def __eq__(self, other: Server) -> bool:
-    return self.address == other.address
+  def __eq__(self, other: Any) -> bool:
+    return isinstance(other, CourierServer) and self.address == other.address
+
+  def __del__(self):
+    self.notify_shutdown()
 
   def client_heartbeat(self, client_addrs: str) -> float:
     return self._heartbeats.get(client_addrs) or 0.0
@@ -189,8 +192,7 @@ class Server:
       self._server = None
 
 
-# TODO: b/372935688 - Rename this to PrefetchingServer.
-class CourierServerWrapper(Server):
+class PrefetchedCourierServer(CourierServer):
   """Courier server that can prefetch an iterator."""
 
   prefetch_size: int
@@ -211,11 +213,10 @@ class CourierServerWrapper(Server):
   def __hash__(self) -> int:
     return super().__hash__()
 
-  def __eq__(self, other: CourierServerWrapper) -> bool:
-    if not isinstance(other, CourierServerWrapper):
-      return False
+  def __eq__(self, other: Any) -> bool:
     return (
-        self.address == other.address
+        isinstance(other, PrefetchedCourierServer)
+        and self.address == other.address
         and self.prefetch_size == other.prefetch_size
         and self.timeout_secs == other.timeout_secs
     )
@@ -310,17 +311,22 @@ class CourierServerWrapper(Server):
       self._thread = server_thread
       return server_thread
 
-  def stop(self) -> threading.Thread | None:
+  def stop(self) -> threading.Thread:
     """Stop the server."""
     self.notify_shutdown()
+    assert self._thread is not None
     return self._thread
+
+
+# TODO: b/372935688 - Deprecate this in favor of PrefetchingServer.
+CourierServerWrapper = PrefetchedCourierServer
 
 
 @func_utils.lru_cache(settable_kwargs=('timeout_secs',))
 def _cached_server(
     name: str | None = None, *, timeout_secs: float = 10200
 ):
-  result = CourierServerWrapper(name, timeout_secs=timeout_secs)
+  result = PrefetchedCourierServer(name, timeout_secs=timeout_secs)
   result.build_server()
   result.start(daemon=True)
   return result
