@@ -157,7 +157,7 @@ class RunnerState:
   stages: list[StageState]
   event_loop: asyncio.AbstractEventLoop
   event_loop_thread: threading.Thread
-  master_server: courier_server.CourierServerWrapper
+  master_server: courier_server.CourierServer
   thread_pool: futures.ThreadPoolExecutor
 
   @property
@@ -217,8 +217,8 @@ class RunnerState:
               f'chainable: stage {i} failed, stage: {s.name}'
           ) from e
     self.thread_pool.shutdown()
-    if (server:=self.master_server).has_started:
-      server.stop().join()
+    if self.master_server.has_started:
+      self.master_server.stop().join()
     return result
 
 
@@ -238,7 +238,7 @@ def _async_run_single_stage(
     event_loop: asyncio.AbstractEventLoop,
     thread_pool: futures.ThreadPoolExecutor,
     resource: RunnerResource,
-    master_server: courier_server.CourierServerWrapper,
+    master_server: courier_server.CourierServer,
     input_queue: iter_utils.IteratorQueue[Any] | None = None,
     ignore_failures: bool = False,
 ) -> StageState:
@@ -399,14 +399,13 @@ def _async_run_single_stage(
 
 def run_pipeline_interleaved(
     pipeline: transform_lib.TreeTransform,
-    master_server: courier_server.CourierServerWrapper,
+    master_server: courier_server.CourierServer,
     resources: dict[str, RunnerResource] | None = None,
     ignore_failures: bool = False,
 ) -> RunnerState:
   """Run a pipeline with stages running interleaved."""
   input_queue = None
   resources = resources or {}
-  master_server.build_server()
   logging.info('chainable: resolved master address: %s', master_server.address)
   thread_pool = futures.ThreadPoolExecutor()
   event_loop = asyncio.new_event_loop()

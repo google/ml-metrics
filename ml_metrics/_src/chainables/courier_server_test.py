@@ -31,13 +31,13 @@ def setUpModule():
 
 
 def tearDownModule():
-  server = courier_server._cached_server()
-  assert not courier_worker.Worker(server.address).pendings
-  server.stop().join()
+  courier_server.CourierServer('test_server').stop().join()
+  assert not courier_worker.Worker('test_server').pendings
+  courier_server.PrefetchedCourierServer('generator_server').stop().join()
 
 
-class TestServer(courier_server.CourierServerWrapper):
-  """Test server for CourierServerWrapper."""
+class TestServer(courier_server.CourierServer):
+  """Test server for CourierServer."""
 
   def set_up(self):
     super().set_up()
@@ -53,8 +53,16 @@ class CourierServerTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server = courier_server._cached_server()
+    self.server = courier_server.CourierServer('test_server')
+    self.server.start()
     courier_worker.wait_until_alive(self.server.address, deadline_secs=12)
+    self.prefetched_server = courier_server.PrefetchedCourierServer(
+        'generator_server'
+    )
+    self.prefetched_server.start()
+    courier_worker.wait_until_alive(
+        self.prefetched_server.address, deadline_secs=12
+    )
 
   @parameterized.named_parameters([
       dict(
@@ -71,7 +79,7 @@ class CourierServerTest(parameterized.TestCase):
   def test_server_str(
       self, server_name: str | None, expected_regex: str | None
   ):
-    server = courier_server._cached_server(server_name)
+    server = courier_server.CourierServer(server_name)
     self.assertRegex(str(server), expected_regex)
 
   @parameterized.named_parameters([
@@ -99,11 +107,11 @@ class CourierServerTest(parameterized.TestCase):
       ),
   ])
   def test_server_hash(self, config1, config2, equal=False):
-    server = courier_server.CourierServerWrapper(**config1)
+    server = courier_server.PrefetchedCourierServer(**config1)
     server.build_server()
     server_set = {server}
     # This createes a new server with a different port.
-    server1 = courier_server.CourierServerWrapper(**config2)
+    server1 = courier_server.PrefetchedCourierServer(**config2)
     server1.build_server()
     if equal:
       self.assertIn(server1, server_set)
@@ -141,7 +149,7 @@ class CourierServerTest(parameterized.TestCase):
       self.assertEqual(self.server.client_heartbeat(sender_addr), 0.0)
 
   def test_courier_server_generator(self):
-    client = courier.Client(self.server.address, call_timeout=1)
+    client = courier.Client(self.prefetched_server.address, call_timeout=1)
 
     def test_generator(n):
       yield from range(n)
@@ -155,7 +163,7 @@ class CourierServerTest(parameterized.TestCase):
     self.assertEqual(list(range(10)), actual)
 
   def test_courier_server_batch_generator(self):
-    client = courier.Client(self.server.address, call_timeout=1)
+    client = courier.Client(self.prefetched_server.address, call_timeout=1)
 
     def test_generator(n):
       yield from range(n)
@@ -175,7 +183,7 @@ class CourierServerTest(parameterized.TestCase):
     self.assertEqual(10, returned)
 
   def test_courier_server_shutdown_and_restart(self):
-    server = courier_server.CourierServerWrapper('test_restart')
+    server = courier_server.CourierServer('test_restart')
     server.start()
     courier_worker.wait_until_alive(server.address, deadline_secs=12)
     assert server._thread is not None
@@ -189,7 +197,7 @@ class CourierServerTest(parameterized.TestCase):
     server.stop()
 
   def test_courier_exception_during_prefetch(self):
-    client = courier.Client(self.server.address, call_timeout=1)
+    client = courier.Client(self.prefetched_server.address, call_timeout=1)
 
     def test_generator(n):
       for i in range(n):

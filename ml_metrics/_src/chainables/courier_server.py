@@ -14,6 +14,7 @@
 """Courier server that can run a chainable."""
 from __future__ import annotations
 
+from collections.abc import Callable
 import threading
 import time
 from typing import Any, Iterable, TypeVar
@@ -63,21 +64,22 @@ class CourierServer(metaclass=func_utils.SingletonMeta):
 
   server_name: str | None
   port: int | None
+  auto_shutdown_secs: float
   _states_lock: threading.Lock
   _server: courier.Server | None
   _thread: threading.Thread | None
   _last_heartbeat: float
-  _generator: iter_utils.IteratorQueue | None
-  _enqueue_thread: threading.Thread | None
   _shutdown_lock: threading.Condition
   _shutdown_requested: bool
   _heartbeats: HeartbeatRegistry
+  _shutdown_callback: Callable[..., None] | None
 
   def __init__(
       self,
       server_name: str | None = None,
       *,
       port: int | None = None,
+      auto_shutdown_secs: float = 10200,
   ):
     self.server_name = server_name
     self.port = port
@@ -86,23 +88,27 @@ class CourierServer(metaclass=func_utils.SingletonMeta):
     self._last_heartbeat = 0.0
     self._shutdown_lock = threading.Condition()
     self._shutdown_requested = False
-    self._generator = None
-    self._enqueue_thread = None
     self._states_lock = threading.Lock()
     self._heartbeats = HeartbeatRegistry()
+    self._shutdown_callback = None
+    self.auto_shutdown_secs = auto_shutdown_secs
     self.build_server()
 
   def __str__(self):
     addr = self.server_name or ''
     if self._server is not None:
       addr += f'@{self._server.address}'
-    return f'CourierServer("{addr}")'
+    return f'{self.__class__.__name__}("{addr}")'
 
   def __hash__(self) -> int:
     return hash(self.address)
 
   def __eq__(self, other: Any) -> bool:
-    return isinstance(other, CourierServer) and self.address == other.address
+    return (
+        isinstance(other, CourierServer)
+        and self.address == other.address
+        and self.auto_shutdown_secs == other.auto_shutdown_secs
+    )
 
   def __del__(self):
     self.notify_shutdown()
@@ -121,7 +127,11 @@ class CourierServer(metaclass=func_utils.SingletonMeta):
 
   @property
   def has_started(self) -> bool:
-    return self._server is not None and self._server.has_started
+    return (
+        self._server is not None
+        and self._server.has_started
+        and self._thread is not None
+    )
 
   def notify_shutdown(self):
     with self._shutdown_lock:
@@ -172,53 +182,97 @@ class CourierServer(metaclass=func_utils.SingletonMeta):
     self._server.Bind('clear_cache', transform.clear_cache)
     self._server.Bind('cache_info', pickled_cache_info)
 
-  def build_server(self, start_server: bool = False) -> courier.Server:
+  def build_server(self) -> courier.Server:
     """Build and run a courier server."""
     assert self.server_name != '', f'illegal {self.server_name=}'  # pylint: disable=g-explicit-bool-comparison
     if self._server is None:
       self._shutdown_requested = False
       self._server = courier.Server(self.server_name, port=self.port)
       self.set_up()
-      logging.info('chainable: constructed server %s', self)
-    if start_server and not self.has_started:
-      self._server.Start()
     return self._server
+
+  def set_shutdown_callback(self, callback: Callable[..., None]):
+    self._shutdown_callback = callback
 
   def shutdown_server(self):
     if self.has_started:
       logging.info('chainable: Shutting down for server %s', self)
       assert self._server is not None, 'Server is not built.'
+      if self._shutdown_callback is not None:
+        self._shutdown_callback()
       self._server.Stop()
       self._server = None
+
+  def run_until_shutdown(self):
+    """Run until shutdown requested."""
+    courier_server = self.build_server()
+    if not courier_server.has_started:
+      courier_server.Start()
+    self._last_heartbeat = time.time()
+    with self._shutdown_lock:
+      while not self._shutdown_requested:
+        if time.time() - self._last_heartbeat > self.auto_shutdown_secs:
+          logging.info('chainable: no ping after %ds.', self.auto_shutdown_secs)
+          self._shutdown_requested = True
+          break
+        self._shutdown_lock.wait(_HRTBT_INTERVAL_SECS)
+    self.shutdown_server()
+
+  def start(self, *, daemon: bool = True) -> threading.Thread:
+    """Start the server from a different thread."""
+    del daemon  # Depreate daemon.
+    with self._states_lock:
+      courier_server = self.build_server()
+      if not courier_server.has_started:
+        courier_server.Start()
+      if not self._thread:
+        self._thread = threading.Thread(
+            target=self.run_until_shutdown, daemon=True
+        )
+        self._thread.start()
+      assert self._thread is not None
+      return self._thread
+
+  def stop(self) -> threading.Thread:
+    """Stop the server."""
+    self.notify_shutdown()
+    assert self._thread is not None
+    return self._thread
 
 
 class PrefetchedCourierServer(CourierServer):
   """Courier server that can prefetch an iterator."""
 
   prefetch_size: int
-  timeout_secs: float
+  _enqueue_thread: threading.Thread | None
+  _generator: iter_utils.IteratorQueue | None
 
   def __init__(
       self,
       server_name: str | None = None,
       *,
       port: int | None = None,
-      prefetch_size: int = 2,
+      # TODO: b/372935688 - Rename this to auto_shutdown_secs.
       timeout_secs: float = 10200,
+      prefetch_size: int = 2,
   ):
-    super().__init__(server_name, port=port)
+    super().__init__(
+        server_name,
+        port=port,
+        auto_shutdown_secs=timeout_secs,
+    )
     self.prefetch_size = prefetch_size
-    self.timeout_secs = timeout_secs
+    self._enqueue_thread = None
+    self._generator = None
 
   def __hash__(self) -> int:
     return super().__hash__()
 
   def __eq__(self, other: Any) -> bool:
     return (
-        isinstance(other, PrefetchedCourierServer)
-        and self.address == other.address
+        super().__eq__(other)
+        and isinstance(other, PrefetchedCourierServer)
         and self.prefetch_size == other.prefetch_size
-        and self.timeout_secs == other.timeout_secs
     )
 
   def set_up(self) -> None:
@@ -284,38 +338,9 @@ class PrefetchedCourierServer(CourierServer):
     self._server.Bind('next_from_generator', next_from_iterator)
     self._server.Bind('next_batch_from_generator', next_batch_from_iterator)
 
-  def run_until_shutdown(self):
-    """Run until shutdown requested."""
-    self.build_server(start_server=True)
-    self._last_heartbeat = time.time()
-    with self._shutdown_lock:
-      while not self._shutdown_requested:
-        if time.time() - self._last_heartbeat > self.timeout_secs:
-          logging.info('chainable: no ping after %ds.', self.timeout_secs)
-          self._shutdown_requested = True
-          break
-        self._shutdown_lock.wait(_HRTBT_INTERVAL_SECS)
-    self.shutdown_server()
 
-  def start(self, *, daemon: bool = None) -> threading.Thread:
-    """Start the server from a different thread."""
-    with self._states_lock:
-      if self.has_started:
-        assert self._thread is not None, 'Threading is having issue locking.'
-        return self._thread
-      self.build_server()
-      server_thread = threading.Thread(
-          target=self.run_until_shutdown, daemon=daemon
-      )
-      server_thread.start()
-      self._thread = server_thread
-      return server_thread
-
-  def stop(self) -> threading.Thread:
-    """Stop the server."""
-    self.notify_shutdown()
-    assert self._thread is not None
-    return self._thread
+# TODO: b/372935688 - Deprecate CourierServerWrapper.
+CourierServerWrapper = PrefetchedCourierServer
 
 
 # TODO: b/372935688 - Deprecate this in favor of PrefetchingServer.
@@ -327,6 +352,5 @@ def _cached_server(
     name: str | None = None, *, timeout_secs: float = 10200
 ):
   result = PrefetchedCourierServer(name, timeout_secs=timeout_secs)
-  result.build_server()
-  result.start(daemon=True)
+  result.start()
   return result
