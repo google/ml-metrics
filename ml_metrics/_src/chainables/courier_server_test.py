@@ -56,13 +56,6 @@ class CourierServerTest(parameterized.TestCase):
     self.server = courier_server.CourierServer('test_server')
     self.server.start()
     courier_worker.wait_until_alive(self.server.address, deadline_secs=12)
-    self.prefetched_server = courier_server.PrefetchedCourierServer(
-        'generator_server'
-    )
-    self.prefetched_server.start()
-    courier_worker.wait_until_alive(
-        self.prefetched_server.address, deadline_secs=12
-    )
 
   @parameterized.named_parameters([
       dict(
@@ -76,9 +69,7 @@ class CourierServerTest(parameterized.TestCase):
           expected_regex=r'CourierServer\(\"named_server@localhost\:\d+\"\)',
       ),
   ])
-  def test_server_str(
-      self, server_name: str | None, expected_regex: str | None
-  ):
+  def test_str(self, server_name: str | None, expected_regex: str | None):
     server = courier_server.CourierServer(server_name)
     self.assertRegex(str(server), expected_regex)
 
@@ -106,25 +97,23 @@ class CourierServerTest(parameterized.TestCase):
           config2=dict(server_name='hash_server1'),
       ),
   ])
-  def test_server_hash(self, config1, config2, equal=False):
+  def test_hash(self, config1, config2, equal=False):
     server = courier_server.PrefetchedCourierServer(**config1)
-    server.build_server()
     server_set = {server}
     # This createes a new server with a different port.
     server1 = courier_server.PrefetchedCourierServer(**config2)
-    server1.build_server()
     if equal:
       self.assertIn(server1, server_set)
     else:
       self.assertNotIn(server1, server_set)
 
-  def test_courier_server_maybe_make(self):
+  def test_maybe_make(self):
     client = courier.Client(self.server.address, call_timeout=1)
     self.assertEqual('hello', pickler.loads(client.maybe_make('hello')))
     result = client.maybe_make(pickler.dumps(lazy_fns.trace(len)([1, 2])))
     self.assertEqual(2, pickler.loads(result))
 
-  def test_courier_server_custom_setup(self):
+  def test_custom_setup(self):
     server = TestServer()
     thread = server.start()
     client = courier.Client(server.address, call_timeout=2)
@@ -137,9 +126,7 @@ class CourierServerTest(parameterized.TestCase):
       dict(testcase_name='alive', sender_addr='a'),
       dict(testcase_name='dead', sender_addr='a', is_alive=False),
   ])
-  def test_courier_server_heartbeat(
-      self, sender_addr: str = '', is_alive: bool = True
-  ):
+  def test_heartbeat(self, sender_addr: str = '', is_alive: bool = True):
     client = courier.Client(self.server.address, call_timeout=1)
     f = client.futures.heartbeat(sender_addr, is_alive)
     self.assertIsNone(f.result())
@@ -148,8 +135,45 @@ class CourierServerTest(parameterized.TestCase):
     else:
       self.assertEqual(self.server.client_heartbeat(sender_addr), 0.0)
 
-  def test_courier_server_generator(self):
-    client = courier.Client(self.prefetched_server.address, call_timeout=1)
+  def test_shutdown_and_restart(self):
+    server = courier_server.CourierServer('test_restart')
+    server.start()
+    courier_worker.wait_until_alive(server.address, deadline_secs=12)
+    assert server._thread is not None
+    self.assertTrue(server._thread.is_alive())
+    self.assertTrue(server.has_started)
+    server.stop()
+    server._thread.join()
+    # Restart.
+    server.start()
+    courier_worker.wait_until_alive(server.address, deadline_secs=12)
+    server.stop()
+
+  def test_make_remote_iterator(self):
+    remote_iterator = courier_worker.RemoteIterator.new(
+        range(10), server_addr=self.server.address
+    )
+    self.assertEqual(list(remote_iterator), list(range(10)))
+    self.assertEqual(list(remote_iterator), [])
+
+  def test_make_remote_iterator_lazy(self):
+    remote_iterator = courier_worker.RemoteIterator.new(
+        lazy_fns.trace(range)(10), server_addr=self.server.address
+    )
+    self.assertEqual(list(range(10)), list(remote_iterator))
+    self.assertEqual([], list(remote_iterator))
+
+
+class PrefetchedCourierServerTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.server = courier_server.PrefetchedCourierServer('generator_server')
+    self.server.start()
+    courier_worker.wait_until_alive(self.server.address, deadline_secs=12)
+
+  def test_generator(self):
+    client = courier.Client(self.server.address, call_timeout=1)
 
     def test_generator(n):
       yield from range(n)
@@ -162,8 +186,8 @@ class CourierServerTest(parameterized.TestCase):
       actual.append(t)
     self.assertEqual(list(range(10)), actual)
 
-  def test_courier_server_batch_generator(self):
-    client = courier.Client(self.prefetched_server.address, call_timeout=1)
+  def test_batch_generator(self):
+    client = courier.Client(self.server.address, call_timeout=1)
 
     def test_generator(n):
       yield from range(n)
@@ -182,22 +206,8 @@ class CourierServerTest(parameterized.TestCase):
     self.assertEqual(list(range(10)), actual)
     self.assertEqual(10, returned)
 
-  def test_courier_server_shutdown_and_restart(self):
-    server = courier_server.CourierServer('test_restart')
-    server.start()
-    courier_worker.wait_until_alive(server.address, deadline_secs=12)
-    assert server._thread is not None
-    self.assertTrue(server._thread.is_alive())
-    self.assertTrue(server.has_started)
-    server.stop()
-    server._thread.join()
-    # Restart.
-    server.start()
-    courier_worker.wait_until_alive(server.address, deadline_secs=12)
-    server.stop()
-
   def test_courier_exception_during_prefetch(self):
-    client = courier.Client(self.prefetched_server.address, call_timeout=1)
+    client = courier.Client(self.server.address, call_timeout=1)
 
     def test_generator(n):
       for i in range(n):
@@ -214,20 +224,6 @@ class CourierServerTest(parameterized.TestCase):
         actual.append(t)
       self.assertEqual(list(range(6)), actual)
     self.assertRegex(cm.output[0], '.*Traceback.*')
-
-  def test_make_remote_iterator(self):
-    remote_iterator = courier_worker.RemoteIterator.new(
-        range(10), server_addr=self.server.address
-    )
-    self.assertEqual(list(remote_iterator), list(range(10)))
-    self.assertEqual(list(remote_iterator), [])
-
-  def test_make_remote_iterator_lazy(self):
-    remote_iterator = courier_worker.RemoteIterator.new(
-        lazy_fns.trace(range)(10), server_addr=self.server.address
-    )
-    self.assertEqual(list(range(10)), list(remote_iterator))
-    self.assertEqual([], list(remote_iterator))
 
 
 if __name__ == '__main__':
