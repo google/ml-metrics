@@ -343,14 +343,8 @@ class PrefetchedCourierServer(CourierServer):
 CourierServerWrapper = PrefetchedCourierServer
 
 
-# TODO: b/372935688 - Deprecate this in favor of PrefetchingServer.
-CourierServerWrapper = PrefetchedCourierServer
-
-
 @func_utils.lru_cache(settable_kwargs=('timeout_secs',))
-def _cached_server(
-    name: str | None = None, *, timeout_secs: float = 10200
-):
+def _cached_server(name: str | None = None, *, timeout_secs: float = 10200):
   result = PrefetchedCourierServer(name, timeout_secs=timeout_secs)
   result.start()
   return result
