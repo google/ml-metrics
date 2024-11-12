@@ -168,6 +168,15 @@ class SingletonMetaTest(absltest.TestCase):
     self.assertIs(SingletonB(1, b='b'), SingletonB(1))
     self.assertIsNot(SingletonB(1, b='b1'), SingletonB(1))
 
+  def test_singleton_all_instances(self):
+    a = SingletonA(1)
+    b = SingletonB(1)
+    self.assertSameElements(SingletonB.all_instances, SingletonA.all_instances)
+    instances = SingletonB.all_instances
+    self.assertLen(instances, 2)
+    self.assertIn(a, instances)
+    self.assertIn(b, instances)
+
 
 if __name__ == '__main__':
   absltest.main()

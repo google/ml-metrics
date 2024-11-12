@@ -165,3 +165,7 @@ class SingletonMeta(type):
     logging.info('%s', f'chainable: singleton {cls.__name__}, {obj}')
     cls._instances[obj] = weakref.ref(obj)
     return obj
+
+  @property
+  def all_instances(cls):
+    return [obj for ref in cls._instances.values() if (obj := ref())]
