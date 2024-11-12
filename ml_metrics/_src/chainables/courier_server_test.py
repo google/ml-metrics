@@ -18,6 +18,7 @@ from courier.python import testutil
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
+from ml_metrics._src.utils import courier_utils
 from ml_metrics._src.utils import iter_utils
 
 # For test, accelerate the heartbeat interval.
@@ -150,14 +151,14 @@ class CourierServerTest(parameterized.TestCase):
     server.stop()
 
   def test_make_remote_iterator(self):
-    remote_iterator = courier_worker.RemoteIterator.new(
+    remote_iterator = courier_utils.RemoteIterator.new(
         range(10), server_addr=self.server.address
     )
     self.assertEqual(list(remote_iterator), list(range(10)))
     self.assertEqual(list(remote_iterator), [])
 
   def test_make_remote_iterator_lazy(self):
-    remote_iterator = courier_worker.RemoteIterator.new(
+    remote_iterator = courier_utils.RemoteIterator.new(
         lazy_fns.trace(range)(10), server_addr=self.server.address
     )
     self.assertEqual(list(range(10)), list(remote_iterator))

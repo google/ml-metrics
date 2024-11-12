@@ -11,8 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import asyncio
-import functools
 import queue
 import time
 
@@ -22,13 +20,9 @@ from courier.python import testutil
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
+from ml_metrics._src.utils import courier_utils
 from ml_metrics._src.utils import iter_utils
 import portpicker
-
-# For test, accelerate the heartbeat interval.
-courier_worker._HRTBT_INTERVAL_SECS = 0.1
-courier_worker._HRTBT_THRESHOLD_SECS = 1
-Task = courier_worker.Task
 
 
 class TimeoutServer(courier_server.PrefetchedCourierServer):
@@ -67,9 +61,6 @@ def setUpModule():
 
 
 def tearDownModule():
-  # Required for BNS resolution.
-  testutil.SetupMockBNS()
-  # Shutdown the servers for the test group below.
   TIMEOUT_SERVER.stop().join()
 
 
@@ -89,357 +80,13 @@ def mock_generator(n, sleep_interval=0.0):
   return n
 
 
-class RemoteObjectTest(parameterized.TestCase):
-
-  def setUp(self):
-    super().setUp()
-    self.server = courier_server.CourierServer('RemoteObject')
-    self.server.start()
-    self.worker = courier_worker.Worker(self.server.address)
-
-  @parameterized.named_parameters([
-      dict(
-          testcase_name='self',
-          value=[1, 2, 3],
-          fn=lambda remote_value: remote_value,
-          expected=[1, 2, 3],
-      ),
-      dict(
-          testcase_name='with_index',
-          value=[1, 2, 3],
-          fn=lambda remote_value: remote_value[0],
-          expected=1,
-      ),
-      dict(
-          testcase_name='call',
-          value=len,
-          fn=lambda remote_value: remote_value([1, 2, 3]),
-          expected=3,
-      ),
-      dict(
-          testcase_name='attribute',
-          value=[1, 2, 3],
-          fn=lambda remote_value: remote_value.count(2),
-          expected=1,
-      ),
-      dict(
-          testcase_name='queue',
-          value=lazy_q_fn(3),
-          fn=lambda remote_value: remote_value.qsize(),
-          expected=3,
-      ),
-      dict(
-          testcase_name='traced_self',
-          value=lazy_fns.trace([1, 2, 3]),
-          fn=lambda remote_value: remote_value,
-          expected=[1, 2, 3],
-      ),
-      dict(
-          testcase_name='traced_with_index',
-          value=lazy_fns.trace([1, 2, 3]),
-          fn=lambda remote_value: remote_value[0],
-          expected=1,
-      ),
-      dict(
-          testcase_name='traced_call',
-          value=lazy_fns.trace(len),
-          fn=lambda remote_value: remote_value([1, 2, 3]),
-          expected=3,
-      ),
-      dict(
-          testcase_name='traced_attribute',
-          value=lazy_fns.trace([1, 2, 3]),
-          fn=lambda remote_value: remote_value.count(2),
-          expected=1,
-      ),
-      dict(
-          testcase_name='remote_self',
-          get_result=True,
-          value=lazy_fns.trace([1, 2, 3], lazy_result=True),
-          fn=lambda remote_value: remote_value,
-          expected=[1, 2, 3],
-      ),
-      dict(
-          testcase_name='remote_with_index',
-          get_result=True,
-          value=lazy_fns.trace([1, 2, 3], lazy_result=True),
-          fn=lambda remote_value: remote_value[0],
-          expected=1,
-      ),
-      dict(
-          testcase_name='remote_call',
-          get_result=True,
-          value=lazy_fns.trace(len)([1, 2, 3], lazy_result_=True),
-          fn=lambda remote_value: remote_value,
-          expected=3,
-      ),
-      dict(
-          testcase_name='remote_attribute',
-          get_result=True,
-          value=lazy_fns.trace([1, 2, 3], lazy_result=True),
-          fn=lambda remote_value: remote_value.count(2),
-          expected=1,
-      ),
-      dict(
-          testcase_name='submit_remote_self',
-          submit=True,
-          value=lazy_fns.trace([1, 2, 3], lazy_result=True),
-          fn=lambda remote_value: remote_value,
-          expected=[1, 2, 3],
-      ),
-      dict(
-          testcase_name='submit_remote_with_index',
-          submit=True,
-          value=lazy_fns.trace([1, 2, 3], lazy_result=True),
-          fn=lambda remote_value: remote_value[0],
-          expected=1,
-      ),
-      dict(
-          testcase_name='submit_remote_call',
-          submit=True,
-          value=lazy_fns.trace(len)([1, 2, 3], lazy_result_=True),
-          fn=lambda remote_value: remote_value,
-          expected=3,
-      ),
-      dict(
-          testcase_name='submit_remote_attribute',
-          submit=True,
-          value=lazy_fns.trace([1, 2, 3], lazy_result=True),
-          fn=lambda remote_value: remote_value.count(2),
-          expected=1,
-      ),
-  ])
-  def test_maybe_make_remote_object(
-      self, value, fn, expected, submit=False, get_result=False
-  ):
-    lazy_fns.clear_object()
-    self.assertEqual(lazy_fns.object_info().currsize, 0)
-    if submit:
-      remote_value = courier_worker.RemoteObject.new(
-          self.worker.submit(value).result(), worker=self.worker
-      )
-    elif get_result:
-      remote_value = self.worker.get_result(value)
-    else:
-      remote_value = courier_worker.RemoteObject.new(value, worker=self.worker)
-      if isinstance(value, lazy_fns.LazyObject):
-        self.assertEqual(remote_value.id, value.id)
-
-    self.assertIsInstance(remote_value, courier_worker.RemoteObject)
-    # "RemoteObject" is the server name in `setUpModule`.
-    self.assertRegex(str(remote_value), r'<@RemoteObject:object\(id=\d+\)>')
-    self.assertEqual(lazy_fns.object_info().hits, 0)
-    self.assertIsInstance(fn(remote_value), courier_worker.RemoteObject)
-    self.assertEqual(expected, lazy_fns.maybe_make(fn(remote_value)))
-    # These are scenario that the local object is cached and a remote value only
-    # holds a reference.
-    if not isinstance(value, lazy_fns.LazyObject) or value.lazy_result:
-      self.assertEqual(lazy_fns.object_info().hits, 1)
-
-  def test_get_result_raises(self):
-    def foo():
-      raise ValueError('foo')
-
-    remote_object = self.worker.get_result(
-        lazy_fns.trace(foo, lazy_result=True)
-    )
-    self.assertIsInstance(remote_object, courier_worker.RemoteObject)
-    with self.assertRaisesRegex(ValueError, 'foo'):
-      remote_object().result_()
-
-  def test_async_get_result_stop_iteration(self):
-    def foo():
-      raise StopIteration('foo')
-
-    async def run():
-      remote_object = await self.worker.async_get_result(
-          lazy_fns.trace(foo, lazy_result=True)
-      )
-      return await remote_object().async_result_()
-
-    returned = None
-    try:
-      asyncio.run(run())
-    except StopAsyncIteration as e:
-      returned = e.args
-    self.assertEqual(returned, ('foo',))
-
-  def test_async_get_result_raises_value_error(self):
-    def foo():
-      raise ValueError('foo')
-
-    with self.assertRaises(ValueError):
-      asyncio.run(self.worker.async_get_result(lazy_fns.trace(foo)()))
-
-  def test_async_remote_iterator_iterate_elemnwise(self):
-    remote_iterable = self.worker.get_result(
-        lazy_fns.trace(range)(3, lazy_result_=True)
-    )
-    self.assertIsInstance(remote_iterable, courier_worker.RemoteObject)
-
-    async def run():
-      remote_iterator = aiter(remote_iterable)  # pytype: disable=name-error
-      self.assertIsInstance(remote_iterator, courier_worker.RemoteIterator)
-      self.assertIs(aiter(remote_iterator), remote_iterator)  # pytype: disable=name-error
-      return [elem async for elem in remote_iterator]
-
-    self.assertEqual([0, 1, 2], asyncio.run(run()))
-    # 2nd iteration on an exhausted iterator.
-    self.assertEqual([0, 1, 2], asyncio.run(run()))
-
-  def test_remote_iterator_as_input_iterator(self):
-    # Constructs a local queue and let remote worker dequeue from it.
-    local_queue = iter_utils.IteratorQueue(name='input')
-    num_elem = 30
-    local_queue.enqueue_from_iterator(range(num_elem))
-    # input_iterator is remote and lives in local server.
-    input_iterator = courier_worker.RemoteIterator.new(
-        local_queue.dequeue_as_iterator(), server_addr=self.server.address
-    )
-    iterator_fn = functools.partial(map, lambda x: x + 1)
-
-    async def run():
-      remote_iterator = await self.worker.async_iter(
-          lazy_fns.trace(iterator_fn)(input_iterator), name='remote_iter'
-      )
-      return [elem async for elem in remote_iterator]
-
-    with self.assertLogs(level='INFO') as cm:
-      actual = asyncio.run(run())
-    self.assertEqual(list(range(1, num_elem + 1)), actual)
-    self.assertEqual([], list(local_queue))
-    logs = [l for l in cm.output if f'exhausted after {num_elem} batches' in l]
-    self.assertLen(logs, 1)
-
-  def test_remote_iterator_iterate_elemnwise(self):
-    remote_iterable = self.worker.get_result(
-        lazy_fns.trace(range)(3, lazy_result_=True)
-    )
-    self.assertIsInstance(remote_iterable, courier_worker.RemoteObject)
-    remote_iterator = iter(remote_iterable)
-    self.assertIsInstance(remote_iterator, courier_worker.RemoteIterator)
-    self.assertIs(iter(remote_iterator), remote_iterator)
-    self.assertEqual([0, 1, 2], list(remote_iterator))
-    # 2nd iteration on an exhausted iterator.
-    self.assertEqual([], list(remote_iterator))
-
-    self.assertEqual([0, 1, 2], list(remote_iterable))
-    # Iterable allows repeated traversing.
-    self.assertEqual([0, 1, 2], list(remote_iterable))
-
-  def test_remote_iterator_iterate_remotely(self):
-    remote_iterable = self.worker.get_result(
-        lazy_fns.trace(range)(3, lazy_result_=True)
-    )
-    actual = self.worker.get_result(lazy_fns.trace(list)(remote_iterable))
-    self.assertEqual([0, 1, 2], actual)
-
-  def test_remote_iterator_direct(self):
-    # Reconstruct the iterator directly
-    remote_iterable = courier_worker.RemoteObject.new(
-        range(3), worker=self.worker
-    )
-    actual = self.worker.get_result(lazy_fns.trace(list)(remote_iterable))
-    self.assertEqual([0, 1, 2], actual)
-
-  def test_remote_iterator_queue_async(self):
-    local_server = courier_server._cached_server('local')
-    remote_server = courier_server._cached_server('remote')
-    # Constructs a local queue and let remote worker dequeue from it.
-    local_queue = iter_utils.IteratorQueue(name='input')
-    num_elem = 20
-
-    def foo(n):
-      yield from range(n)
-      return n
-
-    local_queue.enqueue_from_iterator(foo(num_elem))
-    # input_iterator is remote and lives in local server.
-    input_queue = courier_worker.RemoteIteratorQueue.new(
-        local_queue, server_addr=local_server.address, name='remote_iter'
-    )
-    # Remotely constructs an iteraotor as the input_iterator.
-    iterator_fn = functools.partial(map, lambda x: x + 1)
-    lazy_iterator = lazy_fns.trace(iterator_fn)(lazy_fns.trace(input_queue))
-    local_result_queue = iter_utils.AsyncIteratorQueue(
-        timeout=30, name='output'
-    )
-
-    async def remote_iterate():
-      remote_iterator = await courier_worker.async_remote_iter(
-          lazy_iterator, worker=remote_server.address, name='remote_iter'
-      )
-      await local_result_queue.async_enqueue_from_iterator(remote_iterator)
-
-    async def alist(iterator):
-      return [elem async for elem in iterator]
-
-    async def run(n):
-      aw_result = alist(local_result_queue)
-      result, *_ = await asyncio.gather(
-          aw_result, *(remote_iterate() for _ in range(n))
-      )
-      return result
-
-    actual = asyncio.run(run(2))
-    self.assertEqual([], list(local_queue))
-    self.assertCountEqual(list(range(1, num_elem + 1)), actual)
-    self.assertEqual(num_elem, local_result_queue.returned[0])
-    local_server.stop().join()
-    remote_server.stop().join()
-
-
 class CourierWorkerTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
     self.server = courier_server.CourierServer('CourierWorker')
     self.server.start()
-    self.worker = courier_worker.Worker(self.server.address)
-
-  def test_heartbeat_interval(self):
-    assert self.worker._heartbeat is not None
-    first_heartbeat_time = self.worker._heartbeat.time
-    while not courier_worker._is_heartbeat_stale(self.worker._heartbeat):
-      time.sleep(0.1)
-    self.worker._send_heartbeat()
-    self.assertGreater(self.worker._heartbeat.time, first_heartbeat_time)
-    self.assertEqual(
-        self.worker._pendings[-1].time, self.worker._heartbeat.time
-    )
-
-  def test_worker_not_started(self):
-    worker = courier_worker.Worker(
-        UNREACHABLE_SERVER.address,
-        heartbeat_threshold_secs=1,
-        call_timeout=0.1,
-    )
-    with self.assertRaises(RuntimeError):
-      worker.get_result(lazy_fns.trace(None))
-    with self.assertRaises(RuntimeError):
-      asyncio.run(worker.async_get_result(lazy_fns.trace(None)))
-
-  def test_worker_get_result_timeout(self):
-    worker = courier_worker.Worker(self.server.address, call_timeout=0.01)
-    with self.assertRaises(TimeoutError):
-      worker.get_result(lazy_fns.trace(time.sleep)(0.3))
-    with self.assertRaises(TimeoutError):
-      asyncio.run(worker.async_get_result(lazy_fns.trace(time.sleep)(0.3)))
-
-  def test_worker_hash(self):
-    addr = self.server.address
-    d = {courier_worker.Worker(addr)}
-    self.assertIn(courier_worker.Worker(addr), d)
-    self.assertNotIn(courier_worker.Worker(addr, call_timeout=1), d)
-    self.assertNotIn(courier_worker.Worker(addr, max_parallelism=2), d)
-    self.assertNotIn(courier_worker.Worker(addr, heartbeat_threshold_secs=2), d)
-    self.assertNotIn(courier_worker.Worker(addr, iterate_batch_size=2), d)
-
-  def test_worker_str(self):
-    self.assertRegex(
-        str(self.worker),
-        r'Worker\(CourierWorker, timeout=.+, from_last_heartbeat=.+\)',
-    )
+    self.worker = courier_utils.CourierClient(self.server.address)
 
   def test_worker_call(self):
     self.assertEqual(
@@ -448,76 +95,16 @@ class CourierWorkerTest(absltest.TestCase):
     )
 
   def test_task_done(self):
-    task = Task.new('echo')
+    task = courier_worker.Task.new('echo')
     self.assertFalse(task.done())
     task = self.worker.submit(task)
     courier_worker.wait([task])
     self.assertTrue(task.done())
 
-  def test_worker_submit_task(self):
-    def foo():
-      time.sleep(0.5)
-      return 2
-
-    task = Task.new(lazy_fns.trace(foo)(), blocking=True)
-    task = self.worker.submit(task)
-    self.assertTrue(task.done())
-    self.assertEqual(2, task.result())
-
   def test_wait_timeout(self):
-    task = Task.new(lazy_fns.trace(time.sleep)(1))
+    task = courier_worker.Task.new(lazy_fns.trace(time.sleep)(1))
     task = self.worker.submit(task)
     self.assertNotEmpty(courier_worker.wait([task], timeout=0).not_done)
-
-  def test_async_iterate(self):
-    iterator_fn = functools.partial(map, lambda x: x + 1)
-    lazy_iterator = lazy_fns.trace(iterator_fn)(range(3))
-    remote_iterator = self.worker.async_iter(lazy_iterator)
-
-    async def alist(remote_iterator):
-      return [elem async for elem in await remote_iterator]
-
-    self.assertEqual([1, 2, 3], asyncio.run(alist(remote_iterator)))
-
-  def test_async_iterable(self):
-    iterator_fn = functools.partial(map, lambda x: x + 1)
-    remote_iterable = self.worker.get_result(
-        lazy_fns.trace(iterator_fn)(range(3), lazy_result_=True)
-    )
-
-    async def run():
-      remote_iterator = await courier_worker.async_remote_iter(
-          remote_iterable, name='remote_iter'
-      )
-      return [elem async for elem in remote_iterator]
-
-    self.assertEqual([1, 2, 3], asyncio.run(run()))
-
-  def test_worker_heartbeat(self):
-    # Server is not started, thus it is never alive.
-    worker = courier_worker.Worker(
-        UNREACHABLE_SERVER.address,
-        heartbeat_threshold_secs=0,
-        call_timeout=0.01,
-    )
-    self.assertFalse(worker.is_alive)
-
-  def test_worker_pendings(self):
-    r = self.worker.call(lazy_fns.trace(time.sleep)(0.3))
-    self.assertLen(self.worker.pendings, 1)
-    # wait until the call is finished.
-    assert r.result()
-    self.assertEmpty(self.worker.pendings)
-
-  def test_worker_idle(self):
-    while not self.worker.has_capacity:
-      time.sleep(0)
-    self.assertTrue(self.worker.has_capacity)
-    r = self.worker.call(lazy_fns.trace(time.sleep)(0.3))
-    self.assertFalse(self.worker.has_capacity)
-    # wait until the call is finished.
-    assert r.result()
-    self.assertTrue(self.worker.has_capacity)
 
   def test_worker_exception(self):
     state_futures = [self.worker.call(lazy_fns.trace(len)(0.3))]
@@ -531,20 +118,6 @@ class CourierWorkerTest(absltest.TestCase):
     exceptions = courier_worker.get_exceptions([state])
     self.assertLen(exceptions, 1)
     self.assertIsInstance(exceptions[0], Exception)
-
-  def test_worker_shutdown(self):
-    server = courier_server.CourierServer()
-    t = server.start()
-    worker = courier_worker.Worker(server.address)
-    worker.wait_until_alive(deadline_secs=12)
-    self.assertTrue(worker.call(True))
-    self.assertTrue(t.is_alive())
-    worker.shutdown()
-    ticker = time.time()
-    while t.is_alive():
-      time.sleep(0)
-      if time.time() - ticker > 10:
-        self.fail('Server is not shutdown after 10 seconds.')
 
 
 class TestServer(courier_server.CourierServer):
@@ -614,7 +187,7 @@ class CourierWorkerPoolTest(parameterized.TestCase):
     server = TestServer('test_server')
     server.start(daemon=True)
     worker_pool = courier_worker.WorkerPool([server.address])
-    task = courier_worker.Task.new(1, courier_method='plus_one')
+    task = courier_utils.Task.new(1, courier_method='plus_one')
     # We only have one task, so just return the first element.
     self.assertEqual(2, worker_pool.run(task))
     worker_pool.shutdown()
@@ -687,59 +260,15 @@ class CourierWorkerPoolTest(parameterized.TestCase):
 
 
 # TODO: b/356633410 - Remove after deprecating worker_pool.iterate.
-class GeneratorTest(absltest.TestCase):
+class CouierWorkerPoolGeneratorTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server = courier_server.PrefetchedCourierServer('PrefetchedWorker')
+    self.server = courier_server.PrefetchedCourierServer('GeneratorWorker')
     self.server.start()
     self.worker = courier_worker.Worker(self.server.address)
-    self.always_timeout_server = TIMEOUT_SERVER
     self.worker_pool = courier_worker.WorkerPool([self.worker])
     self.worker_pool.wait_until_alive(deadline_secs=15)
-
-  def test_legacy_async_iterate(self):
-
-    task = courier_worker.GeneratorTask.new(lazy_fns.trace(mock_generator)(3))
-    agg_q = queue.SimpleQueue()
-    batch_outputs = []
-
-    async def run():
-      async for elem in self.worker.async_iterate(
-          task, generator_result_queue=agg_q
-      ):
-        # During iteration, the worker is considered occupied.
-        self.assertFalse(self.worker.has_capacity)
-        batch_outputs.append(elem)
-
-    asyncio.run(run())
-    self.assertEqual(list(range(3)), batch_outputs)
-    self.assertEqual(3, agg_q.get())
-    # After iteration, the worker should return the capacity.
-    try:
-      self.worker.wait_until_alive(deadline_secs=1, check_capacity=True)
-    except Exception:  # pylint: disable=broad-exception-caught
-      self.fail('Worker is not idle after iteration.')
-
-  def test_legacy_async_iterate_raise(self):
-
-    def bad_generator():
-      for elem in range(3):
-        if elem == 2:
-          raise TypeError('bad generator')
-        yield elem
-
-    task = courier_worker.GeneratorTask.new(lazy_fns.trace(bad_generator)())
-    agg_q = queue.SimpleQueue()
-
-    async def run():
-      async for _ in self.worker.async_iterate(
-          task, generator_result_queue=agg_q
-      ):
-        pass
-
-    with self.assertRaises(TypeError):
-      asyncio.run(run())
 
   def test_worker_pool_iterate_lazy_generator(self):
     lazy_generators = (lazy_fns.trace(mock_generator)(3) for _ in range(30))
@@ -748,7 +277,7 @@ class GeneratorTest(absltest.TestCase):
     # Adds a worker that is not reachable.
     worker_pool = courier_worker.WorkerPool(
         [
-            self.always_timeout_server.address,
+            TIMEOUT_SERVER.address,
             UNREACHABLE_SERVER.address,
             self.server.address,
         ],

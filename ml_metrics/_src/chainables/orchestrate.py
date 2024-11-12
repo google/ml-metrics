@@ -33,6 +33,7 @@ from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform as transform_lib
+from ml_metrics._src.utils import courier_utils
 from ml_metrics._src.utils import iter_utils
 
 _MASTER = 'master'
@@ -266,7 +267,7 @@ def _async_run_single_stage(
       if not master_server.has_started:
         logging.debug('chainable: starting master %s', master_server.address)
         master_server.start(daemon=True)
-      remote_input_q = courier_worker.RemoteIteratorQueue.new(
+      remote_input_q = courier_utils.RemoteIteratorQueue.new(
           input_queue,
           server_addr=master_server.address,
           name=f'{transform.name}(input@{master_server.address})',
