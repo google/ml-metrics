@@ -308,7 +308,7 @@ class RunInterleavedTest(parameterized.TestCase):
             .assign('feature1', fn=lambda x: x + 1)
         )
     )
-    with self.assertRaises(ValueError):
+    with self.assertRaisesRegex(ValueError, 'stage .* failed'):
       master_server = courier_server.CourierServer('master_raises')
       with orchestrate.run_pipeline_interleaved(
           pipeline,

@@ -284,13 +284,18 @@ def _async_run_single_stage(
     # Make sure the master is connectable before starting the workers.
     courier_worker.wait_until_alive(master_server.address, deadline_secs=180)
     ticker = time.time()
+    worker_exceptions = []
     while not result_q.enqueue_done or iterating:
       # Check the workerpool requirements and set up a new one when needed.
       num_workers = len(iterating)
       # At least schedule min_workers and maximum max_workers when there are
-      # still input left.
-      still_need_workers = (input_queue and num_workers < max_workers)
-      if num_workers < min_workers or still_need_workers:
+      # still input left and no failurers with exception.
+      still_need_workers = (
+          not result_q.exception
+          and input_queue
+          and (num_workers < max_workers or num_workers < min_workers)
+      )
+      if still_need_workers:
         workers = list(set(worker_pool.workers) - set(iterating))
         random.shuffle(workers)
         worker = worker_pool.next_idle_worker(workers, maybe_acquire=True)
@@ -317,7 +322,7 @@ def _async_run_single_stage(
                 type(exc),
                 exc,
             )
-            raise exc
+            worker_exceptions.append(exc)
           logging.info(
               'chainable: worker %s released, remains %d, "%s" enqueue_done=%s',
               worker,
@@ -334,6 +339,9 @@ def _async_run_single_stage(
         )
         ticker = time.time()
       time.sleep(0)
+    if worker_exceptions:
+      logging.error('chainable: %d workers failed', len(worker_exceptions))
+      raise ExceptionGroup('Workers failed with exceptions:', worker_exceptions)
 
     # Merge the intermediate aggregation states as aggregation result if there
     # are any.

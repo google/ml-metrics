@@ -327,7 +327,9 @@ async def async_remote_iter(
       )
   )
   # Start the remote worker to enqueue the input_iterator.
-  _ = worker.call(lazy_output_q.enqueue_from_iterator(iterator))
+  _ = worker.call(
+      lazy_output_q.enqueue_from_iterator(iterator), return_exception=True
+  )
   # Wrap this queue to behave like a normal queue.
   return RemoteIteratorQueue(lazy_output_q, name=name)
 
