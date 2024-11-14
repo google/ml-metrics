@@ -28,10 +28,6 @@ import more_itertools as mit
 import numpy as np
 import portpicker
 
-# For test, accelerate the heartbeat interval.
-courier_worker._HRTBT_INTERVAL_SECS = 0.1
-courier_worker._HRTBT_THRESHOLD_SECS = 1
-
 
 class TimeoutServer(courier_server.CourierServer):
   """Test server for PrefetchedCourierServer."""
@@ -55,26 +51,18 @@ class TimeoutServer(courier_server.CourierServer):
     self._server.Bind('init_iterator', timeout_init_iterator)
 
 
-SERVERS = [
-    courier_server.PrefetchedCourierServer(f'server_{i}') for i in range(2)
-]
-ALWAYS_TIMEOUT_SERVER = TimeoutServer()
+HOST = courier_server.CourierServer('host')
 
 
 def setUpModule():
   # Required for BNS resolution.
   testutil.SetupMockBNS()
-  for s in SERVERS:
-    s.start()
-  ALWAYS_TIMEOUT_SERVER.start(daemon=True)
+  HOST.start()
 
 
 def tearDownModule():
-  threads = [courier_server._cached_server('WorkerGroup').stop()]
-  threads += [s.stop() for s in SERVERS]
-  threads.append(ALWAYS_TIMEOUT_SERVER.stop())
-  for t in threads:
-    t.join()
+  courier_server.shutdown_all(except_for=['host'])
+  HOST.stop().join()
 
 
 def sharded_ones(
@@ -128,12 +116,14 @@ class RunAsCompletedTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server = courier_server.CourierServer('WorkerGroup')
+    self.server = courier_server.CourierServer('WorkerGroup', clients=['host'])
     self.server.start()
-    worker = courier_worker.Worker(self.server.address)
-    self.worker_pool = courier_worker.WorkerPool([worker])
+    self.alswyas_timeout_server = TimeoutServer('timeout', clients=['host'])
+    self.alswyas_timeout_server.start()
+    self.worker_pool = courier_worker.WorkerPool([self.server.address])
     self.unreachable_address = f'localhost:{portpicker.pick_unused_port()}'
-    self.worker_pool.wait_until_alive(deadline_secs=12)
+    courier_worker.wait_until_alive(self.server.address)
+    courier_worker.wait_until_alive(self.alswyas_timeout_server.address)
 
   def test_run_multi_tasks(self):
     tasks = (chainable.trace(len)([1, 2]) for _ in range(3))
@@ -145,14 +135,12 @@ class RunAsCompletedTest(absltest.TestCase):
   def test_as_completed_with_retry(self):
     tasks = [chainable.trace(len)([1, 2]) for _ in range(30)]
     addrs = [
-        ALWAYS_TIMEOUT_SERVER.address,
+        self.alswyas_timeout_server.address,
         self.unreachable_address,
         self.server.address,
     ]
     worker_pool = courier_worker.WorkerPool(addrs)
     # Add a worker with invalid address to test the retry logic.
-    worker_pool.wait_until_alive(deadline_secs=12, minimum_num_workers=2)
-    # Only one worker is alive.
     self.assertLen(worker_pool.workers, 2)
     actual = list(orchestrate.as_completed(worker_pool, tasks))
     self.assertLen(actual, 30)
@@ -164,7 +152,7 @@ class RunAsCompletedTest(absltest.TestCase):
 
     tasks = [chainable.trace(foo)() for _ in range(3)]
     addrs = [
-        ALWAYS_TIMEOUT_SERVER.address,
+        self.alswyas_timeout_server.address,
         self.unreachable_address,
         self.server.address,
     ]
@@ -174,7 +162,6 @@ class RunAsCompletedTest(absltest.TestCase):
         call_timeout=1,
     )
     # Add a worker with invalid address to test the retry logic.
-    worker_pool.wait_until_alive(deadline_secs=12, minimum_num_workers=2)
     # Only one worker is alive.
     self.assertLen(worker_pool.workers, 2)
     with self.assertRaisesRegex(Exception, 'foo'):
@@ -185,7 +172,6 @@ class RunAsCompletedTest(absltest.TestCase):
 
   def test_shared_worker_pool_run(self):
     shared_worker_pool = courier_worker.WorkerPool(self.worker_pool.all_workers)
-    shared_worker_pool.wait_until_alive(deadline_secs=12)
     self.assertNotEmpty(shared_worker_pool.workers)
     self.assertLen(shared_worker_pool.workers, 1)
     self.assertIs(shared_worker_pool.workers[0], self.worker_pool.workers[0])
@@ -218,9 +204,14 @@ class RunShardedIteratorTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    addrs = [s.address for s in SERVERS]
-    self.worker_pool = courier_worker.WorkerPool(addrs, call_timeout=6)
-    self.worker_pool.wait_until_alive(deadline_secs=12)
+    self.servers = [
+        courier_server.PrefetchedCourierServer(f'server_{i}', clients=['host'])
+        for i in range(2)
+    ]
+    for s in self.servers:
+      s.start()
+    addrs = [s.address for s in self.servers]
+    self.worker_pool = courier_worker.WorkerPool(addrs)
 
   def test_iterator(self):
     results_queue = queue.SimpleQueue()
@@ -246,9 +237,14 @@ class RunInterleavedTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    addrs = [s.address for s in SERVERS]
-    self.worker_pool = courier_worker.WorkerPool(addrs, call_timeout=30)
-    self.worker_pool.wait_until_alive(deadline_secs=12)
+    self.servers = [
+        courier_server.PrefetchedCourierServer(f'server_{i}', clients=['host'])
+        for i in range(2)
+    ]
+    for s in self.servers:
+      s.start()
+    addrs = [s.address for s in self.servers]
+    self.worker_pool = courier_worker.WorkerPool(addrs)
 
   @parameterized.named_parameters([
       dict(
@@ -271,7 +267,7 @@ class RunInterleavedTest(parameterized.TestCase):
         sharded_pipeline(
             total_numbers=total_examples, batch_size=32, num_threads=4
         ),
-        master_server=courier_server.CourierServer(),
+        master_server=courier_server.CourierServer('master'),
         ignore_failures=False,
         resources={
             'datasource': orchestrate.RunnerResource(buffer_size=6),
@@ -309,10 +305,9 @@ class RunInterleavedTest(parameterized.TestCase):
         )
     )
     with self.assertRaisesRegex(ValueError, 'stage .* failed'):
-      master_server = courier_server.CourierServer('master_raises')
       with orchestrate.run_pipeline_interleaved(
           pipeline,
-          master_server=master_server,
+          master_server=courier_server.CourierServer('master_raises'),
           ignore_failures=False,
           resources={
               'apply': orchestrate.RunnerResource(

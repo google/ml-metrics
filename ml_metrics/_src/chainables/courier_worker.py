@@ -27,6 +27,7 @@ from typing import Any, NamedTuple, TypeVar
 
 from absl import logging
 from ml_metrics._src import base_types
+from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import courier_utils
 from ml_metrics._src.utils import iter_utils
@@ -180,7 +181,8 @@ class Worker(courier_utils.CourierClient):
 
   @property
   def _last_heartbeat(self) -> float:
-    return self._client_heartbeat
+    server_heartbeat = courier_server.client_heartbeat(self.address)
+    return max(self._client_heartbeat, server_heartbeat)
 
   @_last_heartbeat.setter
   def _last_heartbeat(self, value: float):
@@ -189,13 +191,6 @@ class Worker(courier_utils.CourierClient):
   @property
   def worker_pool(self) -> WorkerPool | None:
     return self._worker_pool
-
-  def __str__(self) -> str:
-    return (
-        f'Worker("{self.address}", timeout={self.call_timeout},'
-        f' max_parallelism={self.max_parallelism},'
-        f' from_last_heartbeat={(time.time() - self._last_heartbeat):.2f}s)'
-    )
 
   # TODO: b/375668959 - Revamp _locker as a normal thread lock and uses
   # worker_pool to indicate the lock owner.

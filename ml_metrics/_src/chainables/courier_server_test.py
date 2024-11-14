@@ -21,9 +21,6 @@ from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import courier_utils
 from ml_metrics._src.utils import iter_utils
 
-# For test, accelerate the heartbeat interval.
-courier_worker._HRTBT_INTERVAL_SECS = 0.1
-courier_worker._HRTBT_THRESHOLD_SECS = 1
 pickler = lazy_fns.pickler
 
 
@@ -32,9 +29,8 @@ def setUpModule():
 
 
 def tearDownModule():
-  courier_server.CourierServer('test_server').stop().join()
+  courier_server.shutdown_all()
   assert not courier_worker.Worker('test_server').pendings
-  courier_server.PrefetchedCourierServer('generator_server').stop().join()
 
 
 class TestServer(courier_server.CourierServer):
@@ -54,9 +50,17 @@ class CourierServerTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server = courier_server.CourierServer('test_server')
+    # Both the client's host and the server are co-located, thus the address
+    # is same for clients as well.
+    self.server = courier_server.CourierServer(
+        'test_server', clients=['test_server']
+    )
     self.server.start()
-    courier_worker.wait_until_alive(self.server.address, deadline_secs=12)
+    self.worker = courier_utils.CourierClient(self.server.address)
+
+  def test_get_heartbeat(self):
+    self.worker.send_heartbeat('fake_address').result()
+    self.assertGreater(courier_server.client_heartbeat('fake_address'), 0.0)
 
   @parameterized.named_parameters([
       dict(
@@ -169,9 +173,10 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server = courier_server.PrefetchedCourierServer('generator_server')
+    self.server = courier_server.PrefetchedCourierServer(
+        'generator_server', clients=['generator_server']
+    )
     self.server.start()
-    courier_worker.wait_until_alive(self.server.address, deadline_secs=12)
 
   def test_generator(self):
     client = courier.Client(self.server.address, call_timeout=1)

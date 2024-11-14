@@ -15,14 +15,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import signal
 import threading
 import time
 from typing import Any, Iterable, TypeVar
+import weakref
 
 from absl import logging
 import courier
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
+from ml_metrics._src.utils import courier_utils
 from ml_metrics._src.utils import func_utils
 from ml_metrics._src.utils import iter_utils
 
@@ -30,6 +33,7 @@ from ml_metrics._src.utils import iter_utils
 _T = TypeVar('_T')
 pickler = lazy_fns.pickler
 _HRTBT_INTERVAL_SECS = 30
+_WeakRefDict = weakref.WeakKeyDictionary[_T, weakref.ref[_T]]
 
 
 class HeartbeatRegistry:
@@ -59,7 +63,17 @@ class HeartbeatRegistry:
     self._clients.pop(address, None)
 
 
-class CourierServer(metaclass=func_utils.SingletonMeta):
+class _CourierServerSingleton(func_utils.SingletonMeta):
+  """Singleton metaclass for CourierServer."""
+
+  _instances: _WeakRefDict[CourierServer] = weakref.WeakKeyDictionary()
+
+  @property
+  def all_instances(self) -> list[CourierServer]:
+    return super().all_instances
+
+
+class CourierServer(metaclass=_CourierServerSingleton):
   """Courier server that runs a chainable."""
 
   server_name: str | None
@@ -73,6 +87,7 @@ class CourierServer(metaclass=func_utils.SingletonMeta):
   _shutdown_requested: bool
   _heartbeats: HeartbeatRegistry
   _shutdown_callback: Callable[..., None] | None
+  _clients: list[courier_utils.CourierClient]
 
   def __init__(
       self,
@@ -80,6 +95,7 @@ class CourierServer(metaclass=func_utils.SingletonMeta):
       *,
       port: int | None = None,
       auto_shutdown_secs: float = 10200,
+      clients: Iterable[str] = (),
   ):
     self.server_name = server_name
     self.port = port
@@ -93,6 +109,17 @@ class CourierServer(metaclass=func_utils.SingletonMeta):
     self._shutdown_callback = None
     self.auto_shutdown_secs = auto_shutdown_secs
     self.build_server()
+    self.set_shutdown_callback(self.notify_shutdown)
+    self._clients = [courier_utils.CourierClient(addr) for addr in clients]
+    try:
+      signal.signal(signal.SIGINT, self.notify_shutdown)
+      signal.signal(signal.SIGTERM, self.notify_shutdown)
+    except ValueError:
+      logging.warning(
+          'chainable: cannot register signal handler for %s, try constructing'
+          ' Server from the main thread.',
+          self,
+      )
 
   def __str__(self):
     addr = self.server_name or ''
@@ -125,6 +152,16 @@ class CourierServer(metaclass=func_utils.SingletonMeta):
       raise RuntimeError('Server is not built, the address is not available.')
     return self._server.address
 
+  def _notify_alive(self, is_alive: bool = True):
+    for client in self._clients:
+      client.send_heartbeat(self.address, is_alive=is_alive)
+      logging.info(
+          'chainable: notify alive=%s from "%s" to "%s"',
+          is_alive,
+          self.address,
+          client.address,
+      )
+
   @property
   def has_started(self) -> bool:
     return (
@@ -133,7 +170,14 @@ class CourierServer(metaclass=func_utils.SingletonMeta):
         and self._thread is not None
     )
 
-  def notify_shutdown(self):
+  def notify_shutdown(self, signum=None, frame=None):
+    """Notify the server to shutdown, also served as a signal handler.
+
+    Args:
+      signum: not used, but is required for this to be a signal handler.
+      frame: not used, but is required for this to be a signal handler.
+    """
+    del signum, frame
     with self._shutdown_lock:
       self._shutdown_requested = True
       self._shutdown_lock.notify_all()
@@ -169,11 +213,10 @@ class CourierServer(metaclass=func_utils.SingletonMeta):
       self._last_heartbeat = time.time()
       if not sender_addr:
         return
-      with self._states_lock:
-        if is_alive:
-          self._heartbeats.register(sender_addr, self._last_heartbeat)
-        else:
-          self._heartbeats.unregister(sender_addr)
+      if is_alive:
+        self._heartbeats.register(sender_addr, self._last_heartbeat)
+      else:
+        self._heartbeats.unregister(sender_addr)
 
     assert self._server is not None, 'Server is not built.'
     self._server.Bind('maybe_make', pickled_maybe_make)
@@ -194,14 +237,16 @@ class CourierServer(metaclass=func_utils.SingletonMeta):
   def set_shutdown_callback(self, callback: Callable[..., None]):
     self._shutdown_callback = callback
 
-  def shutdown_server(self):
-    if self.has_started:
-      logging.info('chainable: Shutting down for server %s', self)
-      assert self._server is not None, 'Server is not built.'
-      if self._shutdown_callback is not None:
-        self._shutdown_callback()
-      self._server.Stop()
-      self._server = None
+  def _shutdown_server(self):
+    self._notify_alive(is_alive=False)
+    with self._states_lock:
+      if self.has_started:
+        assert self._server is not None, 'Server is not built.'
+        if self._shutdown_callback is not None:
+          self._shutdown_callback()
+        logging.info('chainable: Shutting down server %s', self)
+        self._server.Stop()
+        self._server = None
 
   def run_until_shutdown(self):
     """Run until shutdown requested."""
@@ -216,7 +261,7 @@ class CourierServer(metaclass=func_utils.SingletonMeta):
           self._shutdown_requested = True
           break
         self._shutdown_lock.wait(_HRTBT_INTERVAL_SECS)
-    self.shutdown_server()
+    self._shutdown_server()
 
   def start(self, *, daemon: bool = True) -> threading.Thread:
     """Start the server from a different thread."""
@@ -230,14 +275,37 @@ class CourierServer(metaclass=func_utils.SingletonMeta):
             target=self.run_until_shutdown, daemon=True
         )
         self._thread.start()
-      assert self._thread is not None
-      return self._thread
+    assert self._thread is not None
+    self._notify_alive()
+    return self._thread
 
   def stop(self) -> threading.Thread:
     """Stop the server."""
     self.notify_shutdown()
     assert self._thread is not None
     return self._thread
+
+
+def client_heartbeat(address: str) -> float:
+  """Check the last heartbeat of from all servers created by CourierServer."""
+  heartbeats = (
+      obj.client_heartbeat(address) for obj in CourierServer.all_instances
+  )
+  return max(heartbeats, default=0.0)
+
+
+def shutdown_all(except_for: Iterable[str] = (), block: bool = True):
+  """Shutdown all instances created by CourierServer."""
+  except_for = set(except_for)
+  threads = [
+      server.stop()
+      for server in CourierServer.all_instances
+      if server.has_started and server.address not in except_for
+  ]
+  logging.info('chainable: shutting down %d servers.', len(threads))
+  if block:
+    for thread in threads:
+      thread.join()
 
 
 class PrefetchedCourierServer(CourierServer):
@@ -255,11 +323,13 @@ class PrefetchedCourierServer(CourierServer):
       # TODO: b/372935688 - Rename this to auto_shutdown_secs.
       timeout_secs: float = 10200,
       prefetch_size: int = 2,
+      clients: Iterable[str] = (),
   ):
     super().__init__(
         server_name,
         port=port,
         auto_shutdown_secs=timeout_secs,
+        clients=clients,
     )
     self.prefetch_size = prefetch_size
     self._enqueue_thread = None

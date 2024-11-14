@@ -61,7 +61,7 @@ def setUpModule():
 
 
 def tearDownModule():
-  TIMEOUT_SERVER.stop().join()
+  courier_server.shutdown_all()
 
 
 def lazy_q_fn(n, stop=False):
@@ -84,9 +84,11 @@ class CourierWorkerTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server = courier_server.CourierServer('CourierWorker')
+    self.server = courier_server.CourierServer(
+        'CourierWorker', clients=['CourierWorker']
+    )
     self.server.start()
-    self.worker = courier_utils.CourierClient(self.server.address)
+    self.worker = courier_worker.Worker(self.server.address)
 
   def test_worker_call(self):
     self.assertEqual(
@@ -139,7 +141,9 @@ class CourierWorkerPoolTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server = courier_server.CourierServer('WorkerPool')
+    self.server = courier_server.CourierServer(
+        'WorkerPool', clients=['WorkerPool']
+    )
     self.server.start()
     self.worker = courier_worker.Worker(self.server.address)
     self.worker_pool = courier_worker.WorkerPool([self.worker])
@@ -184,8 +188,8 @@ class CourierWorkerPoolTest(parameterized.TestCase):
     self.assertEqual(['echo'], actual)
 
   def test_worker_pool_call_with_method_in_task(self):
-    server = TestServer('test_server')
-    server.start(daemon=True)
+    server = TestServer('test_server', clients=['test_server'])
+    server.start()
     worker_pool = courier_worker.WorkerPool([server.address])
     task = courier_utils.Task.new(1, courier_method='plus_one')
     # We only have one task, so just return the first element.

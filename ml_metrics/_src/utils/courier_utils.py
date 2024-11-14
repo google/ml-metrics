@@ -490,6 +490,16 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
     # `result()`, and `async_result()`.
     return len(self.pendings) < self.max_parallelism
 
+  def send_heartbeat(
+      self, client_address: str, is_alive: bool = True
+  ) -> futures.Future[None]:
+    """Sends the heartbeat to inform the host at the address is (not) alive."""
+    if not client_address:
+      raise ValueError('client address is empty')
+    if not self.is_alive:
+      self._refresh_clients()
+    return self._heartbeat_client.futures.heartbeat(client_address, is_alive)
+
   # TODO: b/376480832 - Deprecate actively checking heartbeat.
   def _check_heartbeat(self, interval: float = _HRTBT_INTERVAL_SECS):
     """Ping the worker to check the heartbeat once."""
@@ -559,11 +569,11 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
   def is_alive(self) -> bool:
     """Checks whether the worker is alive."""
     with self._states_lock:
-      if not self._is_heartbeat_fresh():
-        # No last heartbeat recorded, consider it not alive temporarily.
-        self._check_heartbeat()
-        return False
-      return True
+      if self._is_heartbeat_fresh():
+        return True
+      # No last heartbeat recorded, consider it not alive temporarily.
+      self._check_heartbeat()
+      return False
 
   @property
   def pendings(self) -> list[StateWithTime]:
