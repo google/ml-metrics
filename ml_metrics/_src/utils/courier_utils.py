@@ -264,6 +264,14 @@ class RemoteIteratorQueue(iter_utils.AsyncIterableQueue[_T]):
     logging.debug('chainable: remote queue "%s" async_get', self.name)
     return await self._queue.get().async_result_()
 
+  def get_batch(self):
+    logging.debug('chainable: remote queue "%s" get_batch', self.name)
+    return self._queue.get_batch().result_()
+
+  async def async_get_batch(self):
+    logging.debug('chainable: remote queue "%s" async_get_batch', self.name)
+    return await self._queue.get_batch().async_result_()
+
 
 class RemoteIterator(Iterator[_T]):
   """A local iterator that iterate through remote iterator."""

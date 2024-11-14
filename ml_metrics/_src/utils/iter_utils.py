@@ -101,6 +101,10 @@ class IterableQueue(Generic[_ValueT], abc.ABC):
   def get(self) -> _ValueT:
     """Dequeue an element from the queue."""
 
+  @abc.abstractmethod
+  def get_batch(self) -> list[_ValueT]:
+    """Dequeue a batch of elements from the queue."""
+
   def dequeue_as_iterator(self, num_steps: int = -1) -> Iterator[_ValueT]:
     return _DequeueIterator(self, num_steps=num_steps)
 
@@ -115,6 +119,10 @@ class AsyncIterableQueue(IterableQueue[_ValueT]):
   async def async_get(self):
     """Gets an element from the queue."""
 
+  @abc.abstractmethod
+  async def async_get_batch(self):
+    """Gets a batch of elements from the queue."""
+
   def async_dequeue_as_iterator(
       self, num_steps: int = -1
   ) -> AsyncIterator[_ValueT]:
@@ -128,6 +136,13 @@ class AsyncIterableQueue(IterableQueue[_ValueT]):
 def _async_get(iterator_queue: IterableQueue):
   try:
     return iterator_queue.get()
+  except StopIteration as e:
+    raise StopAsyncIteration(*e.args) from e
+
+
+def _async_get_batch(iterator_queue: IterableQueue):
+  try:
+    return iterator_queue.get_batch()
   except StopIteration as e:
     raise StopAsyncIteration(*e.args) from e
 
@@ -168,6 +183,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
   name: str
   ignore_error: bool
   _queue: _QueueLike[_ValueT]
+  _max_batch_size: int
   # The lock here manages enqueue (put) and dequeue (get).
   _enqueue_lock: threading.Condition
   _dequeue_lock: threading.Condition
@@ -187,11 +203,13 @@ class IteratorQueue(IterableQueue[_ValueT]):
       name: str = '',
       timeout: float | None = None,
       ignore_error: bool = False,
+      max_batch_size: int = 0,
   ):
     if isinstance(queue_or_size, int):
       self._queue = self._default_queue(queue_or_size)
     else:
       self._queue = queue_or_size
+    self._max_batch_size = max_batch_size
     self.name = name
     self.timeout = timeout
     self._dequeue_lock = threading.Condition()
@@ -268,6 +286,32 @@ class IteratorQueue(IterableQueue[_ValueT]):
       raise e
     finally:
       self._states_lock.release()
+
+  def get_batch(self) -> list[_ValueT]:
+    """Gets an element from the queue, waits for timeout if empty."""
+    with self._dequeue_lock:
+      result = []
+      while True:
+        try:
+          result.append(self.get_nowait())
+          if self._max_batch_size and len(result) == self._max_batch_size:
+            break
+        except (queue.Empty, asyncio.QueueEmpty) as e:
+          if result:
+            break
+          logging.debug('chainable: "%s" dequeue empty, waiting', self.name)
+          if self._dequeue_lock.wait(timeout=self.timeout):
+            logging.debug('chainable: "%s" dequeue retry', self.name)
+            continue
+          raise TimeoutError(f'Dequeue timeout={self.timeout}secs.') from e
+        except Exception as e:  # pylint: disable=broad-exception-caught
+          if result:
+            break
+          raise e
+      if result:
+        _release_and_notify(self._dequeue_lock, notify=self._enqueue_lock)
+        logging.debug('chainable: "%s" dequeued %d', self.name, len(result))
+      return result
 
   def get(self) -> _ValueT:
     """Gets an element from the queue, waits for timeout if empty."""
@@ -400,13 +444,15 @@ class _DequeueIterator:
     self._num_steps = num_steps
     self._cnt = 0
     self._run_until_exhausted = num_steps < 0
+    self._cache = collections.deque()
 
   def __next__(self):
     if not self._run_until_exhausted and self._cnt == self._num_steps:
       raise StopIteration()
-    value = self._iterator_queue.get()
+    if not self._cache:
+      self._cache.extend(self._iterator_queue.get_batch())
     self._cnt += 1
-    return value
+    return self._cache.popleft()
 
   def __iter__(self):
     return self
@@ -434,18 +480,30 @@ class AsyncIteratorQueue(IteratorQueue[_ValueT], AsyncIterableQueue[_ValueT]):
       timeout: float | None = None,
       thread_pool: futures.ThreadPoolExecutor | None = None,
       ignore_error: bool = False,
+      max_batch_size: int = 0,
   ):
     super().__init__(
         queue_or_size=queue_or_size,
         name=name,
         timeout=timeout,
         ignore_error=ignore_error,
+        max_batch_size=max_batch_size,
     )
     self._thread_pool = thread_pool
 
   @classmethod
   def _default_queue(cls, maxsize: int):
     return asyncio.Queue(maxsize=maxsize)
+
+  async def async_get_batch(self):
+    """Gets a batch of elements from the queue."""
+    logging.debug('chainable: %s async dequeueing', self.name)
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(
+        self._thread_pool, _async_get_batch, self
+    )
+    logging.debug('chainable: "%s" async dequeued %d', self.name, len(result))
+    return result
 
   async def async_get(self):
     """Gets an element from the queue."""
@@ -491,12 +549,14 @@ class _AsyncDequeueIterator:
     self._num_steps = num_steps
     self._cnt = 0
     self._run_until_exhausted = num_steps < 0
+    self._cache = collections.deque()
 
   async def __anext__(self):
     if self._run_until_exhausted or self._cnt < self._num_steps:
       # AsyncIteratorQueue.get() can raise StopAsyncIteration.
       try:
-        value = await self._iterator_queue.async_get()
+        if not self._cache:
+          self._cache.extend(await self._iterator_queue.async_get_batch())
       except StopAsyncIteration as e:
         logging.info(
             'chainable: async iterator at %s exhausted after %d batches with'
@@ -508,12 +568,11 @@ class _AsyncDequeueIterator:
         raise e
       self._cnt += 1
       logging.debug(
-          'chainable: "%s" async iter yield %d batch of a type %s.',
+          'chainable: "%s" async iter yield %dth batch',
           getattr(self._iterator_queue, 'name', ''),
           self._cnt,
-          type(value),
       )
-      return value
+      return self._cache.popleft()
     else:
       raise StopAsyncIteration()
 
@@ -542,11 +601,13 @@ def piter(
   Returns:
     An iterable that iterates through the chain of functions.
   """
-  output_queue = IteratorQueue(buffer_size)
+  output_queue = IteratorQueue(buffer_size, name='piter_output_q')
   input_q = None
   pool = thread_pool or futures.ThreadPoolExecutor()
   if input_iterator is not None:
-    input_q = IteratorQueue(buffer_size)
+    # The input_queue uses a max_batch_size of 1 to ensure that the output_queue
+    # is not consuming too many elements that leads to imbalanced parallelism.
+    input_q = IteratorQueue(buffer_size, max_batch_size=1, name='piter_input_q')
     pool.submit(input_q.enqueue_from_iterator, input_iterator)
   for _ in range(max_parallism):
     if input_q is not None:
