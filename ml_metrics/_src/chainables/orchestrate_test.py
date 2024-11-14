@@ -18,14 +18,13 @@ import time
 from absl.testing import absltest
 from absl.testing import parameterized
 from courier.python import testutil
-from ml_metrics import aggregates
 from ml_metrics import chainable
 from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import orchestrate
+from ml_metrics._src.utils import test_utils
 import more_itertools as mit
-import numpy as np
 import portpicker
 
 
@@ -63,53 +62,6 @@ def setUpModule():
 def tearDownModule():
   courier_server.shutdown_all(except_for=['host'])
   HOST.stop().join()
-
-
-def sharded_ones(
-    total_numbers: int,
-    batch_size: int,
-    shard_index: int = 0,
-    num_shards: int = 1,
-):
-  num_batches, remainder = divmod(total_numbers, batch_size)
-  for i in range(num_batches):
-    if i % num_shards == shard_index:
-      yield batch_size
-  if not shard_index and remainder:
-    yield remainder
-
-
-def sharded_pipeline(
-    total_numbers: int,
-    batch_size: int,
-    shard_index: int = 0,
-    num_shards: int = 1,
-    num_threads: int = 0,
-):
-  return (
-      chainable.Pipeline.new(name='datasource')
-      .data_source(
-          sharded_ones(
-              total_numbers,
-              batch_size=batch_size,
-              shard_index=shard_index,
-              num_shards=num_shards,
-          )
-      )
-      .chain(
-          chainable.Pipeline.new(name='apply', num_threads=num_threads).apply(
-              fn=lambda batch_size: np.random.randint(100, size=batch_size),
-          )
-      )
-      .chain(
-          chainable.Pipeline.new(name='agg').aggregate(
-              output_keys='stats',
-              fn=aggregates.MergeableMetricAggFn(
-                  rolling_stats.MeanAndVariance()
-              ),
-          )
-      )
-  )
 
 
 class RunAsCompletedTest(absltest.TestCase):
@@ -215,22 +167,25 @@ class RunShardedIteratorTest(absltest.TestCase):
 
   def test_iterator(self):
     results_queue = queue.SimpleQueue()
-    for elem in orchestrate.sharded_pipelines_as_iterator(
-        self.worker_pool,
-        sharded_pipeline,
-        total_numbers=1000,
-        batch_size=100,
-        result_queue=results_queue,
-        retry_failures=False,
-    ):
-      self.assertEqual(elem.size, 100)
-
+    total_numbers, batch_size = 10_001, 100
+    num_batches = mit.ilen(
+        orchestrate.sharded_pipelines_as_iterator(
+            self.worker_pool,
+            test_utils.sharded_pipeline,
+            total_numbers=total_numbers,
+            batch_size=batch_size,
+            num_threads=1,
+            result_queue=results_queue,
+            retry_failures=False,
+        )
+    )
+    self.assertEqual(num_batches, int(total_numbers / batch_size) + 1)
     results = results_queue.get().agg_result
 
     self.assertIsNotNone(results)
     self.assertIn('stats', results)
     self.assertIsInstance(results['stats'], rolling_stats.MeanAndVariance)
-    self.assertEqual(results['stats'].count, 1000)
+    self.assertEqual(results['stats'].count, total_numbers)
 
 
 class RunInterleavedTest(parameterized.TestCase):
@@ -252,38 +207,37 @@ class RunInterleavedTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='with_worker_on_apply',
-          with_worker_on_apply=True,
+          with_workers=True,
       ),
       dict(
           testcase_name='with_worker_on_agg',
-          with_worker_on_agg=True,
+          with_workers=True,
+          fuse_aggregate=True,
       ),
   ])
-  def test_default_config(
-      self, with_worker_on_apply=False, with_worker_on_agg=False
-  ):
-    total_examples = 1001
+  def test_default_config(self, with_workers=False, fuse_aggregate=False):
+    total_examples = 10_001
+    batch_size = 100
     with orchestrate.run_pipeline_interleaved(
-        sharded_pipeline(
-            total_numbers=total_examples, batch_size=32, num_threads=4
+        test_utils.sharded_pipeline(
+            total_numbers=total_examples,
+            batch_size=batch_size,
+            num_threads=1,
+            fuse_aggregate=fuse_aggregate,
         ),
         master_server=courier_server.CourierServer('master'),
         ignore_failures=False,
         resources={
-            'datasource': orchestrate.RunnerResource(buffer_size=6),
+            'datasource': orchestrate.RunnerResource(buffer_size=16),
             'apply': orchestrate.RunnerResource(
-                worker_pool=self.worker_pool if with_worker_on_apply else None,
-                buffer_size=6,
-            ),
-            'agg': orchestrate.RunnerResource(
-                worker_pool=self.worker_pool if with_worker_on_agg else None,
-                timeout=30,
+                worker_pool=self.worker_pool if with_workers else None,
+                # buffer_size=6,
             ),
         },
     ) as runner:
       result_queue = runner.result_queue
       cnt = mit.ilen(result_queue)
-    self.assertEqual(cnt, int(total_examples / 32) + 1)
+    self.assertEqual(cnt, int(total_examples / batch_size) + 1)
     self.assertLen(result_queue.returned, 1)
     agg_result = result_queue.returned[0]
     self.assertIsInstance(agg_result, chainable.AggregateResult)
