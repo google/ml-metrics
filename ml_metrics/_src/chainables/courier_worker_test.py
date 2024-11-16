@@ -96,6 +96,12 @@ class CourierWorkerTest(absltest.TestCase):
         courier_worker.get_results([self.worker.call('echo')]),
     )
 
+  def test_worker_str(self):
+    self.assertRegex(
+        str(self.worker),
+        r'Worker\("CourierWorker", timeout=.+, from_last_heartbeat=.+\)',
+    )
+
   def test_task_done(self):
     task = courier_worker.Task.new('echo')
     self.assertFalse(task.done())

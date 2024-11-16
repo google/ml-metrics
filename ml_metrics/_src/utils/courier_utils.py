@@ -33,8 +33,8 @@ from ml_metrics._src.utils import func_utils
 from ml_metrics._src.utils import iter_utils
 
 
-_HRTBT_INTERVAL_SECS = 15
-_HRTBT_THRESHOLD_SECS = 180
+_HRTBT_INTERVAL_SECS = 30
+_HRTBT_THRESHOLD_SECS = 360
 _T = TypeVar('_T')
 
 
@@ -471,8 +471,8 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
 
   def __str__(self) -> str:
     return (
-        f'CourierClient("{self.address}", timeout={self.call_timeout},'
-        f' max_parallelism={self.max_parallelism},'
+        f'{self.__class__.__name__}("{self.address}",'
+        f' timeout={self.call_timeout}, max_parallelism={self.max_parallelism},'
         f' from_last_heartbeat={(time.time() - self._last_heartbeat):.2f}s)'
     )
 
