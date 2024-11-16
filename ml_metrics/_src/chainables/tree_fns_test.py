@@ -191,6 +191,25 @@ class TreeFnTest(parameterized.TestCase):
     }
     self.assertEqual(expected, tree_fn(data))
 
+  def test_assign_multiple_outputs_wingle_key(self):
+    data = {
+        'a': 7,
+        'b': 8,
+        'c': {'b': (7, 8)},
+    }
+    tree_fn = tree_fns.Assign.new(
+        fn=lambda x, y: (x + 1, y + 1),
+        input_keys=[Key.a, Key.c.b.at(Key.Index(0))],
+        output_keys='e'
+    )
+    expected = {
+        'a': 7,
+        'b': 8,
+        'c': {'b': (7, 8)},
+        'e': (8, 8)
+    }
+    self.assertEqual(expected, tree_fn(data))
+
   def test_select(self):
     data = {
         'a': 7,

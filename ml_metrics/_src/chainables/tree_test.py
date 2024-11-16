@@ -360,6 +360,12 @@ class TreeMapViewTest(parameterized.TestCase):
     ).data
     self.assertEqual(expected, result)
 
+  def test_assign_multioutputs_to_single_key(self):
+    result = TreeMapView({'a': 1}).set(Key.b, (2, 3))
+    self.assertEqual({'a': 1, 'b': (2, 3)}, result.data)
+    result = TreeMapView({'a': 1}).set((Key.b,), (2, 3))
+    self.assertEqual({'a': 1, 'b': (2, 3)}, result.data)
+
   def test_copy_and_set_raise_with_multiple_keys_with_self(self):
     with self.assertRaises(ValueError):
       _ = (

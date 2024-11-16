@@ -505,8 +505,16 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
         # Check exact type match because function multiple returns is a tuple.
         # e.g., NamedTuple won't be considered multiple outputs.
         values = values if type(values) is tuple else (values,)  # pylint: disable=unidiomatic-typecheck
-        for key, value in zip(keys, values, strict=True):
-          data = self._set_by_path(data, key, value, in_place)
+        if len(keys) == 1 and len(values) > 1:
+          data = self._set_by_path(data, keys[0], values, in_place)
+        elif len(keys) != len(values):
+          raise ValueError(
+              f'Misaligned {keys=} and {values=}, values and keys need to be'
+              ' the same length.'
+          )
+        else:
+          for key, value in zip(keys, values, strict=True):
+            data = self._set_by_path(data, key, value, in_place)
       case _:
         data = self._set_by_path(self.data, Key.new(keys), values, in_place)
     return self if in_place else dataclasses.replace(self, data=data)
@@ -538,7 +546,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
     if isinstance(other, Mapping):
       return self.copy_and_set(*zip(*other.items(), strict=True))
     else:
-      return self.copy_and_set(*zip(*other))
+      return self.copy_and_set(*zip(*other, strict=True))
 
   def __or__(self, other: Mapping[TreeMapKey, Any]) -> TreeMapView:
     """Alias for `copy_and_update`."""
