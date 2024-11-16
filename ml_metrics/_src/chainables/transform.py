@@ -697,7 +697,7 @@ class TreeTransform(Generic[TreeFnT]):
   ) -> TreeTransform:
     """Assign some key value pairs back to the input mapping."""
     if output_keys:
-      logging.warning(
+      raise ValueError(
           '`output_keys` is deprecated, use positional arguments or'
           ' `assign_keys` instead.'
       )
