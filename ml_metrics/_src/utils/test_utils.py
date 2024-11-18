@@ -13,9 +13,9 @@
 # limitations under the License.
 """Utilitities for testing, internal use only."""
 
-from ml_metrics import aggregates
-from ml_metrics import chainable
-from ml_metrics.metrics import rolling_stats
+from ml_metrics._src.aggregates import base
+from ml_metrics._src.aggregates import rolling_stats
+from ml_metrics._src.chainables import transform
 import numpy as np
 
 
@@ -42,7 +42,7 @@ def sharded_pipeline(
     num_threads: int = 0,
 ):
   """A pipeline to calculate the stats of batches of random integers."""
-  data_pipeline = chainable.Pipeline.new(name='datasource').data_source(
+  data_pipeline = transform.TreeTransform.new(name='datasource').data_source(
       sharded_ones(
           total_numbers,
           batch_size=batch_size,
@@ -50,20 +50,22 @@ def sharded_pipeline(
           num_shards=num_shards,
       )
   )
-  pipeline = data_pipeline.chain(
-      chainable.Pipeline.new(name='apply', num_threads=num_threads).apply(
-          fn=lambda batch_size: np.random.randint(100, size=batch_size),
-      )
+  apply_pipeline = transform.TreeTransform.new(
+      name='apply', num_threads=num_threads
+  ).apply(
+      fn=lambda batch_size: np.random.randint(100, size=batch_size),
   )
 
   if fuse_aggregate:
-    return pipeline.aggregate(
-        output_keys='stats',
-        fn=aggregates.MergeableMetricAggFn(rolling_stats.MeanAndVariance()),
+    return data_pipeline.chain(
+        apply_pipeline.aggregate(
+            output_keys='stats',
+            fn=base.MergeableMetricAggFn(rolling_stats.MeanAndVariance()),
+        )
     )
-  return pipeline.chain(
-      chainable.Pipeline.new(name='agg').aggregate(
+  return data_pipeline.chain(apply_pipeline).chain(
+      transform.TreeTransform.new(name='agg').aggregate(
           output_keys='stats',
-          fn=aggregates.MergeableMetricAggFn(rolling_stats.MeanAndVariance()),
+          fn=base.MergeableMetricAggFn(rolling_stats.MeanAndVariance()),
       )
   )
