@@ -33,6 +33,7 @@ import numpy as np
 
 _ValueT = TypeVar('_ValueT')
 _InputT = TypeVar('_InputT')
+_MAX_BATCH_SIZE = 4096
 
 
 class _QueueLike(Protocol[_ValueT]):
@@ -203,7 +204,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
       name: str = '',
       timeout: float | None = None,
       ignore_error: bool = False,
-      max_batch_size: int = 0,
+      max_batch_size: int = _MAX_BATCH_SIZE,
   ):
     if isinstance(queue_or_size, int):
       self._queue = self._default_queue(queue_or_size)
@@ -291,11 +292,9 @@ class IteratorQueue(IterableQueue[_ValueT]):
     """Gets an element from the queue, waits for timeout if empty."""
     with self._dequeue_lock:
       result = []
-      while True:
+      while not self._max_batch_size or len(result) < self._max_batch_size:
         try:
           result.append(self.get_nowait())
-          if self._max_batch_size and len(result) == self._max_batch_size:
-            break
         except (queue.Empty, asyncio.QueueEmpty) as e:
           if result:
             break
