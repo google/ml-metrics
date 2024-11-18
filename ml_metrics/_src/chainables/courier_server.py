@@ -31,9 +31,11 @@ from ml_metrics._src.utils import iter_utils
 
 
 _T = TypeVar('_T')
+_WeakRefDict = weakref.WeakKeyDictionary[_T, weakref.ref[_T]]
+
 pickler = lazy_fns.pickler
 _HRTBT_INTERVAL_SECS = 30
-_WeakRefDict = weakref.WeakKeyDictionary[_T, weakref.ref[_T]]
+_LOGGING_INTERVAL_SECS = 60
 
 
 class HeartbeatRegistry:
@@ -107,6 +109,8 @@ class CourierServer(metaclass=_CourierServerSingleton):
     self._states_lock = threading.Lock()
     self._heartbeats = HeartbeatRegistry()
     self._shutdown_callback = None
+    self._tx_stats_lock = threading.Lock()
+    self._tx_stats = (time.time(), 0, 0)
     self.auto_shutdown_secs = auto_shutdown_secs
     self.build_server()
     self.set_shutdown_callback(self.notify_shutdown)
@@ -196,7 +200,22 @@ class CourierServer(metaclass=_CourierServerSingleton):
         if isinstance(e, (ValueError, TypeError, RuntimeError)):
           logging.exception('chainable: maybe_make exception for %s.', lazy_obj)
       try:
-        return pickler.dumps(result)
+        result = pickler.dumps(result)
+        with self._tx_stats_lock:
+          ticker, bytes_sent, num_txs = self._tx_stats
+          self._tx_stats = (ticker, bytes_sent + len(result), num_txs + 1)
+          if time.time() - self._tx_stats[0] > _LOGGING_INTERVAL_SECS:
+            ticker, bytes_sent, num_txs = self._tx_stats
+            delta_time = time.time() - ticker
+            logging.info(
+                'chainable: %s',
+                f'"{self.address}" tx stats: {bytes_sent} bytes,'
+                f' {num_txs} requests in {delta_time:.2f} seconds,'
+                f' ({bytes_sent / delta_time:.2f} bytes/sec,'
+                f' {num_txs / delta_time:.2f} requests/sec)',
+            )
+            self._tx_stats = (time.time(), 0, 0)
+        return result
       except TypeError as e:
         lazy_obj = f'{lazy_fns.pickler.loads(maybe_lazy)}'
         logging.exception(
