@@ -20,5 +20,6 @@ from ml_metrics._src.signals import cross_entropy
 from ml_metrics._src.signals import flip_masks
 from ml_metrics._src.signals import image
 from ml_metrics._src.signals import text
+from ml_metrics._src.signals import topk_accuracy
 # pylint: enable=g-importing-member
 # pylint: enable=unused-import
