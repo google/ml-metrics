@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import gzip
 import signal
 import threading
 import time
@@ -189,7 +190,9 @@ class CourierServer(metaclass=_CourierServerSingleton):
   def set_up(self) -> None:
     """Set up (e.g. binding to methods) at server build time."""
 
-    def pickled_maybe_make(maybe_lazy, return_exception: bool = False):
+    def pickled_maybe_make(
+        maybe_lazy, return_exception: bool = False, compress: bool = False
+    ):
       try:
         result = lazy_fns.maybe_make(maybe_lazy)
       except Exception as e:  # pylint: disable=broad-exception-caught
@@ -201,18 +204,21 @@ class CourierServer(metaclass=_CourierServerSingleton):
           logging.exception('chainable: maybe_make exception for %s.', lazy_obj)
       try:
         result = pickler.dumps(result)
+        if compress:
+          result = gzip.compress(result)
         with self._tx_stats_lock:
           ticker, bytes_sent, num_txs = self._tx_stats
           self._tx_stats = (ticker, bytes_sent + len(result), num_txs + 1)
           if time.time() - self._tx_stats[0] > _LOGGING_INTERVAL_SECS:
             ticker, bytes_sent, num_txs = self._tx_stats
             delta_time = time.time() - ticker
+            compressed = ' (compressed)' if compress else ''
             logging.info(
                 'chainable: %s',
-                f'"{self.address}" tx stats: {bytes_sent} bytes,'
+                f'"{self.address}" tx stats: {bytes_sent} bytes{compressed},'
                 f' {num_txs} requests in {delta_time:.2f} seconds,'
                 f' ({bytes_sent / delta_time:.2f} bytes/sec,'
-                f' {num_txs / delta_time:.2f} requests/sec)',
+                f' {num_txs / delta_time:.2f} requests/sec).',
             )
             self._tx_stats = (time.time(), 0, 0)
         return result

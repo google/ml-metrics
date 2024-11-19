@@ -20,6 +20,7 @@ import asyncio
 from collections.abc import AsyncIterator, Iterable, Iterator
 from concurrent import futures
 import dataclasses as dc
+import gzip
 import queue
 import threading
 import time
@@ -347,20 +348,20 @@ def is_timeout(e: Exception | None) -> bool:
   return getattr(e, 'code', 0) == 4
 
 
+def _maybe_pickle(obj: Any) -> Any:
+  # Relying on courier's own pickler for primitives.
+  if type(obj) in (str, int, float, bool, type(None)):
+    return obj
+  try:
+    return lazy_fns.pickler.dumps(obj)
+  except Exception as e:  # pylint: disable=broad-exception-caught
+    raise ValueError(f'Having issue pickling {obj}') from e
+
+
 def _normalize_args(args, kwargs):
   """Normalizes the args and kwargs to be picklable."""
-  result_args = []
-  for arg in args:
-    try:
-      result_args.append(lazy_fns.pickler.dumps(arg))
-    except Exception as e:
-      raise ValueError(f'Having issue pickling arg: {arg}, {type(arg)}') from e
-  result_kwargs = {}
-  for k, v in kwargs.items():
-    try:
-      result_kwargs[k] = lazy_fns.pickler.dumps(v)
-    except Exception as e:
-      raise ValueError(f'Having issue pickling {k}: {v}') from e
+  result_args = [_maybe_pickle(arg) for arg in args]
+  result_kwargs = {k: _maybe_pickle(v) for k, v in kwargs.items()}
   return result_args, result_kwargs
 
 
@@ -601,7 +602,7 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
     return state
 
   def _result_or_exception(self, pickled: bytes) -> Any | Exception:
-    result = lazy_fns.pickler.loads(pickled)
+    result = lazy_fns.pickler.loads(gzip.decompress(pickled))
     if isinstance(result, Exception):
       raise result
     if isinstance(result, lazy_fns.LazyObject):
@@ -611,7 +612,7 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
   def get_result(self, lazy_obj: base_types.Resolvable[_T]) -> _T:
     """Low level blocking courier call to retrieve the result."""
     self.wait_until_alive()
-    future = self.call(lazy_obj, return_exception=True)
+    future = self.call(lazy_obj, return_exception=True, compress=True)
     while not future.done():
       if not self.is_alive:
         raise RuntimeError(f'Worker disconnected: {self}')
@@ -629,7 +630,7 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
   async def async_get_result(self, lazy_obj: base_types.Resolvable[_T]) -> _T:
     """Low level async courier call to retrieve the result."""
     await self.async_wait_until_alive()
-    future = self.call(lazy_obj, return_exception=True)
+    future = self.call(lazy_obj, return_exception=True, compress=True)
     while not future.done():
       if not self.is_alive:
         raise RuntimeError(f'Async worker disconnected: {self}')
