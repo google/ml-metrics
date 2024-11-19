@@ -249,7 +249,7 @@ class RemoteIteratorQueue(iter_utils.AsyncIterableQueue[_T]):
       cls,
       q: base_types.MaybeResolvable[iter_utils.IteratorQueue[_T]],
       *,
-      server_addr: str,
+      server_addr: str | CourierClient | ClientConfig,
       name: str = '',
   ) -> Self:
     q = lazy_fns.maybe_make(q)
@@ -287,7 +287,7 @@ class RemoteIterator(Iterator[_T]):
       cls,
       iterator: base_types.MaybeResolvable[Iterable[_T]],
       *,
-      server_addr: str,
+      server_addr: str | CourierClient | ClientConfig,
   ) -> Self:
     iterator = lazy_fns.maybe_make(iterator)
     return cls(RemoteObject.new(iter(iterator), worker=server_addr))
