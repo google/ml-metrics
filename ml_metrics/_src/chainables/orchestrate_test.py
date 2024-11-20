@@ -217,6 +217,7 @@ class RunInterleavedTest(parameterized.TestCase):
   def test_default_config(self, with_workers=False, fuse_aggregate=False):
     total_examples = 10_001
     batch_size = 100
+    master_server = courier_server.CourierServer('master')
     with orchestrate.run_pipeline_interleaved(
         test_utils.sharded_pipeline(
             total_numbers=total_examples,
@@ -224,18 +225,21 @@ class RunInterleavedTest(parameterized.TestCase):
             num_threads=1,
             fuse_aggregate=fuse_aggregate,
         ),
-        master_server=courier_server.CourierServer('master'),
+        master_server=master_server,
         ignore_failures=False,
         resources={
             'datasource': orchestrate.RunnerResource(buffer_size=16),
             'apply': orchestrate.RunnerResource(
                 worker_pool=self.worker_pool if with_workers else None,
-                # buffer_size=6,
             ),
         },
     ) as runner:
       result_queue = runner.result_queue
       cnt = mit.ilen(result_queue)
+    if with_workers:
+      self.assertTrue(master_server.has_started)
+    else:
+      self.assertFalse(master_server.has_started)
     self.assertEqual(cnt, int(total_examples / batch_size) + 1)
     self.assertLen(result_queue.returned, 1)
     agg_result = result_queue.returned[0]
@@ -266,6 +270,7 @@ class RunInterleavedTest(parameterized.TestCase):
               'apply': orchestrate.RunnerResource(
                   worker_pool=self.worker_pool,
                   buffer_size=1,
+                  timeout=1,
               ),
           },
       ) as runner:

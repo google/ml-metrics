@@ -182,8 +182,6 @@ class RunnerState:
         return_when=mode,
     )
     self.event_loop.call_soon_threadsafe(self.event_loop.stop)
-    if self.master_server.has_started:
-      self.master_server.stop()
     self.event_loop_thread.join()
     stage_names = ','.join(f'"{s.name}"' for s in self.stages)
     logging.info('chainable: pipeline with stages %s finished.', stage_names)
@@ -218,8 +216,6 @@ class RunnerState:
               f'chainable: stage {i} failed, stage: {s.name}'
           ) from e
     self.thread_pool.shutdown()
-    if self.master_server.has_started:
-      self.master_server.stop().join()
     return result
 
 
