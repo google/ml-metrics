@@ -60,8 +60,7 @@ def setUpModule():
 
 
 def tearDownModule():
-  courier_server.shutdown_all(except_for=['host'])
-  HOST.stop().join()
+  courier_server.shutdown_all()
 
 
 class RunAsCompletedTest(absltest.TestCase):

@@ -319,18 +319,18 @@ def client_heartbeat(address: str) -> float:
   return max(heartbeats, default=0.0)
 
 
-def shutdown_all(except_for: Iterable[str] = (), block: bool = True):
+def shutdown_all(*, block: bool = True):
   """Shutdown all instances created by CourierServer."""
-  except_for = set(except_for)
-  threads = [
-      server.stop()
-      for server in CourierServer.all_instances
-      if server.has_started and server.address not in except_for
+  servers = [
+      (s, s.address) for s in CourierServer.all_instances if s.has_started
   ]
-  logging.info('chainable: shutting down %d servers.', len(threads))
+  logging.info('chainable: shutting down %d servers.', len(servers))
+  for server, _ in servers:
+    server.stop()
   if block:
-    for thread in threads:
-      thread.join()
+    for server, address in servers:
+      server.stop().join()
+      logging.info('chainable: server %s stopped.', address)
 
 
 class PrefetchedCourierServer(CourierServer):

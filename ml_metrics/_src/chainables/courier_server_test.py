@@ -120,11 +120,9 @@ class CourierServerTest(parameterized.TestCase):
 
   def test_custom_setup(self):
     server = TestServer()
-    thread = server.start()
+    server.start()
     client = courier.Client(server.address, call_timeout=2)
     self.assertEqual(2, pickler.loads(client.plus_one(1)))
-    server.stop()
-    thread.join()
 
   @parameterized.named_parameters([
       dict(testcase_name='no_sender'),
@@ -152,7 +150,6 @@ class CourierServerTest(parameterized.TestCase):
     # Restart.
     server.start()
     courier_worker.wait_until_alive(server.address, deadline_secs=12)
-    server.stop()
 
   def test_make_remote_iterator(self):
     remote_iterator = courier_utils.RemoteIterator.new(
