@@ -145,8 +145,7 @@ class CourierServerTest(parameterized.TestCase):
     assert server._thread is not None
     self.assertTrue(server._thread.is_alive())
     self.assertTrue(server.has_started)
-    server.stop()
-    server._thread.join()
+    server.stop().join()
     # Restart.
     server.start()
     courier_worker.wait_until_alive(server.address, deadline_secs=12)

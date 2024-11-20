@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from concurrent import futures
 import gzip
 import signal
 import threading
@@ -37,6 +38,7 @@ _WeakRefDict = weakref.WeakKeyDictionary[_T, weakref.ref[_T]]
 pickler = lazy_fns.pickler
 _HRTBT_INTERVAL_SECS = 30
 _LOGGING_INTERVAL_SECS = 60
+_THREAD_POOL = futures.ThreadPoolExecutor()
 
 
 class HeartbeatRegistry:
@@ -91,6 +93,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
   _heartbeats: HeartbeatRegistry
   _shutdown_callback: Callable[..., None] | None
   _clients: list[courier_utils.CourierClient]
+  _thread_pool: futures.ThreadPoolExecutor
 
   def __init__(
       self,
@@ -116,6 +119,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
     self.build_server()
     self.set_shutdown_callback(self.notify_shutdown)
     self._clients = [courier_utils.CourierClient(addr) for addr in clients]
+    self._thread_pool = _THREAD_POOL
     try:
       signal.signal(signal.SIGINT, self.notify_shutdown)
       signal.signal(signal.SIGTERM, self.notify_shutdown)
@@ -191,9 +195,16 @@ class CourierServer(metaclass=_CourierServerSingleton):
     """Set up (e.g. binding to methods) at server build time."""
 
     def pickled_maybe_make(
-        maybe_lazy, return_exception: bool = False, compress: bool = False
+        maybe_lazy,
+        return_exception: bool = False,
+        compress: bool = False,
+        ignore_result: bool = False,
     ):
       try:
+        if ignore_result:
+          logging.debug('chainable: maybe_make run in thread pool.')
+          self._thread_pool.submit(lazy_fns.maybe_make, maybe_lazy)
+          return None
         result = lazy_fns.maybe_make(maybe_lazy)
       except Exception as e:  # pylint: disable=broad-exception-caught
         lazy_obj = f'{lazy_fns.pickler.loads(maybe_lazy)}'
