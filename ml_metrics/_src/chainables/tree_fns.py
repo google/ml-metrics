@@ -104,6 +104,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       replace_mask_false_with: Any = tree.DEFAULT_FILTER,
       fn_batch_size: int = 0,
       batch_size: int = 0,
+      **disable_slicing,
   ) -> TreeFn[FnT, ValueT]:
     """Normalizes the arguments before constructing a TreeFn."""
     input_argkeys = ()
@@ -136,6 +137,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
         fn_batch_size=fn_batch_size,
         batch_size=batch_size,
         _default_constructor=False,
+        **disable_slicing,
     )
 
   @functools.cached_property
@@ -328,7 +330,6 @@ class Slicer:
   slice_mask_fn: (
       SliceMaskIteratorFn | lazy_fns.LazyFn[SliceMaskIteratorFn] | None
   ) = None
-  slice_input_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
   slice_name: str | tuple[str, ...] = ()
   input_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
   within_values: tuple[Any, ...] = ()
@@ -447,6 +448,7 @@ class TreeAggregateFn(
   fn: (
       aggregates.Aggregatable | lazy_fns.LazyFn[aggregates.Aggregatable] | None
   ) = None
+  disable_slicing: bool = False
 
   def create_state(self) -> StateT:
     try:

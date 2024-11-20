@@ -297,6 +297,8 @@ class CombinedTreeFn:
         state[MetricKey(metric_name)] = tree_agg_fn.update_state(
             state[MetricKey(metric_name)], inputs
         )
+        if tree_agg_fn.disable_slicing:
+          continue
         # state with slicing:
         for slicer in self.slicers:
           for slice_key, masks in slicer.iterate_and_slice(inputs):
@@ -738,12 +740,14 @@ class TreeTransform(Generic[TreeFnT]):
       *,
       fn: base_types.MaybeResolvable[aggregates.Aggregatable] | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+      disable_slicing: bool = False,
   ) -> AggregateTransform:
     """Create an aggregate transform on the previous transform."""
     fn = tree_fns.TreeAggregateFn.new(
         output_keys=output_keys,
         fn=fn,
         input_keys=input_keys,
+        disable_slicing=disable_slicing,
     )
     return self._maybe_new_agg_transform(fn)
 
@@ -834,12 +838,14 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       fn: base_types.MaybeResolvable[aggregates.Aggregatable] | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+      disable_slicing: bool = False,
   ) -> 'AggregateTransform':
     """Adds a aggregate and stack it on the existing aggregates."""
     fn = tree_fns.TreeAggregateFn.new(
         output_keys=output_keys,
         fn=fn,
         input_keys=input_keys,
+        disable_slicing=disable_slicing,
     )
     agg_fns = {}
     for fn_ in self.fns:

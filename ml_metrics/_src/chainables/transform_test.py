@@ -758,6 +758,12 @@ class TransformTest(parameterized.TestCase):
     agg = (
         transform.TreeTransform.new()
         .aggregate(
+            input_keys='a',
+            fn=MockAverageFn(),
+            output_keys='avg_a',
+            disable_slicing=True,
+        )
+        .add_aggregate(
             input_keys='b',
             fn=MockAverageFn(),
             output_keys='avg_b',
@@ -766,6 +772,7 @@ class TransformTest(parameterized.TestCase):
         .add_slice('b', replace_mask_false_with=0)
     )
     expected = {
+        'avg_a': [4.0 / 3],
         'avg_b': [5.0],
         MetricKey('avg_b', SliceKey(('a',), (1,))): [3.0],
         MetricKey('avg_b', SliceKey(('a',), (2,))): [9.0],
