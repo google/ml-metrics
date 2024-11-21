@@ -558,7 +558,7 @@ class WorkerPool:
       batch_cnt += 1
       yield output_queue.get()
     logging.info(
-        'chainalbes: finished running with %d/%d (finished/total) in %.2f'
+        'chainable: finished running with %d/%d (finished/total) in %.2f'
         ' secs, average throughput: %.2f/sec.',
         finished_tasks_cnt,
         total_tasks,
