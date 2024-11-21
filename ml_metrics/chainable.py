@@ -39,5 +39,6 @@ from ml_metrics._src.chainables.tree import MapLikeTree
 from ml_metrics._src.chainables.tree import tree_shape
 from ml_metrics._src.chainables.tree import TreeMapView
 from ml_metrics._src.utils import iter_utils
+from ml_metrics._src.utils import test_utils
 # pylint: enable=g-importing-member
 # pylint: enable=unused-import
