@@ -204,13 +204,13 @@ class IteratorQueue(IterableQueue[_ValueT]):
       name: str = '',
       timeout: float | None = None,
       ignore_error: bool = False,
-      max_batch_size: int = _MAX_BATCH_SIZE,
+      max_batch_size: int = 0,
   ):
     if isinstance(queue_or_size, int):
       self._queue = self._default_queue(queue_or_size)
     else:
       self._queue = queue_or_size
-    self._max_batch_size = max_batch_size
+    self._max_batch_size = max_batch_size or _MAX_BATCH_SIZE
     self.name = name
     self.timeout = timeout
     self._dequeue_lock = threading.Condition()
@@ -479,7 +479,7 @@ class AsyncIteratorQueue(IteratorQueue[_ValueT], AsyncIterableQueue[_ValueT]):
       timeout: float | None = None,
       thread_pool: futures.ThreadPoolExecutor | None = None,
       ignore_error: bool = False,
-      max_batch_size: int = 0,
+      max_batch_size: int = _MAX_BATCH_SIZE,
   ):
     super().__init__(
         queue_or_size=queue_or_size,
@@ -566,10 +566,9 @@ class _AsyncDequeueIterator:
         )
         raise e
       self._cnt += 1
+      name = getattr(self._iterator_queue, 'name', '')
       logging.debug(
-          'chainable: "%s" async iter yield %dth batch',
-          getattr(self._iterator_queue, 'name', ''),
-          self._cnt,
+          'chainable: %s', f'"{name}" async iter yield batch cnt: {self._cnt}'
       )
       return self._cache.popleft()
     else:
@@ -583,8 +582,8 @@ def piter(
     iterator_fn: Callable[..., Iterable[_ValueT]],
     input_iterator: Iterable[Any] | None = None,
     *,
-    max_parallism: int = 8,
-    buffer_size: int = 64,
+    max_parallism: int = 1,
+    buffer_size: int = 0,
     thread_pool: futures.ThreadPoolExecutor | None = None,
 ) -> Iterable[_ValueT]:
   """Call a chain of functions in sequence concurrently with multithreads.
@@ -592,7 +591,7 @@ def piter(
   Args:
     iterator_fn: A generator function that takes an iterable as input.
     input_iterator: The input iterator to be passed to the iterator_fn.
-    max_parallism: The maximum number of threads to be used.
+    max_parallism: The maximum number xof threads to be used.
     buffer_size: The buffer size of the queue.
     thread_pool: The thread pool to be used. If None, a new thread pool will be
       created.
@@ -606,7 +605,10 @@ def piter(
   if input_iterator is not None:
     # The input_queue uses a max_batch_size of 1 to ensure that the output_queue
     # is not consuming too many elements that leads to imbalanced parallelism.
-    input_q = IteratorQueue(buffer_size, max_batch_size=1, name='piter_input_q')
+    max_batch_size = 1 if max_parallism > 1 else 0
+    input_q = IteratorQueue(
+        buffer_size, max_batch_size=max_batch_size, name='piter_input_q'
+    )
     pool.submit(input_q.enqueue_from_iterator, input_iterator)
   for _ in range(max_parallism):
     if input_q is not None:
@@ -621,8 +623,8 @@ def pmap(
     fn: Callable[..., Any],
     input_iterator: Iterable[Any] = (),
     *,
-    max_parallism: int = 8,
-    buffer_size: int = 64,
+    max_parallism: int = 1,
+    buffer_size: int = 0,
     thread_pool: futures.ThreadPoolExecutor | None = None,
 ):
   return piter(
