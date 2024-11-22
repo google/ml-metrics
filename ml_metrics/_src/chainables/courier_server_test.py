@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import time
 from absl.testing import absltest
 from absl.testing import parameterized
 import courier
@@ -118,6 +119,16 @@ class CourierServerTest(parameterized.TestCase):
     result = client.maybe_make(pickler.dumps(lazy_fns.trace(len)([1, 2])))
     self.assertEqual(2, pickler.loads(result))
 
+  def test_maybe_make_ignore_result(self):
+    client = courier.Client(self.server.address, call_timeout=1)
+    start = time.time()
+    result = client.maybe_make(
+        pickler.dumps(lazy_fns.trace(time.sleep)(0.5)), ignore_result=True
+    )
+    # Ignore result call should return immediately.
+    self.assertLess(time.time() - start, 0.5)
+    self.assertIsNone(pickler.loads(result))
+
   def test_custom_setup(self):
     server = TestServer()
     server.start()
@@ -145,8 +156,7 @@ class CourierServerTest(parameterized.TestCase):
     assert server._thread is not None
     self.assertTrue(server._thread.is_alive())
     self.assertTrue(server.has_started)
-    server.stop()
-    server._thread.join()
+    server.stop().join()
     # Restart.
     server.start()
     courier_worker.wait_until_alive(server.address, deadline_secs=12)
