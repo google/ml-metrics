@@ -75,11 +75,19 @@ class LazyFnsTest(parameterized.TestCase):
     lazy_fns.pickler.register(custom_pickler)
     self.pickler = lazy_fns.pickler
 
-  def test_cache_lazy_raises(self):
+  def test_both_cached_and_lazy_raises(self):
     with self.assertRaises(ValueError):
       lazy_fns.LazyObject.new([1, 2, 3], cache_result=True, lazy_result=True)
     with self.assertRaises(ValueError):
       lazy_fns.trace(len)([1, 2, 3], cache_result_=True, lazy_result_=True)
+
+  def test_lazy_object_missing(self):
+    # Not using .new() method is creatng an invalid LazyObject.
+    x = lazy_fns.LazyObject(_cache_result=True)
+    with self.assertRaisesRegex(
+        lazy_fns.LazyObjectMissingError, 'LazyObject.+ is missing'
+    ):
+      x.result_()
 
   @parameterized.named_parameters([
       dict(

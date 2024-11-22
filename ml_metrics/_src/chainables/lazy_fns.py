@@ -39,6 +39,10 @@ Fn = Callable[..., _T]
 _LAZY_OBJECT_CACHE_SIZE = 1024
 
 
+class LazyObjectMissingError(KeyError):
+  """Raised when the local object is missing."""
+
+
 def _maybe_lru_cache(maxsize: int):
   """Decorator to add LRU cache for LazyObject inputs.
 
@@ -67,10 +71,9 @@ def _maybe_lru_cache(maxsize: int):
             lazy_obj_cache[x] = result
             return result
           else:
-            raise KeyError(
-                'The local object is missing, likely the cache '
-                'was mistakenly cleared, or is resolved in '
-                f'a wrong worker, object:{x}'
+            raise LazyObjectMissingError(
+                f'{x} is missing, if this is remote, the worker'
+                ' might have been restarted.'
             ) from e
       else:
         return fn(x)
