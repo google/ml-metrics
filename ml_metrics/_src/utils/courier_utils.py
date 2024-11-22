@@ -249,7 +249,7 @@ class RemoteIteratorQueue(iter_utils.AsyncIterableQueue[_T]):
       cls,
       q: base_types.MaybeResolvable[iter_utils.IteratorQueue[_T]],
       *,
-      server_addr: str,
+      server_addr: str | CourierClient | ClientConfig,
       name: str = '',
   ) -> Self:
     q = lazy_fns.maybe_make(q)
@@ -266,12 +266,20 @@ class RemoteIteratorQueue(iter_utils.AsyncIterableQueue[_T]):
     return await self._queue.get().async_result_()
 
   def get_batch(self):
-    logging.debug('chainable: remote queue "%s" get_batch', self.name)
-    return self._queue.get_batch().result_()
+    result = self._queue.get_batch().result_()
+    logging.debug(
+        'chainable: %s',
+        f'remote queue "{self.name}" get {len(result)} elems',
+    )
+    return result
 
   async def async_get_batch(self):
-    logging.debug('chainable: remote queue "%s" async_get_batch', self.name)
-    return await self._queue.get_batch().async_result_()
+    result = await self._queue.get_batch().async_result_()
+    logging.debug(
+        'chainable: %s',
+        f'remote queue "{self.name}" async get {len(result)} elems',
+    )
+    return result
 
 
 class RemoteIterator(Iterator[_T]):
@@ -287,7 +295,7 @@ class RemoteIterator(Iterator[_T]):
       cls,
       iterator: base_types.MaybeResolvable[Iterable[_T]],
       *,
-      server_addr: str,
+      server_addr: str | CourierClient | ClientConfig,
   ) -> Self:
     iterator = lazy_fns.maybe_make(iterator)
     return cls(RemoteObject.new(iter(iterator), worker=server_addr))
@@ -326,21 +334,12 @@ async def async_remote_iter(
       worker = CourierClient(worker, call_timeout=timeout)
   else:
     raise TypeError(f'Unsupported {type(iterator)}.')
-  # Create a queue at the worker, this returns a remote object.
-  lazy_output_q = await worker.async_get_result(
-      lazy_fns.trace(iter_utils.IteratorQueue)(
-          buffer_size,
-          timeout=timeout,
-          name=f'{name}@{worker.address}',
-          lazy_result_=True,
-      )
+  return await worker.async_iter(
+      iterator,
+      buffer_size=buffer_size,
+      timeout=timeout,
+      name=name,
   )
-  # Start the remote worker to enqueue the input_iterator.
-  _ = worker.call(
-      lazy_output_q.enqueue_from_iterator(iterator), return_exception=True
-  )
-  # Wrap this queue to behave like a normal queue.
-  return RemoteIteratorQueue(lazy_output_q, name=name)
 
 
 def is_timeout(e: Exception | None) -> bool:
@@ -728,14 +727,23 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
       name: str = '',
   ) -> RemoteIteratorQueue[_T]:
     """Async iterates the generator task."""
-    remote_iterator = await async_remote_iter(
-        lazy_iterable,
-        worker=self,
-        timeout=timeout,
-        buffer_size=buffer_size,
-        name=name,
+    # Create a queue at the worker, this returns a remote object.
+    lazy_output_q = await self.async_get_result(
+        lazy_fns.trace(iter_utils.IteratorQueue)(
+            buffer_size,
+            timeout=timeout,
+            name=f'{name}@{self.address}',
+            lazy_result_=True,
+        )
     )
-    return remote_iterator
+    # Start the remote worker to enqueue the input_iterator.
+    _ = self.call(
+        lazy_output_q.enqueue_from_iterator(lazy_iterable),
+        return_exception=True,
+        ignore_result=True,
+    )
+    # Wrap this queue to behave like a normal queue.
+    return RemoteIteratorQueue(lazy_output_q, name=f'{name}@{self.address}')
 
   def clear_cache(self):
     return self.call(courier_method='clear_cache')

@@ -224,7 +224,7 @@ class RunnerResource:
   """The resource for the runner."""
 
   worker_pool: courier_worker.WorkerPool | None = None
-  buffer_size: int = 256
+  buffer_size: int = 0
   timeout: float | None = None
   num_workers: int = 999999
 
@@ -236,8 +236,9 @@ def _async_run_single_stage(
     thread_pool: futures.ThreadPoolExecutor,
     resource: RunnerResource,
     master_server: courier_server.CourierServer,
-    input_queue: iter_utils.IteratorQueue[Any] | None = None,
-    ignore_failures: bool = False,
+    input_queue: iter_utils.IteratorQueue[Any] | None,
+    ignore_failures: bool,
+    aggregate_only: bool,
 ) -> StageState:
   """Asyncronously runs a single stage."""
   # TODO: b/356633410 - Support ignore_failures.
@@ -255,7 +256,6 @@ def _async_run_single_stage(
   )
 
   def iterate_with_worker_pool():
-    start_time = time.time()
     logging.info('chainable: "%s" started with worker pool', transform.name)
     assert worker_pool is not None
     input_iterator = None
@@ -263,17 +263,25 @@ def _async_run_single_stage(
       if not master_server.has_started:
         logging.debug('chainable: starting master %s', master_server.address)
         master_server.start(daemon=True)
+      client_to_server = courier_utils.CourierClient(
+          master_server.address, call_timeout=resource.timeout
+      )
       remote_input_q = courier_utils.RemoteIteratorQueue.new(
           input_queue,
-          server_addr=master_server.address,
+          server_addr=client_to_server,
           name=f'{transform.name}(input@{master_server.address})',
       )
       input_iterator = remote_input_q
     lazy_iterator = (
         lazy_fns.trace(transform)
-        .make(recursive=False)
-        .iterate(input_iterator, with_agg_result=False)
+        .make()
+        .iterate(
+            input_iterator,
+            with_result=not aggregate_only,
+            with_agg_result=False,
+        )
     )
+    start_time = time.time()
     iterating = {}
     min_workers, max_workers = 1, resource.num_workers
     worker_pool.wait_until_alive(deadline_secs=600)
@@ -327,13 +335,13 @@ def _async_run_single_stage(
               result_q.enqueue_done,
           )
       if time.time() - ticker > _LOGGING_INTERVAL_SECS:
+        cnt = result_q.progress.cnt
+        delta, ticker = time.time() - ticker, time.time()
         logging.info(
-            'chainable: %s async_iter processed %d and througput %.2f/sec',
-            transform.name,
-            result_q.progress.cnt,
-            result_q.progress.cnt / (time.time() - start_time),
+            'chainable: %s',
+            f'{transform.name} async_iter processed {cnt} with througput:'
+            f' {cnt / delta:.2f} batches/sec',
         )
-        ticker = time.time()
       time.sleep(0)
     if worker_exceptions:
       logging.error('chainable: %d workers failed', len(worker_exceptions))
@@ -367,12 +375,11 @@ def _async_run_single_stage(
           len(agg_states),
       )
 
-    delta_time = time.time() - start_time
+    delta = time.time() - start_time
     logging.info(
-        'chainable: "%s" done (remote) in %d secs, throughput: %.2f/sec',
-        transform.name,
-        delta_time,
-        result_q.progress.cnt / delta_time,
+        'chainable: %s',
+        f'remote {transform.name} done in {delta:.2f} secs, throughput:'
+        f' {result_q.progress.cnt / delta:.2f} batches/sec',
     )
 
   def iterate_in_process():
@@ -381,16 +388,16 @@ def _async_run_single_stage(
     input_iterator = None
     if input_queue is not None:
       input_iterator = iter(input_queue)
-    iterator = transform.make(recursive=False).iterate(
-        input_iterator=input_iterator
+    iterator = transform.make().iterate(
+        input_iterator=input_iterator,
+        with_result=not aggregate_only,
     )
     result_q.enqueue_from_iterator(iterator)
     delta_time = time.time() - start_time
     logging.info(
-        'chainable: "%s" done (local) in %d secs, throughput: %.2f/sec.',
-        transform.name,
-        delta_time,
-        result_q.progress.cnt / delta_time,
+        'chainable: %s',
+        f'local {transform.name} done in {delta_time:.2f} secs, throughput:'
+        f' {result_q.progress.cnt / delta_time:.2f} batches/sec',
     )
 
   iter_fn = iterate_with_worker_pool if worker_pool else iterate_in_process
@@ -406,6 +413,7 @@ def run_pipeline_interleaved(
     pipeline: transform_lib.TreeTransform,
     master_server: courier_server.CourierServer,
     resources: dict[str, RunnerResource] | None = None,
+    aggregate_only: bool = False,
     ignore_failures: bool = False,
 ) -> RunnerState:
   """Run a pipeline with stages running interleaved."""
@@ -417,15 +425,18 @@ def run_pipeline_interleaved(
   event_loop_thread = threading.Thread(target=event_loop.run_forever)
   event_loop_thread.start()
   stages = []
-  for k, p in pipeline.named_transforms().items():
+  named_transforms = list(pipeline.named_transforms().items())
+  for i, (name, transform) in enumerate(named_transforms):
+    is_last_stage = i == len(named_transforms) - 1
     runner = _async_run_single_stage(
-        p,
+        transform,
         thread_pool=thread_pool,
         event_loop=event_loop,
         input_queue=input_queue,
-        resource=resources.get(k, RunnerResource()),
+        resource=resources.get(name, RunnerResource()),
         ignore_failures=ignore_failures,
         master_server=master_server,
+        aggregate_only=aggregate_only and is_last_stage,
     )
     stages.append(runner)
     input_queue = runner.result_queue

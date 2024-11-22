@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import math
 import queue
 import threading
 import time
@@ -69,12 +70,12 @@ class RunAsCompletedTest(absltest.TestCase):
     super().setUp()
     self.server = courier_server.CourierServer('WorkerGroup', clients=['host'])
     self.server.start()
-    self.alswyas_timeout_server = TimeoutServer('timeout', clients=['host'])
-    self.alswyas_timeout_server.start()
+    self.always_timeout_server = TimeoutServer('timeout', clients=['host'])
+    self.always_timeout_server.start()
     self.worker_pool = courier_worker.WorkerPool([self.server.address])
     self.unreachable_address = f'localhost:{portpicker.pick_unused_port()}'
     courier_worker.wait_until_alive(self.server.address)
-    courier_worker.wait_until_alive(self.alswyas_timeout_server.address)
+    courier_worker.wait_until_alive(self.always_timeout_server.address)
 
   def test_run_multi_tasks(self):
     tasks = (chainable.trace(len)([1, 2]) for _ in range(3))
@@ -84,18 +85,18 @@ class RunAsCompletedTest(absltest.TestCase):
     self.assertEqual([2] * 3, actual)
 
   def test_as_completed_with_retry(self):
-    tasks = [chainable.trace(len)([1, 2]) for _ in range(30)]
+    tasks = [chainable.trace(len)([1, 2]) for _ in range(3)]
     addrs = [
-        self.alswyas_timeout_server.address,
+        self.always_timeout_server.address,
         self.unreachable_address,
         self.server.address,
     ]
-    worker_pool = courier_worker.WorkerPool(addrs)
+    worker_pool = courier_worker.WorkerPool(addrs, call_timeout=6)
     # Add a worker with invalid address to test the retry logic.
     self.assertLen(worker_pool.workers, 2)
     actual = list(orchestrate.as_completed(worker_pool, tasks))
-    self.assertLen(actual, 30)
-    self.assertEqual([2] * 30, actual)
+    self.assertLen(actual, 3)
+    self.assertEqual([2] * 3, actual)
 
   def test_worker_pool_as_completed_with_exception(self):
     def foo():
@@ -103,7 +104,7 @@ class RunAsCompletedTest(absltest.TestCase):
 
     tasks = [chainable.trace(foo)() for _ in range(3)]
     addrs = [
-        self.alswyas_timeout_server.address,
+        self.always_timeout_server.address,
         self.unreachable_address,
         self.server.address,
     ]
@@ -166,7 +167,7 @@ class RunShardedIteratorTest(absltest.TestCase):
 
   def test_iterator(self):
     results_queue = queue.SimpleQueue()
-    total_numbers, batch_size = 10_001, 100
+    total_numbers, batch_size = 1_000_001, 1000
     num_batches = mit.ilen(
         orchestrate.sharded_pipelines_as_iterator(
             self.worker_pool,
@@ -178,7 +179,7 @@ class RunShardedIteratorTest(absltest.TestCase):
             retry_failures=False,
         )
     )
-    self.assertEqual(num_batches, int(total_numbers / batch_size) + 1)
+    self.assertEqual(num_batches, math.ceil(total_numbers / batch_size))
     results = results_queue.get().agg_result
 
     self.assertIsNotNone(results)
@@ -205,49 +206,67 @@ class RunInterleavedTest(parameterized.TestCase):
           testcase_name='in_process',
       ),
       dict(
-          testcase_name='with_worker_on_apply',
+          testcase_name='in_process_fused',
+          fuse_aggregate=True,
+      ),
+      dict(
+          testcase_name='with_two_workers',
           with_workers=True,
       ),
       dict(
-          testcase_name='with_worker_on_agg',
+          testcase_name='with_one_worker_fused',
+          with_workers=True,
+          fuse_aggregate=True,
+          num_workers=1,
+      ),
+      dict(
+          testcase_name='with_two_workers_fused',
           with_workers=True,
           fuse_aggregate=True,
       ),
   ])
-  def test_default_config(self, with_workers=False, fuse_aggregate=False):
-    total_examples = 10_001
-    batch_size = 100
-    master_server = courier_server.CourierServer('master')
+  def test_run(self, with_workers=False, fuse_aggregate=False, num_workers=2):
+    total_numbers, batch_size = 1_000_001, 1000
+    fused_str = '_agg_fused' if fuse_aggregate else ''
+    worker_pool = courier_worker.WorkerPool(
+        self.worker_pool.all_workers[:num_workers]
+    )
+    master_server = courier_server.CourierServer(f'master{fused_str}')
     with orchestrate.run_pipeline_interleaved(
         test_utils.sharded_pipeline(
-            total_numbers=total_examples,
+            total_numbers=total_numbers,
             batch_size=batch_size,
-            num_threads=1,
+            num_threads=1 if with_workers else 0,
             fuse_aggregate=fuse_aggregate,
         ),
         master_server=master_server,
-        ignore_failures=False,
+        aggregate_only=fuse_aggregate,
         resources={
-            'datasource': orchestrate.RunnerResource(buffer_size=16),
+            'datasource': orchestrate.RunnerResource(buffer_size=100),
             'apply': orchestrate.RunnerResource(
-                worker_pool=self.worker_pool if with_workers else None,
+                worker_pool=worker_pool if with_workers else None,
             ),
         },
     ) as runner:
-      result_queue = runner.result_queue
-      cnt = mit.ilen(result_queue)
+      it_result = iter(runner.result_queue)
+    first_batch = mit.first(it_result)
+    cnt = mit.ilen(it_result) + 1
     if with_workers:
       self.assertTrue(master_server.has_started)
     else:
       self.assertFalse(master_server.has_started)
-    self.assertEqual(cnt, int(total_examples / batch_size) + 1)
-    self.assertLen(result_queue.returned, 1)
-    agg_result = result_queue.returned[0]
+    if fuse_aggregate:
+      self.assertIsNone(first_batch)
+    else:
+      self.assertIsNotNone(first_batch)
+    self.assertEqual(cnt, math.ceil(total_numbers / batch_size))
+    self.assertLen(runner.result_queue.returned, 1)
+    agg_result = runner.result_queue.returned[0]
     self.assertIsInstance(agg_result, chainable.AggregateResult)
     results = agg_result.agg_result
     self.assertIn('stats', results)
     self.assertIsInstance(results['stats'], rolling_stats.MeanAndVariance)
-    self.assertEqual(results['stats'].count, total_examples)
+    self.assertEqual(results['stats'].count, total_numbers)
 
   def test_raises_value_error(self):
     pipeline = (

@@ -257,19 +257,20 @@ class TransformTest(parameterized.TestCase):
         .data_source(MockGenerator(range(3)))
         .apply(fn=lambda x: x + 1)
     )
-    t2 = transform.TreeTransform.new(name='A').aggregate(
-        fn=lazy_fns.trace(MockAverageFn)()
+    t2 = (
+        transform.TreeTransform.new(name='A')
+        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 1))
+        .aggregate(fn=lazy_fns.trace(MockAverageFn)())
     )
     t3 = (
         transform.TreeTransform.new(name='B')
         .apply(fn=lazy_fns.iterate_fn(lambda x: x + 1))
-        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 1))
     )
     t = t1.chain(t2).chain(t3)
-    self.assertSameElements(t.named_transforms().keys(), (t1.id, 'A', 'B'))
+    self.assertSameElements(t.named_transforms().keys(), ('', 'A', 'B'))
     # The first group of nodes are identical.
-    self.assertEqual(t.named_transforms()[t1.id], t1)
-    self.assertEqual(t.named_transforms()[t1.id].make()(), t1.make()())
+    self.assertEqual(t.named_transforms()[''], t1)
+    self.assertEqual(t.named_transforms()[''].make()(), t1.make()())
     inputs = [1, 2, 3]
     self.assertEqual(
         t.named_transforms()['A'].make()(inputs), t2.make()(inputs)

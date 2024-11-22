@@ -425,7 +425,7 @@ class CombinedTreeFn:
     for batch_index, batch_output in enumerate(iterator):
       if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SECS:
         logging.info(
-            'chainable: "%s" calculating for batch %d.', self.name, batch_index
+            'chainable: "%s" processed %d batch.', self.name, batch_index
         )
         prev_ticker = ticker
       yield batch_output if with_result else None
@@ -658,14 +658,23 @@ class TreeTransform(Generic[TreeFnT]):
       input_transform = transform.maybe_replace(input_transform=input_transform)
     return input_transform
 
-  def named_transforms(self) -> dict[str | uuid.UUID, TreeTransform]:
+  def named_transforms(self) -> dict[str, TreeTransform]:
     """Returns a dict of transforms with their names as the keys."""
     result = {}
-    for transform in self.flatten_transform():
-      name = transform.name or transform.id
-      if name in result:
-        raise ValueError(f'Duplicate transform {name}.')
-      result[name] = transform.maybe_replace(input_transform=None)
+    # Consecutive transforms with the same name will be considered as the same
+    # transform.
+    tracked = None
+    for transform in self.flatten_transform() + [TreeTransform.new()]:
+      if not tracked:
+        tracked = transform
+        continue
+      if transform.name != tracked.name:
+        if tracked.name in result:
+          raise ValueError(f'Duplicate transform {tracked.name}.')
+        result[tracked.name] = tracked
+        tracked = transform.maybe_replace(input_transform=None)
+      else:
+        tracked = transform.maybe_replace(input_transform=tracked)
     return result
 
   def make(
@@ -800,6 +809,7 @@ class TreeTransform(Generic[TreeFnT]):
     else:
       return AggregateTransform(
           input_transform=self,
+          name=self.name,
           fns=(fn,),
           use_cache=self.use_cache,
           num_threads=self.num_threads,
