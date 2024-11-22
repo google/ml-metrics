@@ -35,8 +35,7 @@ _T = TypeVar('_T')
 _WeakRefDict = weakref.WeakKeyDictionary[_T, weakref.ref[_T]]
 
 pickler = lazy_fns.pickler
-_HRTBT_INTERVAL_SECS = 30
-_LOGGING_INTERVAL_SECS = 60
+_HRTBT_INTERVAL_SECS = 60
 
 
 class HeartbeatRegistry:
@@ -209,18 +208,6 @@ class CourierServer(metaclass=_CourierServerSingleton):
         with self._tx_stats_lock:
           ticker, bytes_sent, num_txs = self._tx_stats
           self._tx_stats = (ticker, bytes_sent + len(result), num_txs + 1)
-          if time.time() - self._tx_stats[0] > _LOGGING_INTERVAL_SECS:
-            ticker, bytes_sent, num_txs = self._tx_stats
-            delta_time = time.time() - ticker
-            compressed = ' (compressed)' if compress else ''
-            logging.info(
-                'chainable: %s',
-                f'"{self.address}" tx stats: {bytes_sent} bytes{compressed},'
-                f' {num_txs} requests in {delta_time:.2f} seconds,'
-                f' ({bytes_sent / delta_time:.2f} bytes/sec,'
-                f' {num_txs / delta_time:.2f} requests/sec).',
-            )
-            self._tx_stats = (time.time(), 0, 0)
         return result
       except TypeError as e:
         lazy_obj = f'{lazy_fns.pickler.loads(maybe_lazy)}'
@@ -286,6 +273,17 @@ class CourierServer(metaclass=_CourierServerSingleton):
           self._shutdown_requested = True
           break
         self._shutdown_lock.wait(_HRTBT_INTERVAL_SECS)
+        with self._tx_stats_lock:
+          ticker, bytes_sent, num_txs = self._tx_stats
+          delta_time = time.time() - ticker
+          logging.info(
+              'chainable: %s',
+              f'"{self.address}" tx stats: {bytes_sent} bytes,'
+              f' {num_txs} requests in {delta_time:.2f} seconds,'
+              f' ({bytes_sent / delta_time:.2f} bytes/sec,'
+              f' {num_txs / delta_time:.2f} requests/sec).',
+          )
+          self._tx_stats = (time.time(), 0, 0)
     self._shutdown_server()
 
   def start(self, *, daemon: bool = True) -> threading.Thread:
