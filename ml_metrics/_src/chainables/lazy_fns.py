@@ -232,30 +232,6 @@ def async_iterate_fn(fn):
   return wrapped_fun
 
 
-def iterate_fn(fn) -> Callable[..., tuple[_T, ...] | _T]:
-  """Wraps a callable to apply it on each item in an iterable.
-
-  Note that, we assume only the positional arguments are consuming the
-  iterables. All the kwargs are directly passed through.
-
-  Args:
-    fn: the function to consume one item in the iteratable.
-
-  Returns:
-    A function that consumes the iterable.
-  """
-
-  @functools.wraps(fn)
-  def wrapped_fun(*inputs, **kwargs) -> tuple[_T, ...] | _T:
-    outputs = [fn(*row_inputs, **kwargs) for row_inputs in zip(*inputs)]
-    # Only transpose when fn returns multiple items (exact tuple).
-    if outputs and type(outputs[0]) is tuple:  # pylint: disable=unidiomatic-typecheck
-      return tuple(zip(*outputs))
-    return outputs
-
-  return wrapped_fun
-
-
 def normalize_kwargs(kwargs: Mapping[str, Hashable]):
   return tuple(kwargs.items())
 

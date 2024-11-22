@@ -20,7 +20,6 @@ from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import orchestrate
 from ml_metrics._src.chainables.lazy_fns import cache_info
 from ml_metrics._src.chainables.lazy_fns import clear_cache
-from ml_metrics._src.chainables.lazy_fns import iterate_fn
 from ml_metrics._src.chainables.lazy_fns import LazyFn
 from ml_metrics._src.chainables.lazy_fns import LazyObject
 from ml_metrics._src.chainables.lazy_fns import MakeableLazyFn
@@ -38,7 +37,7 @@ from ml_metrics._src.chainables.tree import Key
 from ml_metrics._src.chainables.tree import MapLikeTree
 from ml_metrics._src.chainables.tree import tree_shape
 from ml_metrics._src.chainables.tree import TreeMapView
-from ml_metrics._src.utils import iter_utils
 from ml_metrics._src.utils import test_utils
+from ml_metrics._src.utils.iter_utils import iterate_fn
 # pylint: enable=g-importing-member
 # pylint: enable=unused-import

@@ -259,12 +259,12 @@ class TransformTest(parameterized.TestCase):
     )
     t2 = (
         transform.TreeTransform.new(name='A')
-        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 1))
+        .apply(fn=iter_utils.iterate_fn(lambda x: x + 1))
         .aggregate(fn=lazy_fns.trace(MockAverageFn)())
     )
     t3 = (
         transform.TreeTransform.new(name='B')
-        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 1))
+        .apply(fn=iter_utils.iterate_fn(lambda x: x + 1))
     )
     t = t1.chain(t2).chain(t3)
     self.assertSameElements(t.named_transforms().keys(), ('', 'A', 'B'))
@@ -288,7 +288,7 @@ class TransformTest(parameterized.TestCase):
         fn=lazy_fns.trace(MockAverageFn)()
     )
     t3 = transform.TreeTransform.new(name='A').apply(
-        fn=lazy_fns.iterate_fn(lambda x: x + 1)
+        fn=iter_utils.iterate_fn(lambda x: x + 1)
     )
     t = t1.chain(t2).chain(t3)
     with self.assertRaisesRegex(ValueError, 'Duplicate transform'):
@@ -319,7 +319,7 @@ class TransformTest(parameterized.TestCase):
       dict(
           testcase_name='apply_batch',
           inputs=[0, 1],
-          fn=lazy_fns.iterate_fn(lambda x: x + 1),
+          fn=iter_utils.iterate_fn(lambda x: x + 1),
           expected=[1, 2],
       ),
       dict(
@@ -345,6 +345,20 @@ class TransformTest(parameterized.TestCase):
           input_keys='inputs',
           output_keys='output',
       ),
+      dict(
+          testcase_name='with_kwargs_input_by_iterate_fn',
+          inputs={'a': [0, 1], 'b': [7, 8]},
+          fn=iter_utils.iterate_fn(lambda x, y: (x + 1, y + 2)),
+          expected=((1, 2), (9, 10)),
+          input_keys=dict(x='a', y='b'),
+      ),
+      dict(
+          testcase_name='with_kwargs_input',
+          inputs={'a': 0, 'b': 1},
+          fn=lambda x, y: (x + 1, y + 2),
+          expected=(1, 3),
+          input_keys=dict(x='a', y='b'),
+      ),
   ])
   def test_apply_transform(
       self,
@@ -366,7 +380,7 @@ class TransformTest(parameterized.TestCase):
       dict(
           testcase_name='assign_batch',
           inputs=[0, 1],
-          fn=lazy_fns.iterate_fn(lambda x: x + 1),
+          fn=iter_utils.iterate_fn(lambda x: x + 1),
           expected=[1, 2],
       ),
       dict(
@@ -1080,7 +1094,7 @@ class TransformTest(parameterized.TestCase):
         .aggregate(
             output_keys=('precision', 'recall'),
             fn=aggretates.MergeableMetricAggFn(
-                MockPrecisionRecall(lazy_fns.iterate_fn(matcher))
+                MockPrecisionRecall(iter_utils.iterate_fn(matcher))
             ),
             # Provide matched result directly to bypass internal matcher.
             input_keys=('pred', 'label'),
@@ -1101,7 +1115,7 @@ class TransformTest(parameterized.TestCase):
         .data_source(inputs)
         .assign(
             ('pred_matched', 'label_matched'),
-            fn=lazy_fns.iterate_fn(matcher),
+            fn=iter_utils.iterate_fn(matcher),
             input_keys=('pred', 'label'),
         )
         .aggregate(
@@ -1141,9 +1155,9 @@ class TransformTest(parameterized.TestCase):
     t = (
         transform.TreeTransform.new()
         .data_source(iterator=lazy_fns.trace(MockGenerator)(input_iterator))
-        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 1))
+        .apply(fn=iter_utils.iterate_fn(lambda x: x + 1))
         .aggregate(fn=MockAverageFn())
-        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 10))
+        .apply(fn=iter_utils.iterate_fn(lambda x: x + 10))
         .aggregate(fn=MockAverageFn())
     )
     actual_fn: transform.CombinedTreeFn = t.make()
@@ -1163,9 +1177,9 @@ class TransformTest(parameterized.TestCase):
     t = (
         transform.TreeTransform.new()
         .data_source(iterator=lazy_fns.trace(MockGenerator)(input_iterator))
-        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 1))
+        .apply(fn=iter_utils.iterate_fn(lambda x: x + 1))
         .aggregate(fn=MockAverageFn())
-        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 10))
+        .apply(fn=iter_utils.iterate_fn(lambda x: x + 10))
         .aggregate(fn=MockAverageFn())
     )
     actual_fn: transform.CombinedTreeFn = t.make()
@@ -1181,12 +1195,12 @@ class TransformTest(parameterized.TestCase):
         transform.TreeTransform.new()
         # consecutive datasource, asign, and apply form one tranform.
         .data_source(iterator=lazy_fns.trace(MockGenerator)(input_iterator))
-        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 1), output_keys='a')
-        .assign('b', fn=lazy_fns.iterate_fn(lambda x: x + 1), input_keys='a')
+        .apply(fn=iter_utils.iterate_fn(lambda x: x + 1), output_keys='a')
+        .assign('b', fn=iter_utils.iterate_fn(lambda x: x + 1), input_keys='a')
         # aggregate is a new tranform.
         .aggregate(fn=MockAverageFn(), input_keys='b')
         # asign or apply after aggregate is a new tranform.
-        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 10))
+        .apply(fn=iter_utils.iterate_fn(lambda x: x + 10))
         # aggregate is a new tranform.
         .aggregate(fn=MockAverageFn())
     )
@@ -1212,9 +1226,9 @@ class TransformTest(parameterized.TestCase):
     )
     process = (
         transform.TreeTransform.new()
-        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 1))
+        .apply(fn=iter_utils.iterate_fn(lambda x: x + 1))
         .aggregate(fn=MockAverageFn())
-        .apply(fn=lazy_fns.iterate_fn(lambda x: x + 10))
+        .apply(fn=iter_utils.iterate_fn(lambda x: x + 10))
         .aggregate(fn=MockAverageFn())
     )
     t = read.chain(process)

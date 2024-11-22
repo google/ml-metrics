@@ -22,6 +22,7 @@ from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, I
 from concurrent import futures
 import dataclasses as dc
 import functools
+import itertools as itt
 import queue
 import threading
 from typing import Any, Generic, Protocol, Self, TypeVar
@@ -642,6 +643,38 @@ def pmap(
       buffer_size=buffer_size,
       thread_pool=thread_pool,
   )
+
+
+def iterate_fn(fn) -> Callable[..., tuple[_ValueT, ...] | _ValueT]:
+  """Wraps a callable that transposes the input and the output.
+
+  This is to transpose column-oriented data to row-oriented data before
+  passing it to the wrapped function, and transpose the output back to
+  column-oriented data.
+
+  Args:
+    fn: the function to consume and output row-oriented data.
+
+  Returns:
+    A function that consumes the column oriented inputs.
+  """
+
+  @functools.wraps(fn)
+  def wrapped_fun(*inputs, **kwargs) -> tuple[_ValueT, ...] | _ValueT:
+    kwargs_keys = tuple(kwargs.keys())
+    args_and_kwargs = itt.zip_longest(
+        zip(*inputs), zip(*kwargs.values()), fillvalue=()
+    )
+    outputs = [
+        fn(*row_inputs, **dict(zip(kwargs_keys, row_kwinputs)))
+        for row_inputs, row_kwinputs in args_and_kwargs
+    ]
+    # Only transpose when fn returns multiple items (exact tuple).
+    if outputs and type(outputs[0]) is tuple:  # pylint: disable=unidiomatic-typecheck
+      return tuple(zip(*outputs))
+    return outputs
+
+  return wrapped_fun
 
 
 def is_stop_iteration(e: Exception) -> bool:

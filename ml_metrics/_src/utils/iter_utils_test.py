@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import collections
 from collections.abc import Sequence
 from concurrent import futures
 import itertools as it
@@ -67,7 +68,7 @@ def range_with_return(n, sleep: float = 0):
   return n
 
 
-class UtilsTest(parameterized.TestCase):
+class IterUtilsTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -76,6 +77,23 @@ class UtilsTest(parameterized.TestCase):
   def tearDown(self):
     self.thread_pool.shutdown()
     super().tearDown()
+
+  def test_iterate_fn_return_tuple(self):
+    def foo(x, y):
+      return x + 1, y + 2
+
+    self.assertEqual(
+        ((1, 2), (4, 5)), iter_utils.iterate_fn(foo)([0, 1], y=[2, 3])
+    )
+
+  def test_iterate_fn_return_named_tuple(self):
+    # Named tuple will not be transposed
+    R = collections.namedtuple('R', ['a', 'b'])
+
+    def foo(x):
+      return R(x, 0)
+
+    self.assertEqual([R(0, 0), R(1, 0)], iter_utils.iterate_fn(foo)([0, 1]))
 
   def test_sequence_array_normal(self):
     a = iter_utils.SequenceArray(np.arange(10))
