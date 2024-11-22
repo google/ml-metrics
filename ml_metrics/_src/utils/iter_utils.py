@@ -383,7 +383,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
           _release_and_notify(self._enqueue_lock, notify=self._dequeue_lock)
           return
         except (queue.Full, asyncio.QueueFull) as e:
-          logging.debug('chainable: %s enqueue full, waiting', self.name)
+          logging.debug('chainable: "%s" enqueue full, waiting', self.name)
           if self._enqueue_lock.wait(timeout=self.timeout):
             continue
           raise TimeoutError(f'Enqueue timeout={self.timeout}secs.') from e
@@ -411,7 +411,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
         _release_and_notify(
             self._states_lock, notify=self._dequeue_lock, notify_all=True
         )
-        logging.debug('chainable: %s enqueue done, notify all', self.name)
+        logging.debug('chainable: "%s" enqueue done, notify all', self.name)
 
   def stop_enqueue(self):
     self._run_enqueue = False
