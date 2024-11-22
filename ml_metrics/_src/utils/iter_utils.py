@@ -45,6 +45,9 @@ class _QueueLike(Protocol[_ValueT]):
   def put_nowait(self, value: _ValueT):
     """Same as queue.Queue().put_nowait."""
 
+  def empty(self) -> bool:
+    """Same as queue.Queue().empty."""
+
 
 STOP_ITERATION = StopIteration()
 
@@ -243,6 +246,16 @@ class IteratorQueue(IterableQueue[_ValueT]):
   def exhausted(self) -> bool:
     return self._exhausted
 
+  def _set_exhausted(self):
+    logging.debug(
+        'chainable: "%s" dequeue exhausted with_exception=%s, remaining %d',
+        self.name,
+        self.exception is not None,
+        self._iterator_cnt,
+    )
+    self._exhausted = True
+    self._dequeue_lock.notify_all()
+
   def __bool__(self):
     return not self.exhausted
 
@@ -267,16 +280,16 @@ class IteratorQueue(IterableQueue[_ValueT]):
     """Gets an element from the queue, raises Empty immediately if empty."""
     self._states_lock.acquire()
     try:
-      return self._queue.get_nowait()
+      result = self._queue.get_nowait()
+      # Premeptively check if the queue is exhausted to avoid a second call.
+      if self._queue.empty() and self.enqueue_done:
+        self._set_exhausted()
+      return result
     except (queue.Empty, asyncio.QueueEmpty) as e:
+      if self._exhausted:
+        raise self.exception or StopIteration(*self.returned) from e
       if self.enqueue_done:
-        logging.debug(
-            'chainable: %s dequeue stopped with_exception=%s, remaining %d',
-            self.name,
-            self.exception is not None,
-            self._iterator_cnt,
-        )
-        self._exhausted = True
+        self._set_exhausted()
         raise self.exception or StopIteration(*self.returned) from e
       raise e
     except StopIteration as e:
@@ -288,29 +301,50 @@ class IteratorQueue(IterableQueue[_ValueT]):
     finally:
       self._states_lock.release()
 
-  def get_batch(self) -> list[_ValueT]:
-    """Gets an element from the queue, waits for timeout if empty."""
+  def get_batch(
+      self, max_batch_size: int = 0, *, block: bool = False
+  ) -> list[_ValueT]:
+    """Gets elements from the queue, waits for timeout if empty.
+
+    Args:
+      max_batch_size: The number of elements to be dequeued. If 0, it will wait
+        for at least one element. If set, it will wait at most max_batch_size
+        elements.
+      block: Whether to block until there are enough elements before returning.
+
+    Returns:
+      A list of dequeued elements.
+    """
+    max_batch_size = max_batch_size or self._max_batch_size
+    result = []
     with self._dequeue_lock:
-      result = []
-      while not self._max_batch_size or len(result) < self._max_batch_size:
+      while not max_batch_size or len(result) < max_batch_size:
         try:
           result.append(self.get_nowait())
         except (queue.Empty, asyncio.QueueEmpty) as e:
-          if result:
+          if (not block and result) or (
+              block and max_batch_size and len(result) == max_batch_size
+          ):
             break
+          if result:
+            _release_and_notify(self._dequeue_lock, notify=self._enqueue_lock)
           logging.debug('chainable: "%s" dequeue empty, waiting', self.name)
           if self._dequeue_lock.wait(timeout=self.timeout):
-            logging.debug('chainable: "%s" dequeue retry', self.name)
             continue
-          raise TimeoutError(f'Dequeue timeout={self.timeout}secs.') from e
+          raise TimeoutError(
+              f'"{self.name}" dequeue timeout={self.timeout}secs.'
+          ) from e
         except Exception as e:  # pylint: disable=broad-exception-caught
-          if result:
+          exhausted = is_stop_iteration(e)
+          if (exhausted and result) or (not exhausted and self.ignore_error):
             break
           raise e
-      if result:
-        _release_and_notify(self._dequeue_lock, notify=self._enqueue_lock)
-        logging.debug('chainable: "%s" dequeued %d', self.name, len(result))
-      return result
+    with self._enqueue_lock:
+      self._enqueue_lock.notify()
+    logging.debug(
+        'chainable: %s', f'"{self.name}" dequeued {len(result)} batches'
+    )
+    return result
 
   def get(self) -> _ValueT:
     """Gets an element from the queue, waits for timeout if empty."""
@@ -327,32 +361,6 @@ class IteratorQueue(IterableQueue[_ValueT]):
             logging.debug('chainable: "%s" dequeue retry', self.name)
             continue
           raise TimeoutError(f'Dequeue timeout={self.timeout}secs.') from e
-
-  def flush(self, batch_size: int = 0, *, block: bool = False) -> list[_ValueT]:
-    """Flushes the queue, raises Empty immediately if empty and non-blocking."""
-    result = []
-    run_until_exhausted = not batch_size
-    with self._dequeue_lock:
-      while run_until_exhausted or len(result) < batch_size:
-        try:
-          result.append(self.get_nowait())
-          _release_and_notify(self._dequeue_lock, notify=self._enqueue_lock)
-        except StopIteration:
-          break
-        except (queue.Empty, asyncio.QueueEmpty) as e:
-          if not block:
-            break
-          logging.debug('chainable: "%s" flush empty, waiting', self.name)
-          if self._dequeue_lock.wait(timeout=self.timeout):
-            logging.debug('chainable: "%s" flush retry', self.name)
-            continue
-          raise TimeoutError(f'Flush timeout={self.timeout}secs.') from e
-        except Exception as e:  # pylint: disable=broad-exception-caught
-          if self.ignore_error:
-            return result
-          raise e
-    logging.debug('chainable: flush_prefetched: %s', len(result))
-    return result
 
   def put_nowait(self, value: _ValueT) -> None:
     """Puts a value to the queue, raieses if queue is full immediately."""

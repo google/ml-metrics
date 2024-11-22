@@ -404,11 +404,12 @@ class PrefetchedCourierServer(CourierServer):
           'Generator is not set, the worker might crashed unexpectedly'
           ' previously.'
       )
+      result = []
       try:
-        result = self._generator.flush(batch_size, block=True)
+        result = self._generator.get_batch(batch_size, block=True)
       except Exception as e:  # pylint: disable=broad-exception-caught
-        logging.exception('chainable: exception when flushing generator.')
-        raise e
+        if not iter_utils.is_stop_iteration(e):
+          logging.exception('chainable: exception when flushing generator.')
       # The sequence of the result will always end with an exception.
       # Any non-StopIteration means the generator crashed.
       if not self._generator:

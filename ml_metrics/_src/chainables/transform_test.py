@@ -1256,7 +1256,7 @@ class TransformTest(parameterized.TestCase):
     iterator = iter_utils.IteratorQueue(2)
     with futures.ThreadPoolExecutor() as thread_pool:
       thread_pool.submit(iterator.enqueue_from_iterator, p.make())
-      result = iterator.flush(block=True)
+      result = iterator.get_batch(block=True)
     self.assertEqual(inputs, result)
     self.assertEqual([3.0], iterator.returned[0].agg_result)
 

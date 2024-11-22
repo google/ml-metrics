@@ -166,7 +166,7 @@ class UtilsTest(parameterized.TestCase):
   def test_dequeue_from_generator_timeout(self):
     q = iter_utils.IteratorQueue(queue_or_size=1, timeout=0.1)
     q._queue.put(1)
-    with self.assertRaisesRegex(TimeoutError, 'Dequeue timeout'):
+    with self.assertRaisesRegex(TimeoutError, 'dequeue timeout'):
       mit.last(q)
 
   def test_async_dequeue_from_generator_timeout(self):
@@ -205,7 +205,7 @@ class UtilsTest(parameterized.TestCase):
     with futures.ThreadPoolExecutor() as thread_pool:
       thread_pool.submit(iterator.enqueue_from_iterator, range_with_exc(10))
       with self.assertRaises(ValueError):
-        _ = iterator.flush(block=True)
+        _ = iterator.get_batch(block=True)
 
   def test_iterator_queue_flush_normal(self):
     iterator = iter_utils.IteratorQueue(2)
@@ -213,9 +213,9 @@ class UtilsTest(parameterized.TestCase):
     with futures.ThreadPoolExecutor() as thread_pool:
       thread_pool.submit(iterator.enqueue_from_iterator, range_with_return(10))
       qsize = iterator._queue.qsize()
-      result += iterator.flush()
-      result += iterator.flush(2, block=True)
-      result += iterator.flush(block=True)
+      result += iterator.get_batch()
+      result += iterator.get_batch(2, block=True)
+      result += iterator.get_batch(block=True)
     self.assertLessEqual(qsize, 2)
     self.assertEqual(list(range(10)), result)
     self.assertEqual([10], iterator.returned)
@@ -230,7 +230,7 @@ class UtilsTest(parameterized.TestCase):
       while iterator._queue.qsize() < num_examples:
         time.sleep(0)
       iterator.stop_enqueue()
-      result = iterator.flush(block=True)
+      result = iterator.get_batch(block=True)
     self.assertGreaterEqual(len(result), num_examples)
     self.assertLess(len(result), 10)
 
