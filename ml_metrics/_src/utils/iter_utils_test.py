@@ -38,10 +38,10 @@ def setUpModule():
   testutil.SetupMockBNS()
 
 
-def mock_range(n, batch_size, batch_fn=lambda x: x):
-  """Generates (tuple of) n columns of fake data."""
+def args_batched(num_args, batch_size, batch_fn=lambda x: x):
+  """Generates (tuple of) n batches of of the same value."""
   for _ in range(1000):
-    yield tuple(batch_fn(np.ones(batch_size) * j) for j in range(n))
+    yield tuple(batch_fn(np.ones(batch_size) * j) for j in range(num_args))
   raise ValueError(
       'Reached the end of the range, might indicate iterator is first exhausted'
       ' before running.'
@@ -255,22 +255,22 @@ class IterUtilsTest(parameterized.TestCase):
   @parameterized.named_parameters([
       dict(
           testcase_name='no_op',
-          expected=[
-              (np.zeros(2), np.ones(2)),
-              (np.zeros(2), np.ones(2)),
-              (np.zeros(2), np.ones(2)),
-              (np.zeros(2), np.ones(2)),
-              (np.zeros(2), np.ones(2)),
-          ],
+          expected=[(np.zeros(2), np.ones(2))] * 5,
       ),
       dict(
           testcase_name='to_larger_batch',
           batch_size=3,
+          expected=[(np.zeros(3), np.ones(3))] * 3 + [([0], [1])],
+      ),
+      dict(
+          testcase_name='to_larger_batch_padded',
+          batch_size=3,
+          pad=-1,
           expected=[
               (np.zeros(3), np.ones(3)),
               (np.zeros(3), np.ones(3)),
               (np.zeros(3), np.ones(3)),
-              (np.zeros(1), np.ones(1)),
+              (np.array([0, -1, -1]), np.array([1, -1, -1])),
           ],
       ),
       dict(
@@ -290,6 +290,13 @@ class IterUtilsTest(parameterized.TestCase):
           * 10,
       ),
       dict(
+          testcase_name='to_smaller_batch_padded',
+          input_batch_size=3,
+          batch_size=2,
+          pad=-1,
+          expected=[(np.zeros(2), np.ones(2))] * 7 + [([0, -1], [1, -1])],
+      ),
+      dict(
           testcase_name='with_list',
           batch_size=4,
           batch_fn=list,
@@ -297,6 +304,17 @@ class IterUtilsTest(parameterized.TestCase):
               ([0, 0, 0, 0], [1, 1, 1, 1]),
               ([0, 0, 0, 0], [1, 1, 1, 1]),
               ([0, 0], [1, 1]),
+          ],
+      ),
+      dict(
+          testcase_name='with_list_padded',
+          batch_size=4,
+          batch_fn=list,
+          pad=-1,
+          expected=[
+              ([0, 0, 0, 0], [1, 1, 1, 1]),
+              ([0, 0, 0, 0], [1, 1, 1, 1]),
+              ([0, 0, -1, -1], [1, 1, -1, -1]),
           ],
       ),
       dict(
@@ -309,11 +327,32 @@ class IterUtilsTest(parameterized.TestCase):
               ((0, 0), (1, 1)),
           ],
       ),
+      dict(
+          testcase_name='with_tuple_padded',
+          batch_size=4,
+          batch_fn=tuple,
+          pad=-1,
+          expected=[
+              ((0, 0, 0, 0), (1, 1, 1, 1)),
+              ((0, 0, 0, 0), (1, 1, 1, 1)),
+              ((0, 0, -1, -1), (1, 1, -1, -1)),
+          ],
+      ),
   ])
-  def test_rebatched(self, expected, batch_size=0, batch_fn=lambda x: x):
-    inputs = it.islice(mock_range(2, batch_size=2, batch_fn=batch_fn), 5)
-    actual = iter_utils.rebatched_tuples(
-        inputs, batch_size=batch_size, num_columns=2
+  def test_rebatched(
+      self,
+      expected,
+      batch_size=0,
+      batch_fn=lambda x: x,
+      input_batch_size=2,
+      pad=None,
+  ):
+    infinite_batches = args_batched(
+        num_args=2, batch_size=input_batch_size, batch_fn=batch_fn
+    )
+    inputs = it.islice(infinite_batches, 5)
+    actual = iter_utils.rebatched_args(
+        inputs, batch_size=batch_size, num_columns=2, pad=pad
     )
     for a, b in zip(expected, actual, strict=True):
       np.testing.assert_array_almost_equal(a, b)
@@ -321,16 +360,12 @@ class IterUtilsTest(parameterized.TestCase):
   def test_batch_non_sequence_type(self):
     inputs = [(1, 2), (3, 4)]
     with self.assertRaisesRegex(TypeError, 'Non sequence type'):
-      next(
-          iter_utils.rebatched_tuples(iter(inputs), batch_size=4, num_columns=2)
-      )
+      next(iter_utils.rebatched_args(iter(inputs), batch_size=4, num_columns=2))
 
   def test_batch_unsupported_type(self):
     inputs = [('aaa', 'bbb'), ('aaa', 'bbb')]
     with self.assertRaisesRegex(TypeError, 'Unsupported container type'):
-      next(
-          iter_utils.rebatched_tuples(iter(inputs), batch_size=4, num_columns=2)
-      )
+      next(iter_utils.rebatched_args(iter(inputs), batch_size=4, num_columns=2))
 
   def test_recitable_iterator_normal(self):
     inputs = range(3)
@@ -393,7 +428,7 @@ class IterUtilsTest(parameterized.TestCase):
   ):
 
     inputs = it.islice(
-        mock_range(num_columns, batch_size=input_batch_size), num_batches
+        args_batched(num_columns, batch_size=input_batch_size), num_batches
     )
 
     def foo(columns):
@@ -401,10 +436,10 @@ class IterUtilsTest(parameterized.TestCase):
       return tuple(np.array(column) + 1 for column in columns)
 
     def process_generator(it_inputs):
-      it_fn_inputs = iter_utils.rebatched_tuples(
+      it_fn_inputs = iter_utils.rebatched_args(
           it_inputs, batch_size=fn_batch_size, num_columns=num_columns
       )
-      yield from iter_utils.rebatched_tuples(
+      yield from iter_utils.rebatched_args(
           map(foo, it_fn_inputs),
           batch_size=input_batch_size,
           num_columns=num_columns,
@@ -417,7 +452,7 @@ class IterUtilsTest(parameterized.TestCase):
 
     expected_orignal = list(
         it.islice(
-            mock_range(num_columns, batch_size=input_batch_size), num_batches
+            args_batched(num_columns, batch_size=input_batch_size), num_batches
         )
     )
     expected_outputs = [np.array(x) + 1 for x in expected_orignal]

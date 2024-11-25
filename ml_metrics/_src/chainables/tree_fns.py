@@ -253,12 +253,12 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       self, input_iterator: Iterable[tree.MapLikeTree[ValueT] | None]
   ) -> Iterable[tree.MapLikeTree[ValueT] | None]:
     input_iterator = iter(input_iterator)
-    fn_inputs = iter_utils.rebatched_tuples(
+    fn_inputs = iter_utils.rebatched_args(
         map(self.get_inputs, input_iterator),
         batch_size=self.fn_batch_size,
         num_columns=self.num_inputs,
     )
-    yield from iter_utils.rebatched_tuples(
+    yield from iter_utils.rebatched_args(
         map(self._maybe_call_fn, fn_inputs),
         batch_size=self.batch_size,
         num_columns=self.num_outputs,

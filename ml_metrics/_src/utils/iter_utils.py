@@ -757,6 +757,20 @@ def _concat(data: list[Any]):
     )
 
 
+def _pad(data: Any, pad: Any, batch_size: int):
+  if hasattr(data, '__array__'):
+    return np.pad(data, (0, batch_size - data.shape[0]), constant_values=pad)
+  elif isinstance(data, list):
+    return list(mit.padded(data, pad, batch_size))
+  elif isinstance(data, tuple):
+    return tuple(mit.padded(data, pad, batch_size))
+  else:
+    raise TypeError(
+        f'Unsupported container type: {type(data)}, only list, tuple and numpy'
+        ' array are supported.'
+    )
+
+
 def _batch_size(data: Any):
   if hasattr(data, '__array__'):
     return data.shape[0]
@@ -769,13 +783,14 @@ def _batch_size(data: Any):
       ) from e
 
 
-def rebatched_tuples(
+def rebatched_args(
     tuples: Iterator[tuple[_ValueT, ...]],
     batch_size: int = 0,
     *,
     num_columns: int,
+    pad: Any = None,
 ) -> Iterator[tuple[_ValueT, ...]]:
-  """Merges and concatenates n batches while iterating."""
+  """Merges and concatenates n batches of tuples while iterating."""
   if not batch_size:
     yield from tuples
     return
@@ -815,7 +830,11 @@ def rebatched_tuples(
       batch_sizes = np.zeros(num_columns, dtype=int)
       if last_columns is None:
         continue
-      if exhausted or _batch_size(last_columns[0]) == batch_size:
+      if _batch_size(last_columns[0]) == batch_size:
+        yield last_columns
+      elif exhausted and pad is not None:
+        yield tuple(_pad(col, pad, batch_size) for col in last_columns)
+      elif exhausted:
         yield last_columns
       else:
         column_buffer = [[column] for column in last_columns]
