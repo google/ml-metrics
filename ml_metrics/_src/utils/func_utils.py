@@ -15,6 +15,7 @@
 
 import collections
 from collections.abc import Iterable, Iterator, Mapping
+from concurrent import futures
 import copy
 import dataclasses as dc
 import functools
@@ -169,3 +170,17 @@ class SingletonMeta(type):
   @property
   def all_instances(cls):
     return [obj for ref in cls._instances.values() if (obj := ref())]
+
+
+class SingletonThreadPool(futures.ThreadPoolExecutor, metaclass=SingletonMeta):
+  """A singleton thread pool executor."""
+
+  def __hash__(self):
+    return hash((self._max_workers, self._thread_name_prefix))
+
+  def __eq__(self, other):
+    return (
+        isinstance(other, SingletonThreadPool)
+        and self._max_workers == other._max_workers
+        and self._thread_name_prefix == other._thread_name_prefix
+    )

@@ -28,6 +28,7 @@ import threading
 from typing import Any, Generic, Protocol, Self, TypeVar
 
 from absl import logging
+from ml_metrics._src.utils import func_utils
 import more_itertools as mit
 import numpy as np
 
@@ -35,6 +36,7 @@ import numpy as np
 _ValueT = TypeVar('_ValueT')
 _InputT = TypeVar('_InputT')
 _MAX_BATCH_SIZE = 4096
+_ITERATE_FN_MAX_THREADS = 256
 
 
 class _QueueLike(Protocol[_ValueT]):
@@ -645,7 +647,11 @@ def pmap(
   )
 
 
-def iterate_fn(fn) -> Callable[..., tuple[_ValueT, ...] | _ValueT]:
+def iterate_fn(
+    fn=None,
+    *,
+    multithread: bool = False,
+) -> Callable[..., tuple[_ValueT, ...] | _ValueT]:
   """Wraps a callable that transposes the input and the output.
 
   This is to transpose column-oriented data to row-oriented data before
@@ -654,27 +660,48 @@ def iterate_fn(fn) -> Callable[..., tuple[_ValueT, ...] | _ValueT]:
 
   Args:
     fn: the function to consume and output row-oriented data.
+    multithread: Whether to use multithreading.
 
   Returns:
     A function that consumes the column oriented inputs.
   """
 
-  @functools.wraps(fn)
-  def wrapped_fun(*inputs, **kwargs) -> tuple[_ValueT, ...] | _ValueT:
-    kwargs_keys = tuple(kwargs.keys())
-    args_and_kwargs = itt.zip_longest(
-        zip(*inputs), zip(*kwargs.values()), fillvalue=()
-    )
-    outputs = [
-        fn(*row_inputs, **dict(zip(kwargs_keys, row_kwinputs)))
-        for row_inputs, row_kwinputs in args_and_kwargs
-    ]
-    # Only transpose when fn returns multiple items (exact tuple).
-    if outputs and type(outputs[0]) is tuple:  # pylint: disable=unidiomatic-typecheck
-      return tuple(zip(*outputs))
-    return outputs
+  def decorator(fn):
+    thread_pool = None
+    if multithread:
+      thread_pool = func_utils.SingletonThreadPool(
+          _ITERATE_FN_MAX_THREADS, thread_name_prefix='iterate_fn'
+      )
 
-  return wrapped_fun
+    @functools.wraps(fn)
+    def wrapped_fn(*inputs, **kwargs) -> tuple[_ValueT, ...] | _ValueT:
+      kwargs_keys = tuple(kwargs.keys())
+      args_and_kwargs = itt.zip_longest(
+          zip(*inputs), zip(*kwargs.values()), fillvalue=()
+      )
+      inputs = (
+          (row_inputs, dict(zip(kwargs_keys, row_kwinputs)))
+          for row_inputs, row_kwinputs in args_and_kwargs
+      )
+      if not thread_pool:
+        outputs = list(
+            fn(*row_inputs, **row_kwinputs)
+            for row_inputs, row_kwinputs in inputs
+        )
+      else:
+        states = []
+        for row_inputs, row_kwinputs in inputs:
+          states.append(thread_pool.submit(fn, *row_inputs, **row_kwinputs))
+        outputs = list(x.result() for x in futures.as_completed(states))
+      # Only transpose when fn returns multiple items (exact tuple).
+      if outputs and type(outputs[0]) is tuple:  # pylint: disable=unidiomatic-typecheck
+        return tuple(zip(*outputs))
+      return outputs
+
+    wrapped_fn.thread_pool = thread_pool
+    return wrapped_fn
+
+  return decorator(fn) if fn is not None else decorator
 
 
 def is_stop_iteration(e: Exception) -> bool:

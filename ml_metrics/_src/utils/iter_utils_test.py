@@ -78,6 +78,30 @@ class IterUtilsTest(parameterized.TestCase):
     self.thread_pool.shutdown()
     super().tearDown()
 
+  def test_parallel_iterate_fn_return_tuple(self):
+    sleep_time = 0.3
+
+    def foo(x, y):
+      time.sleep(sleep_time)
+      return x + 1, y + 2
+
+    foo1 = iter_utils.iterate_fn(foo, multithread=16)
+    foo = iter_utils.iterate_fn(multithread=16)(foo)
+    self.assertIsNotNone(foo.thread_pool)
+    # Same function with same maximum parallelism should share the same thread
+    # pool.
+    self.assertIs(foo.thread_pool, foo1.thread_pool)
+    len1 = iter_utils.iterate_fn(multithread=16)(len)
+    self.assertIs(len1.thread_pool, foo.thread_pool)
+    foo2 = iter_utils.iterate_fn(multithread=8)(foo)
+    self.assertIs(foo2.thread_pool, foo.thread_pool)
+
+    ticker = time.time()
+    np.testing.assert_array_equal(
+        (np.ones(16), np.ones(16) * 3), foo(np.zeros(16), y=np.ones(16))
+    )
+    self.assertLess(time.time() - ticker, sleep_time * 2)
+
   def test_iterate_fn_return_tuple(self):
     def foo(x, y):
       return x + 1, y + 2
