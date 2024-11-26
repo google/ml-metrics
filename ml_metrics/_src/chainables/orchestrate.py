@@ -281,7 +281,7 @@ def _async_run_single_stage(
             with_agg_result=False,
         )
     )
-    start_time = time.time()
+    cnt, start_time = 0, time.time()
     iterating = {}
     min_workers, max_workers = 1, resource.num_workers
     worker_pool.wait_until_alive(deadline_secs=600)
@@ -335,12 +335,12 @@ def _async_run_single_stage(
               result_q.enqueue_done,
           )
       if time.time() - ticker > _LOGGING_INTERVAL_SECS:
-        cnt = result_q.progress.cnt
-        delta, ticker = time.time() - ticker, time.time()
+        delta_cnt, cnt = result_q.progress.cnt - cnt, result_q.progress.cnt
+        delta_time, ticker = time.time() - ticker, time.time()
         logging.info(
             'chainable: %s',
             f'{transform.name} async_iter processed {cnt} with througput:'
-            f' {cnt / delta:.2f} batches/sec',
+            f' {delta_cnt / delta_time:.2f} batches/sec',
         )
       time.sleep(0)
     if worker_exceptions:
@@ -375,11 +375,11 @@ def _async_run_single_stage(
           len(agg_states),
       )
 
-    delta = time.time() - start_time
+    delta_time = time.time() - start_time
     logging.info(
         'chainable: %s',
-        f'remote {transform.name} done in {delta:.2f} secs, throughput:'
-        f' {result_q.progress.cnt / delta:.2f} batches/sec',
+        f'remote {transform.name} done in {delta_time:.2f} secs, throughput:'
+        f' {result_q.progress.cnt / delta_time:.2f} batches/sec',
     )
 
   def iterate_in_process():
