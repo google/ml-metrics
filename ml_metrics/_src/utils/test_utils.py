@@ -53,7 +53,7 @@ def sharded_pipeline(
   apply_pipeline = transform.TreeTransform.new(
       name='apply', num_threads=num_threads
   ).apply(
-      fn=lambda batch_size: np.random.randint(100, size=batch_size),
+      fn=lambda batch_size: np.random.randint(1, 100, size=batch_size),
   )
 
   if fuse_aggregate:
