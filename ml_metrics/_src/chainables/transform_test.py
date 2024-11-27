@@ -28,6 +28,7 @@ from ml_metrics._src.chainables import transform
 from ml_metrics._src.chainables import tree
 from ml_metrics._src.chainables import tree_fns
 from ml_metrics._src.utils import iter_utils
+from ml_metrics._src.utils import test_utils
 import more_itertools as mit
 import numpy as np
 
@@ -179,22 +180,6 @@ def multi_slicer(preds, labels, within=()):
 
 
 class TransformTest(parameterized.TestCase):
-
-  def assert_nested_sequence_equal(self, a, b):
-    self.assertEqual(type(a), type(b))
-    if isinstance(a, dict):
-      for (k_a, v_a), (k_b, v_b) in zip(
-          sorted(a.items()), sorted(b.items()), strict=True
-      ):
-        self.assertEqual(k_a, k_b)
-        self.assert_nested_sequence_equal(v_a, v_b)
-    elif isinstance(a, str):
-      self.assertEqual(a, b)
-    elif isinstance(a, Iterable):
-      for a_elem, b_elem in zip(a, b, strict=True):
-        self.assert_nested_sequence_equal(a_elem, b_elem)
-    else:
-      self.assertEqual(a, b)
 
   def test_transform_unique_ids_with_each_op(self):
     seen_ids = set()
@@ -505,7 +490,7 @@ class TransformTest(parameterized.TestCase):
         batch_size=batch_size,
     )
     actual = t.make()(input_iterator=inputs)
-    self.assert_nested_sequence_equal(expected, actual)
+    test_utils.assert_nested_container_equal(self, expected, actual)
 
   @parameterized.named_parameters([
       dict(
@@ -587,7 +572,7 @@ class TransformTest(parameterized.TestCase):
         batch_size=batch_size,
     )
     actual = t.make()(input_iterator=inputs)
-    self.assert_nested_sequence_equal(expected, actual)
+    test_utils.assert_nested_container_equal(self, expected, actual)
 
   def test_assign_invalid_keys(self):
     with self.assertRaises(ValueError):

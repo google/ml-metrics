@@ -14,11 +14,11 @@
 """Test for tree library."""
 
 import collections
-from collections.abc import Iterable
 import types
 from absl.testing import absltest
 from absl.testing import parameterized
 from ml_metrics._src.chainables import tree
+from ml_metrics._src.utils import test_utils
 import numpy as np
 
 Key = tree.Key
@@ -65,22 +65,6 @@ class PathTest(absltest.TestCase):
 
 
 class TreeMapViewTest(parameterized.TestCase):
-
-  def assert_nested_sequence_equal(self, a, b):
-    self.assertEqual(type(a), type(b))
-    if isinstance(a, dict) and isinstance(b, dict):
-      for (k_a, v_a), (k_b, v_b) in zip(
-          sorted(a.items()), sorted(b.items()), strict=True
-      ):
-        self.assertEqual(k_a, k_b)
-        self.assert_nested_sequence_equal(v_a, v_b)
-    elif isinstance(a, str) and isinstance(b, str):
-      self.assertEqual(a, b)
-    elif isinstance(a, Iterable) and isinstance(b, Iterable):
-      for a_elem, b_elem in zip(a, b, strict=True):
-        self.assert_nested_sequence_equal(a_elem, b_elem)
-    else:
-      self.assertEqual(a, b)
 
   def test_as_view(self):
     data = {'a': [1, 2], 'b': [3, 4]}
@@ -259,7 +243,7 @@ class TreeMapViewTest(parameterized.TestCase):
         .set('c', values=[2, 3])
     ).apply()
     expected = {'a': 2, 'b': [np.array([1, 10, 3]), [10, 3, 4]], 'c': [2, 3]}
-    self.assert_nested_sequence_equal(expected, result)
+    test_utils.assert_nested_container_equal(self, expected, result)
 
   def test_setitem(self):
     data = {'a': 1, 'b': [np.array([1, 2, 3]), [2, 3, 4]]}
@@ -269,7 +253,7 @@ class TreeMapViewTest(parameterized.TestCase):
     view[Key.new('b', Key.Index(1), Key.Index(0))] = 10
     view['c'] = [2, 3]
     expected = {'a': 2, 'b': [np.array([1, 10, 3]), [10, 3, 4]], 'c': [2, 3]}
-    self.assert_nested_sequence_equal(expected, view.apply())
+    test_utils.assert_nested_container_equal(self, expected, view.apply())
 
   def test_iterate_with_user_keys(self):
     data = tree._default_tree(key_path=Key.model1.pred, value=(1, 2, 3))
@@ -328,7 +312,7 @@ class TreeMapViewTest(parameterized.TestCase):
   ])
   def test_map_fn(self, data, expected):
     mapped = TreeMapView.as_view(data, map_fn=lambda x: x * 2).apply()
-    self.assert_nested_sequence_equal(expected, mapped)
+    test_utils.assert_nested_container_equal(self, expected, mapped)
 
   def test_view_with_map_fn(self):
     data = dict(a=dict(b=1, c=2), e=3)
@@ -453,21 +437,6 @@ class TreeMapViewTest(parameterized.TestCase):
 
 class ApplyMaskTest(parameterized.TestCase):
 
-  def assert_nested_sequence_equal(self, a, b):
-    if isinstance(a, dict) and isinstance(b, dict):
-      for (k_a, v_a), (k_b, v_b) in zip(
-          sorted(a.items()), sorted(b.items()), strict=True
-      ):
-        self.assertEqual(k_a, k_b)
-        self.assert_nested_sequence_equal(v_a, v_b)
-    elif isinstance(a, str) and isinstance(b, str):
-      self.assertEqual(a, b)
-    elif isinstance(a, Iterable) and isinstance(b, Iterable):
-      for a_elem, b_elem in zip(a, b, strict=True):
-        self.assert_nested_sequence_equal(a_elem, b_elem)
-    else:
-      self.assertEqual(a, b)
-
   @parameterized.named_parameters([
       dict(
           testcase_name='default',
@@ -492,7 +461,7 @@ class ApplyMaskTest(parameterized.TestCase):
         masks=mask,
         replace_false_with=replace_false_with,
     )
-    self.assert_nested_sequence_equal(result, expected)
+    test_utils.assert_nested_container_equal(self, result, expected)
 
   @parameterized.named_parameters([
       dict(
@@ -549,7 +518,7 @@ class ApplyMaskTest(parameterized.TestCase):
         masks=mask,
         replace_false_with=replace_false_with,
     )
-    self.assert_nested_sequence_equal(result, expected)
+    test_utils.assert_nested_container_equal(self, result, expected)
 
   @parameterized.named_parameters([
       dict(
@@ -562,7 +531,7 @@ class ApplyMaskTest(parameterized.TestCase):
           expected=([2, -1, 4, -1, 6], [1, -1, 3, -1, 5]),
       ),
   ])
-  def test_apply_tuple_mask_to_dict(
+  def test_apply_single_mask_to_dict(
       self, expected, replace_false_with=tree.DEFAULT_FILTER
   ):
     inputs = {
@@ -576,7 +545,7 @@ class ApplyMaskTest(parameterized.TestCase):
         masks=mask,
         replace_false_with=replace_false_with,
     )
-    self.assert_nested_sequence_equal(result['a', 'b'], expected)
+    test_utils.assert_nested_container_equal(self, result['a', 'b'], expected)
 
 
 if __name__ == '__main__':

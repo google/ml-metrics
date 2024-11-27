@@ -12,11 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Utilitities for testing, internal use only."""
+from collections.abc import Iterable
+import unittest
 
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.chainables import transform
 import numpy as np
+
+
+def assert_nested_container_equal(test: unittest.TestCase, a, b):
+  """Asserts that two nested containers are equal."""
+  try:
+    if isinstance(a, dict) and isinstance(b, dict):
+      for (k_a, v_a), (k_b, v_b) in zip(
+          sorted(a.items()), sorted(b.items()), strict=True
+      ):
+        test.assertEqual(k_a, k_b)
+        assert_nested_container_equal(test, v_a, v_b)
+    elif isinstance(a, str) and isinstance(b, str):
+      test.assertEqual(a, b)
+    elif hasattr(a, '__array__') and hasattr(b, '__array__'):
+      np.testing.assert_allclose(a, b)
+    elif isinstance(a, Iterable) and isinstance(b, Iterable):
+      for a_elem, b_elem in zip(a, b, strict=True):
+        assert_nested_container_equal(test, a_elem, b_elem)
+    elif isinstance(a, float) and isinstance(b, float):
+      test.assertAlmostEqual(a, b)
+    else:
+      test.assertEqual(a, b)
+  except Exception as e:  # pylint: disable=broad-except
+    test.fail(f'Failed to compare {a} and {b}: {e}')
 
 
 def sharded_ones(

@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Iterable
 from absl.testing import absltest
 from absl.testing import parameterized
 from ml_metrics._src.aggregates import retrieval
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
 from ml_metrics._src.chainables import lazy_fns
+from ml_metrics._src.utils import test_utils
 import numpy as np
 
 
@@ -27,21 +27,6 @@ RetrievalMetric = retrieval.RetrievalMetric
 
 
 class ThresholdedRetrievalTest(parameterized.TestCase):
-
-  def assert_nested_sequence_equal(self, a, b):
-    if isinstance(a, dict) and isinstance(b, dict):
-      for (k_a, v_a), (k_b, v_b) in zip(
-          sorted(a.items()), sorted(b.items()), strict=True
-      ):
-        self.assertEqual(k_a, k_b)
-        self.assert_nested_sequence_equal(v_a, v_b)
-    elif isinstance(a, str) and isinstance(b, str):
-      self.assertEqual(a, b)
-    elif isinstance(a, Iterable) and isinstance(b, Iterable):
-      for a_elem, b_elem in zip(a, b, strict=True):
-        self.assert_nested_sequence_equal(a_elem, b_elem)
-    else:
-      self.assertAlmostEqual(a, b)
 
   @parameterized.named_parameters([
       dict(
@@ -119,7 +104,9 @@ class ThresholdedRetrievalTest(parameterized.TestCase):
         matched_true_prob=matched_true_prob,
         matched_pred_prob=matched_pred_prob,
     )
-    self.assert_nested_sequence_equal(expected, retrieval_metric.result())
+    test_utils.assert_nested_container_equal(
+        self, expected, retrieval_metric.result()
+    )
 
 
 class TopKRetrievalTest(parameterized.TestCase):

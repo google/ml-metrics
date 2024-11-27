@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Test for tree library."""
-from collections.abc import Iterable
 from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -20,6 +19,7 @@ import cloudpickle as pickle
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
 from ml_metrics._src.chainables import tree_fns
+from ml_metrics._src.utils import test_utils
 import numpy as np
 
 Key = tree.Key
@@ -47,21 +47,6 @@ class TestAverageFn:
 
 
 class TreeFnTest(parameterized.TestCase):
-
-  def assert_nested_sequence_equal(self, a, b):
-    if isinstance(a, dict) and isinstance(b, dict):
-      for (k_a, v_a), (k_b, v_b) in zip(
-          sorted(a.items()), sorted(b.items()), strict=True
-      ):
-        self.assertEqual(k_a, k_b)
-        self.assert_nested_sequence_equal(v_a, v_b)
-    elif isinstance(a, str) and isinstance(b, str):
-      self.assertEqual(a, b)
-    elif isinstance(a, Iterable) and isinstance(b, Iterable):
-      for a_elem, b_elem in zip(a, b, strict=True):
-        self.assert_nested_sequence_equal(a_elem, b_elem)
-    else:
-      self.assertEqual(a, b)
 
   def test_tree_fn(self):
     data = {
@@ -324,7 +309,7 @@ class TreeFnTest(parameterized.TestCase):
         replace_mask_false_with=replace_mask_false_with,
     )
     result = tree_fn(inputs)
-    self.assert_nested_sequence_equal(result, expected)
+    test_utils.assert_nested_container_equal(self, result, expected)
 
   @parameterized.named_parameters([
       dict(
@@ -364,7 +349,7 @@ class TreeFnTest(parameterized.TestCase):
         replace_mask_false_with=replace_mask_false_with,
     )
     result = tree_fn(inputs)
-    self.assert_nested_sequence_equal(result, expected)
+    test_utils.assert_nested_container_equal(self, result, expected)
 
 
 if __name__ == '__main__':
