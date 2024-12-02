@@ -48,6 +48,7 @@ from __future__ import annotations
 from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
 from concurrent import futures
 import dataclasses
+import enum
 import functools
 import itertools
 import time
@@ -88,7 +89,7 @@ def iterate_with_returned(
   yield returned
 
 
-class RunnerMode(base_types.StrEnum):
+class RunnerMode(enum.StrEnum):
   DEFAULT = 'default'
   AGGREGATE = 'aggregate'
   SAMPLE = 'sample'

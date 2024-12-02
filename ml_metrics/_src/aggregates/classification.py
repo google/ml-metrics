@@ -16,6 +16,7 @@
 import collections
 from collections.abc import Iterable, Sequence
 import dataclasses
+import enum
 import itertools
 from typing import Any
 
@@ -32,7 +33,7 @@ AverageType = types.AverageType
 InputType = types.InputType
 
 
-class ConfusionMatrixMetric(base_types.StrEnum):  # pylint: disable=invalid-enum-extension
+class ConfusionMatrixMetric(enum.StrEnum):
   """Confusion Matrix Metrics that can be composed from CM's intermediate state."""
   CONFUSION_MATRIX = 'confusion_matrix'
   PRECISION = 'precision'

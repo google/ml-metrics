@@ -18,6 +18,7 @@ from __future__ import annotations
 import collections
 from collections.abc import Callable, Sequence
 import dataclasses
+import enum
 import functools
 import itertools
 from typing import Any
@@ -37,7 +38,7 @@ MeanState = utils.MeanState
 MeanStatesPerMetric = dict[str, MeanState]
 
 
-class RetrievalMetric(base_types.StrEnum):  # pylint: disable=invalid-enum-extension
+class RetrievalMetric(enum.StrEnum):  # pylint: disable=invalid-enum-extension
   """Supported retrieval metrics."""
 
   CONFUSION_MATRIX = 'confusion_matrix'

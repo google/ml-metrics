@@ -13,14 +13,14 @@
 # limitations under the License.
 """Common types for the aggregates."""
 
-from ml_metrics._src import base_types
+import enum
 from numpy import typing as npt
 
 NumbersT = npt.ArrayLike
 DefaultDType = float
 
 
-class InputType(base_types.StrEnum):  # pylint: disable=invalid-enum-extension
+class InputType(enum.StrEnum):  # pylint: disable=invalid-enum-extension
   """Label prediction encoding types."""
 
   # 1D array per batch, e.g., [0,1,0,1,0], [-1, 1, -1], or ['Y', 'N']
@@ -43,7 +43,7 @@ class InputType(base_types.StrEnum):  # pylint: disable=invalid-enum-extension
   MULTICLASS_INDICATOR = 'multiclass-indicator'
 
 
-class AverageType(base_types.StrEnum):  # pylint: disable=invalid-enum-extension
+class AverageType(enum.StrEnum):  # pylint: disable=invalid-enum-extension
   """Average type of the confusion matrix."""
 
   # Treats each class as one example and calculates the metrics on the total

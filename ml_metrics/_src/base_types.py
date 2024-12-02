@@ -14,7 +14,6 @@
 """Base types used throughout the library."""
 
 import abc
-import enum
 from typing import Any, Protocol, TypeVar, runtime_checkable
 from numpy import typing as npt
 
@@ -40,19 +39,6 @@ class Resolvable(Protocol[_T]):
 
 
 MaybeResolvable = Resolvable[_T] | _T
-
-
-# TODO: b/312290886 - move this to Python StrEnum when moved to Python 3.11.
-class StrEnum(str, enum.Enum):
-  """Enum where members also must be strings."""
-
-  __str__ = str.__str__
-
-  __repr__ = str.__repr__
-
-  __format__ = str.__format__
-
-  __iter__ = enum.Enum.__iter__
 
 
 def is_array_like(obj: list[Any] | tuple[Any, ...] | npt.ArrayLike) -> bool:
