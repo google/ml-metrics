@@ -49,5 +49,6 @@ from ml_metrics._src.metrics.classification import specificity
 from ml_metrics._src.metrics.classification import threat_score
 from ml_metrics._src.metrics.classification import tnr
 from ml_metrics._src.metrics.classification import tpr
+from ml_metrics._src.metrics.keras_metric_wrapper import roc_auc
 # pylint: enable=g-importing-member
 # pylint: enable=unused-import
