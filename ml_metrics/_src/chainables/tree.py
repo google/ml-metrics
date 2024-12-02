@@ -319,14 +319,14 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
   This creates an immutable View of a `MapLikeTree`, the view implements the
   Mapping interfaces so it can be used with any TreeMapKey. Following are some
   examples:
-  Given a tree = {'a': [1, 2], 'b': [3, 4]},
+  Given a tree = TreeMapView({'a': [1, 2], 'b': [3, 4]}),
     tree['a'] is [1, 2]
     tree['a', 'b'] is ([1, 2], [3, 4]) (multi-key index)
-  Given a nested tree = {'a': {'a1': [1, 2]}, 'b': [3, 4]}
-    tree[Path('a', 'a1')] is [1, 2]
-    tree[Path('a', 'a1'), 'b'] is ([1, 2], [3, 4])
-  Given a tree = [{'a': [1, 2]}, {'b': [3, 4]}]
-    tree[Path(Index(0), 'a')] is [1, 2]
+  Given a nested tree = TreeMapView({'a': {'a1': [1, 2]}, 'b': [3, 4]})
+    tree[Key.a.a1] is [1, 2]
+    tree[Key.a.a1, Key.b] is ([1, 2], [3, 4])
+  Given a tree = TreeMapView([{'a': [1, 2]}, {'b': [3, 4]}])
+    tree[Key.Index(0).a] is [1, 2]
 
   Attributes:
     data: Nested MapLike (Tree) structure.
@@ -378,9 +378,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
         return self._maybe_map(data)
       if isinstance(k, Literal):
         return k.value
-      if isinstance(k, Index) and base_types.is_array_like(data):
-        data = data[k]
-      elif not isinstance(k, Index) and isinstance(data, Mapping):
+      if base_types.is_array_like(data) or isinstance(data, Mapping):
         data = data[k]
       else:
         raise TypeError(
@@ -464,7 +462,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
         case (Reserved() as reserved, *_):
           if _is_key(reserved, _SKIP):
             pass
-        case (Index(key), *rest_keys) if base_types.is_array_like(result):
+        case (key, *rest_keys) if base_types.is_array_like(result):
           if key == len(result):
             assert isinstance(result, list)
             result.append(NullMap())

@@ -107,23 +107,19 @@ class TreeMapViewTest(parameterized.TestCase):
 
   def test_key_path(self):
     view = TreeMapView({'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}]})
-    self.assertEqual([1, 2], view[Key.new().a.a1])
-    self.assertEqual(['c', 'd'], view[Key.new('b', Key.Index(0), 0)])
+    self.assertEqual([1, 2], view[Key.a.a1])
+    self.assertEqual(['c', 'd'], view[Key.b.at(0).at(0)])
     self.assertEqual(view.data, view[Key.SELF])
     self.assertEqual(view.data, view[Key()])
     self.assertEqual((), view[()])
 
   def test_incorrect_keys_raises_error(self):
-    # pylint: disable=expression-not-assigned
-    with self.assertRaises(TypeError):
-      TreeMapView([1, 2, 3])[0]
     with self.assertRaises(IndexError):
-      TreeMapView([1, 2, 3])[Key.Index(9)]
+      _ = TreeMapView([1, 2, 3])[Key.Index(9)]
     with self.assertRaises(KeyError):
-      TreeMapView({'a': 1})['b']
+      _ = TreeMapView({'a': 1})['b']
     with self.assertRaises(TypeError):
-      TreeMapView({'a': 1})[set('a')]
-    # pylint: enable=expression-not-assigned
+      _ = TreeMapView({'a': 1})[set('a')]
 
   def test_iter(self):
     data = {'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}], 'c': {}, 'e': []}
@@ -220,7 +216,7 @@ class TreeMapViewTest(parameterized.TestCase):
         TreeMapView(data=data)
         .copy_and_set(('a', Key.SKIP), values=(7, 8))
         .copy_and_set(Key(('c', 'b')), values=(7, 8))
-        .copy_and_set(Key.model1.pred.at(Key.Index(1)), values=7)
+        .copy_and_set(Key.model1.pred.at(1), values=7)
         .copy_and_set(Key.model2.pred3.at(Key.Index(0)), values=[2, 3, 8])
         .copy_and_set('single_key', values=[2, 3, 8])
     ).data
