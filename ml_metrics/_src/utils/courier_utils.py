@@ -98,8 +98,9 @@ class Task(FutureLike[_T]):
 
   @classmethod
   def maybe_as_task(cls, task: Task | base_types.Resolvable) -> Task:
-    if isinstance(task, base_types.Resolvable):
+    if base_types.is_resolvable(task):
       return cls.new(task)
+    assert isinstance(task, Task)
     return task
 
   # The followings are to implement the _FutureLike interfaces.
@@ -649,10 +650,11 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
   def submit(self, task: Task[_T] | base_types.Resolvable[_T]) -> Task[_T]:
     """Runs tasks sequentially and returns the task."""
     self.wait_until_alive()
-    if isinstance(task, base_types.Resolvable):
+    if base_types.is_resolvable(task):
       task = Task.new(task)
     while not self.has_capacity:
       time.sleep(0)
+    assert isinstance(task, Task)
     state = self.call(
         *task.args, courier_method=task.courier_method, **task.kwargs
     )

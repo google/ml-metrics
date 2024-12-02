@@ -17,7 +17,7 @@ from __future__ import annotations
 import abc
 from collections.abc import Callable, Iterable
 import dataclasses
-from typing import Any, Generic, Protocol, Self, TypeVar, runtime_checkable
+from typing import Any, Generic, Protocol, Self, TypeVar, cast, runtime_checkable
 
 from ml_metrics._src import base_types as types
 from ml_metrics._src.chainables import lazy_fns
@@ -136,7 +136,9 @@ class MergeableMetricAggFn(AggregateFn, Generic[_MetricT]):
 
   def __init__(self, metric_maker: _ResolvableOrMakeable[_MetricT]):
     super().__init__()
-    if not isinstance(metric_maker, (types.Resolvable, types.Makeable)):
+    if not (
+        types.is_resolvable(metric_maker) or types.is_makeable(metric_maker)
+    ):
       raise TypeError(
           'metric_maker must be an instance of Makeable or Resolvable. got'
           f' {type(metric_maker)}'
@@ -150,9 +152,14 @@ class MergeableMetricAggFn(AggregateFn, Generic[_MetricT]):
     )
 
   def create_state(self) -> _MetricT:
-    if isinstance(self.metric_maker, types.Resolvable):
-      return self.metric_maker.result_()
-    return self.metric_maker.make()
+    if types.is_resolvable(self.metric_maker):
+      return cast(types.Resolvable, self.metric_maker).result_()
+    elif types.is_makeable(self.metric_maker):
+      return cast(types.Makeable, self.metric_maker).make()
+    raise TypeError(
+        'metric_maker must be an instance of Makeable or Resolvable. got'
+        f' {type(self.metric_maker)}'
+    )
 
   def update_state(self, state: _MetricT, *args, **kwargs) -> _MetricT:
     state.add(*args, **kwargs)
