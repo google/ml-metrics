@@ -541,11 +541,16 @@ class ApplyMaskTest(parameterized.TestCase):
     }
     mask = [True, False, True, False, True]
     result = tree.apply_mask(
-        inputs,
+        TreeMapView(inputs, key_paths=('a', 'b')),
         masks=mask,
         replace_false_with=replace_false_with,
     )
-    test_utils.assert_nested_container_equal(self, result['a', 'b'], expected)
+    actual = result['a'], result['b']
+    test_utils.assert_nested_container_equal(self, actual, expected)
+
+  def test_apply_mask_unsupported_type(self):
+    with self.assertRaisesRegex(TypeError, 'have to be of types'):
+      tree.apply_mask({'a': 1}, masks=[True, False])
 
 
 if __name__ == '__main__':

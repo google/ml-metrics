@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 import abc
-from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping, Sequence
 import copy
 import dataclasses
 import functools
@@ -133,7 +133,7 @@ def apply_mask(
   if not base_types.is_array_like(masks) and masks == True:  # pylint: disable=singleton-comparison
     return items
   # array like masks and items, this includes list, tuple, np array.
-  elif base_types.is_array_like(items) and base_types.is_array_like(masks):
+  elif base_types.is_array_like(masks) and base_types.is_array_like(items):
     if hasattr(masks, '__array__') and getattr(masks, 'dtype') == bool:
       if replace_false_with != DEFAULT_FILTER:
         return np.where(masks, items, replace_false_with)
@@ -162,7 +162,7 @@ def apply_mask(
         result = np.asarray(result, dtype=hasattr(items, 'dtype'))
       else:
         result = np.asarray(result)
-  elif isinstance(masks, dict) and isinstance(items, dict):
+  elif isinstance(masks, Mapping) and isinstance(items, Mapping):
     result = {}
     for key, mask in masks.items():
       value = items.get(key)
@@ -177,10 +177,10 @@ def apply_mask(
             masks=mask,
             replace_false_with=replace_false_with,
         )
-  # When masks is not a dict, try to apply the mask to the leaf elements of the
-  # dict. Note that TreeMapView will only apply the mask lazily when a leaf
-  # element is accessed.
-  elif base_types.is_array_like(masks) and isinstance(items, dict):
+  # When masks is not a dict, broadcasting to apply the mask to the leaf
+  # elements of the dict. All the leaf elements of the nested structures have
+  # to be non-Mapping and non-Sequence (with exception of str).
+  elif base_types.is_array_like(masks) and isinstance(items, Mapping):
     return TreeMapView.as_view(
         items,
         map_fn=functools.partial(
@@ -188,9 +188,9 @@ def apply_mask(
             masks=masks,
             replace_false_with=replace_false_with,
         ),
-    )
+    ).apply()
   else:
-    raise ValueError(
+    raise TypeError(
         'Masks and inputs have to be of types (dict, dict), (array, array), '
         f'(array, dict), or (True, Any) got: {type(masks)=}, {type(items)=}'
     )
@@ -285,6 +285,31 @@ def _default_tree(key_path: Key, value: Any):
       return {key: _default_tree(Key(rest_keys), value)}
     case _:
       raise ValueError(f'Unsupported key {key_path}')
+
+
+def _dfs_iter_tree(
+    data: MapLikeTree[Any], parent_key_path: Key
+) -> Iterator[TreeMapKey]:
+  """Iterates through the tree using DFS and yield all Key.
+
+  All non-Mapping and non-Sequence (with exception of str) is considered a leaf,
+  note: numpy array are considered a leaf.
+
+  Args:
+    data: A MapLikeTree instance.
+    parent_key_path: The parent key path of the current node.
+
+  Yields:
+    All key paths in the tree.
+  """
+  if isinstance(data, Mapping) and data:
+    for k, v in data.items():
+      yield from _dfs_iter_tree(v, parent_key_path.at(k))
+  elif isinstance(data, Sequence) and not isinstance(data, str) and data:
+    for i, v in enumerate(data):
+      yield from _dfs_iter_tree(v, parent_key_path.at(Index(i)))
+  else:
+    yield Key(parent_key_path)
 
 
 @dataclasses.dataclass
@@ -388,36 +413,13 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
       case _:
         return self.__get(keys)
 
-  def _tree_iter(
-      self,
-      data: MapLikeTree[LeafValueT],
-      parent_key_path: tuple[TreeMapKey, ...],
-  ) -> Iterator[tuple[TreeMapKey, ...]]:
-    """Iterates through the tree using DFS and yield all key Paths."""
-    match data:
-      case (_, *_):
-        for i, v in enumerate(data):
-          yield from self._tree_iter(v, parent_key_path + (Index(i),))
-      case Mapping():
-        for k, v in data.items():
-          yield from self._tree_iter(v, parent_key_path + (k,))
-        if not data:
-          yield parent_key_path
-      case _:
-        # This captures empty list and non-list, non-dict pattern.
-        yield parent_key_path
-
   def __iter__(self) -> Iterator[TreeMapKey]:
     # Uses user specified key_paths if available. Otherwise, DFS and yield all
     # key paths.
     if self.key_paths is not None:
       yield from self.key_paths
-    else:
-      keys = set()
-      for key in self._tree_iter(self.data, ()):
-        if key not in keys:
-          keys.add(key)
-          yield Key(key)
+      return
+    yield from _dfs_iter_tree(self.data, Key())
 
   def __len__(self) -> int:
     return len(list(iter(self)))
