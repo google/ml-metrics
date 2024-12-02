@@ -242,8 +242,8 @@ def retrieval_matcher(
   return matched_true_prob, matched_pred_prob, matched_y_prob
 
 
-@dataclasses.dataclass(kw_only=True, frozen=True)
-class ThresholdedConfusionMatrix:
+@dataclasses.dataclass(kw_only=True)
+class _ThresholdedConfusionMatrix:
   """RetrievalMetricConfig."""
 
   thresholds: types.NumbersT = 0
@@ -252,14 +252,12 @@ class ThresholdedConfusionMatrix:
   p_trues: types.NumbersT = 0
   p_preds: types.NumbersT = 0
 
-  def __add__(self, other):
-    return ThresholdedConfusionMatrix(
-        thresholds=self.thresholds,
-        tp_trues=self.tp_trues + other.tp_trues,
-        tp_preds=self.tp_preds + other.tp_preds,
-        p_trues=self.p_trues + other.p_trues,
-        p_preds=self.p_preds + other.p_preds,
-    )
+  def merge(self, other):
+    assert all(self.thresholds == other.thresholds)
+    self.tp_trues += other.tp_trues
+    self.tp_preds += other.tp_preds
+    self.p_trues += other.p_trues
+    self.p_preds += other.p_preds
 
   @functools.cached_property
   def precision(self):
@@ -282,7 +280,7 @@ class ThresholdedConfusionMatrix:
       )
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class ThresholdedRetrieval(base.MergeableMetric):
   """TopKRetrievals with continuous input.
 
@@ -321,16 +319,17 @@ class ThresholdedRetrieval(base.MergeableMetric):
       RetrievalMetric.F1_SCORE,
   )
   matcher: Callable[..., Any] | None = retrieval_matcher
-  _confusion_matrix: ThresholdedConfusionMatrix | None = None
+  _confusion_matrix: _ThresholdedConfusionMatrix = dataclasses.field(
+      default_factory=_ThresholdedConfusionMatrix, init=False
+  )
 
   def __post_init__(self):
-    self.thresholds = np.asarray(sorted(self.thresholds), dtype=np.float32)
-    self._confusion_matrix = ThresholdedConfusionMatrix(
-        thresholds=self.thresholds
-    )
-    self.metrics = [
-        RetrievalMetricAtThreshold(metric) for metric in self.metrics
-    ]
+    thresholds = np.asarray(sorted(self.thresholds), dtype=np.float32)
+    object.__setattr__(self, 'thresholds', thresholds)
+    confusion_matrix = _ThresholdedConfusionMatrix(thresholds=thresholds)
+    object.__setattr__(self, '_confusion_matrix', confusion_matrix)
+    metrics = [RetrievalMetricAtThreshold(metric) for metric in self.metrics]
+    object.__setattr__(self, 'metrics', metrics)
 
   @property
   def confusion_matrix(self):
@@ -343,7 +342,7 @@ class ThresholdedRetrieval(base.MergeableMetric):
       y_prob=None,
       matched_true_prob=None,
       matched_pred_prob=None,
-  ) -> ThresholdedConfusionMatrix:
+  ) -> _ThresholdedConfusionMatrix:
     """Compute all true positive counts from the y_true and y_pred.
 
     If y_true_prob and y_pred_prob are provided, this skips the internal matcher
@@ -383,18 +382,18 @@ class ThresholdedRetrieval(base.MergeableMetric):
     y_probs = np.array([y_prob > threshold for threshold in self.thresholds])
     tp_trues, true_p_count = y_trues.sum(axis=1), len(matched_true_prob)
     tp_preds, pred_p_count = y_preds.sum(axis=1), y_probs.sum(axis=1)
-    confusion_matrix = ThresholdedConfusionMatrix(
+    confusion_matrix = _ThresholdedConfusionMatrix(
         thresholds=self.thresholds,
         tp_trues=tp_trues,
         tp_preds=tp_preds,
         p_trues=true_p_count,
         p_preds=pred_p_count,
     )
-    self._confusion_matrix += confusion_matrix
+    self._confusion_matrix.merge(confusion_matrix)
     return confusion_matrix
 
   def merge(self, other: ThresholdedRetrieval):
-    self._confusion_matrix += other.confusion_matrix
+    self._confusion_matrix.merge(other.confusion_matrix)
 
   def result(self):
     """Returns the metrics."""
@@ -449,7 +448,7 @@ class TopKRetrievalConfig(base_types.Makeable):
     return TopKRetrieval(k_list=self.k_list, metrics=self.metrics)
 
 
-@dataclasses.dataclass(kw_only=True)
+@dataclasses.dataclass(frozen=True, kw_only=True)
 class TopKRetrieval(base.MergeableMetric):
   """TopKRetrievals.
 
