@@ -433,16 +433,18 @@ class CombinedTreeFn:
       if with_agg_state:
         state = self._update_state(state, batch_output)
       logging.debug('chainable: "%s" batch cnt %d.', self.name, batch_index + 1)
+    result = None
     if with_agg_state:
       # This can collect the agg_state and the agg_result at the end of
       # the iteration and return them as the generator return value.
       agg_result = self.get_result(state) if state and with_agg_result else None
-      logging.info(
-          'chainable: "%s" iterator returns after %d batches.',
-          self.name,
-          batch_index + 1,
-      )
-      return AggregateResult(agg_state=state, agg_result=agg_result)
+      result = AggregateResult(agg_state=state, agg_result=agg_result)
+    logging.info(
+        'chainable: %s',
+        f'"{self.name}" iterator exhausted after {batch_index + 1} batches,'
+        f' returnes a type of {type(result)}.',
+    )
+    return result
 
   def __iter__(self):
     return self._iterate(self.input_iterator)

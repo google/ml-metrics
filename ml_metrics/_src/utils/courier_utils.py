@@ -699,19 +699,19 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
         if output_batch:
           if iter_utils.is_stop_iteration(stop_iteration := output_batch[-1]):
             exhausted = True
-            generator_result_queue.put(stop_iteration.value)
+            generator_result_queue.put(returned := stop_iteration.value)
             output_batch = output_batch[:-1]
+            logging.info(
+                'chainable: %s',
+                f'worker "{self.address}" generator exhausted after'
+                f' {batch_cnt} batches with return type {type(returned)}',
+            )
           elif isinstance(exc := output_batch[-1], Exception):
             if exc != ValueError('generator already executing'):
               raise output_batch[-1]
         for elem in output_batch:
           yield elem
           batch_cnt += 1
-      logging.info(
-          'chainable: worker %s generator exhausted after %d batches',
-          self.address,
-          batch_cnt,
-      )
     except Exception as e:  # pylint: disable=broad-exception-caught
       logging.exception('chainable: exception when iterating task: %s', task)
       raise e
