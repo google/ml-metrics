@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "py-ml-metrics"
-version = "0.0.1"
+version = "0.0.2"
 description = "ML-metrics: A library that provides performant and distributed friendly ML metrics implementations."
 keywords = []
 authors = [
@@ -20,7 +20,7 @@ dependencies = [
 ]
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: Apache Software License",
