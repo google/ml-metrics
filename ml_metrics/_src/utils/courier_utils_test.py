@@ -334,8 +334,10 @@ class RemoteObjectTest(parameterized.TestCase):
     self.assertEqual([0, 1, 2], actual)
 
   def test_remote_iterator_queue_async(self):
-    local_server = courier_server._cached_server('local')
-    remote_server = courier_server._cached_server('remote')
+    local_server = courier_server.CourierServer('local')
+    local_server.start()
+    remote_server = courier_server.CourierServer('remote')
+    remote_server.start()
     # Constructs a local queue and let remote worker dequeue from it.
     local_queue = iter_utils.IteratorQueue(name='input')
     num_elem = 20
