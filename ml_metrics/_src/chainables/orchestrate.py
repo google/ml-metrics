@@ -25,7 +25,7 @@ import queue
 import random
 import threading
 import time
-from typing import Any, cast
+from typing import Any
 
 from absl import logging
 from ml_metrics._src import base_types
@@ -115,7 +115,13 @@ def sharded_pipelines_as_iterator(
             continue
           if iter_utils.is_stop_iteration(state):
             return
-          yield cast(transform_lib.AggregateResult, state).agg_state
+          if isinstance(state, transform_lib.AggregateResult):
+            yield state.agg_state
+            continue
+          logging.error(
+              'chainable: unexpected accumulator type %s during aggregation.',
+              type(state),
+          )
 
       merged_state = agg_fn.merge_states(iterate_agg_state())
       # At most only one item in the output_q.
