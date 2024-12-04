@@ -37,6 +37,11 @@ class AggregatesTest(absltest.TestCase):
     sum_fn = base.MergeableMetricAggFn(makeable_deferred_sum)
     self.assertEqual(6, sum_fn([1, 2, 3]))
 
+  def test_mergeable_aggregate_fn_unsupported_type(self):
+    with self.assertRaisesRegex(TypeError, 'must be an instance of.+ got'):
+      # disable pytype check for the runtime error to surface.
+      _ = base.MergeableMetricAggFn(test_utils._SumMetric())  # pytype: disable=wrong-arg-types
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
   absltest.main()

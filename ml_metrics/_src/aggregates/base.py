@@ -12,12 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Base AggregateFn for all the aggregates."""
+from __future__ import annotations
 
 import abc
 from collections.abc import Iterable
 import dataclasses
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Generic, Protocol, Self, TypeVar, runtime_checkable
+
 from ml_metrics._src import base_types
+
+_T = TypeVar('_T')
+_ResolvableOrMakeable = base_types.Resolvable[_T] | base_types.Makeable[_T]
 
 
 @runtime_checkable
@@ -25,11 +30,11 @@ class Metric(Protocol):
   """MergibleMetric can be used as simple Map, and also MapReduce."""
 
   @abc.abstractmethod
-  def add(self, *inputs, **named_inputs):
+  def add(self, *inputs, **named_inputs) -> Any:
     """Computes the state from a batch while outputting batch output."""
 
   @abc.abstractmethod
-  def result(self):
+  def result(self) -> Any:
     """Returns the result of the metric."""
 
 
@@ -38,8 +43,10 @@ class MergeableMetric(Metric, Protocol):
   """MergibleMetric can be used as simple Map, and also MapReduce."""
 
   @abc.abstractmethod
-  def merge(self, other: 'Metric') -> 'Metric':
+  def merge(self, other: Self):
     """Merges the metric with another metric of the same type."""
+
+_MetricT = TypeVar('_MetricT', bound=MergeableMetric)
 
 
 @runtime_checkable
@@ -93,36 +100,45 @@ class AggregateFn(Aggregatable):
     )
 
 
-@dataclasses.dataclass(frozen=True)
-class MergeableMetricAggFn(AggregateFn):
-  """MergeableMetricAggFn."""
+class MergeableMetricAggFn(AggregateFn, Generic[_MetricT]):
+  """A aggregation wrapper for MergeableMetric."""
 
-  # TODO: b/311207032 - Deprecate Makeable interface in favor of Resolvable.
-  metric_maker: (
-      base_types.Makeable[MergeableMetric]
-      | base_types.Resolvable[MergeableMetric]
-  )
+  metric_maker: _ResolvableOrMakeable[_MetricT]
 
-  def create_state(self) -> MergeableMetric:
+  def __init__(self, metric_maker: _ResolvableOrMakeable[_MetricT]):
+    super().__init__()
+    if not isinstance(
+        metric_maker, (base_types.Resolvable, base_types.Makeable)
+    ):
+      raise TypeError(
+          'metric_maker must be an instance of Makeable or Resolvable. got'
+          f' {type(metric_maker)}'
+      )
+    self.metric_maker = metric_maker
+
+  def __eq__(self, other, /):
+    return (
+        isinstance(other, MergeableMetricAggFn)
+        and self.metric_maker == other.metric_maker
+    )
+
+  def create_state(self) -> _MetricT:
     if isinstance(self.metric_maker, base_types.Resolvable):
       return self.metric_maker.result_()
-    else:
-      return self.metric_maker.make()
+    return self.metric_maker.make()
 
-  def update_state(
-      self, state: MergeableMetric, *args, **kwargs
-  ) -> MergeableMetric:
+  def update_state(self, state: _MetricT, *args, **kwargs) -> _MetricT:
     state.add(*args, **kwargs)
     return state
 
-  def merge_states(self, states: Iterable[MergeableMetric]) -> MergeableMetric:
+  def merge_states(self, states: Iterable[_MetricT]) -> _MetricT:
     iter_states = iter(states)
     result = next(iter_states)
     for state in iter_states:
       result.merge(state)
     return result
 
-  def get_result(self, state: MergeableMetric) -> Any:
+  def get_result(self, state: _MetricT) -> Any:
     return state.result()
 
 
