@@ -20,7 +20,7 @@ python3 -m twine upload /tmp/ml_metrics/all_dist/*-any.whl
 Authenticate with Twine by following https://pypi.org/help/#apitoken and editing
 your `~/.pypirc`.
 
-5. Draft the new release in github: https://github.com/google/ml_metrics/releases.
+5. Draft the new release in github: https://github.com/google/ml-metrics/releases.
  Tag the release commit with the version number.
 
 # Optional
