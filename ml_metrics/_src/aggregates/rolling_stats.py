@@ -228,7 +228,7 @@ class Histogram(base.MergeableMetric):
 
 
 @dataclasses.dataclass(kw_only=True)
-class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
+class MeanAndVariance(base.MergeableMetric, base_types.Makeable):
   """Computes the mean and variance of a batch of values."""
 
   # TODO(b/345249574): (1) Introduce StatsEnum to indicate the metrics to be
@@ -240,7 +240,10 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
   _var: types.NumbersT = np.nan
 
   def make(self) -> Self:
-    return MeanAndVariance()
+    return MeanAndVariance(batch_score_fn=self.batch_score_fn)
+
+  def as_agg_fn(self) -> base.MergeableMetricAggFn[Self]:
+    return base.as_agg_fn(self.__class__, batch_score_fn=self.batch_score_fn)
 
   def add(self, batch: types.NumbersT) -> Self:
     """Update the statistics with the given batch.
@@ -346,13 +349,9 @@ class MeanAndVariance(base_types.Makeable, base.MergeableMetric):
     )
 
 
-@dataclasses.dataclass(frozen=True, eq=False)
-class MeanAndVarianceAggFn(base.MergeableMetricAggFn):
+def MeanAndVarianceAggFn(*args, **kwargs):  # pylint: disable=invalid-name
   """AggFn wrapper of the MeanAndVariance."""
-
-  metric_maker: base_types.Makeable[MeanAndVariance] = dataclasses.field(
-      default_factory=MeanAndVariance
-  )
+  return MeanAndVariance(*args, **kwargs).as_agg_fn()
 
 
 # TODO(b/345249574): Add a preprocessing function of len per row.

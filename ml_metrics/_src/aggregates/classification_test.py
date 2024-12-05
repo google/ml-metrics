@@ -724,11 +724,11 @@ class ClassificationTest(parameterized.TestCase):
       expected: Expected values of the derived metrics for this input
       vocab: Vocabulary of the labels
     """
-    confusion_matrix = classification.SamplewiseConfusionMatrixAggFn(
+    confusion_matrix = classification.SamplewiseClassification(
         metrics=metrics,
         input_type=input_type,
         vocab=vocab,
-    )
+    ).as_agg_fn()
     np.testing.assert_allclose(expected, confusion_matrix(y_true, y_pred))
 
   def test_confusion_matrix_merge(self):
@@ -745,10 +745,10 @@ class ClassificationTest(parameterized.TestCase):
   def test_samplewise_confusion_matrix_merge(self):
     y_pred = ["dog", "cat", "cat"]
     y_true = ["dog", "cat", "bird"]
-    confusion_matrix = classification.SamplewiseConfusionMatrixAggFn(
+    confusion_matrix = classification.SamplewiseClassification(
         metrics=(ConfusionMatrixMetric.PRECISION,),
         input_type=InputType.MULTICLASS,
-    )
+    ).as_agg_fn()
     state1 = confusion_matrix.update_state(
         confusion_matrix.create_state(), y_true, y_pred
     )
@@ -786,9 +786,9 @@ class ClassificationTest(parameterized.TestCase):
   def test_samplewise_confusion_matrix_invalid_input_type(self):
     y_pred = [1, 0, 1, 0, 1, 0, 0]
     y_true = [1, 1, 0, 0, 1, 0, 1]
-    confusion_matrix = classification.SamplewiseConfusionMatrixAggFn(
+    confusion_matrix = classification.SamplewiseClassification(
         metrics=(), input_type=InputType.CONTINUOUS
-    )
+    ).as_agg_fn()
     with self.assertRaisesRegex(NotImplementedError, "is not supported"):
       confusion_matrix(y_true, y_pred)
 
@@ -843,7 +843,7 @@ class ClassificationTest(parameterized.TestCase):
   def test_fn_config_to_lazy_fn_by_module(self):
     actual = lazy_fns.maybe_make(
         lazy_fns.FnConfig(
-            fn="SamplewiseClassificationConfig",
+            fn="SamplewiseClassification",
             module="ml_metrics._src.aggregates.classification",
             kwargs=dict(
                 metrics=("recall", "precision"),
@@ -852,7 +852,7 @@ class ClassificationTest(parameterized.TestCase):
         ).make()
     )
     self.assertEqual(
-        classification.SamplewiseConfusionMatrixAggFn(
+        classification.SamplewiseClassification(  # pytype: disable=wrong-arg-types
             metrics=("recall", "precision"),
             input_type="multiclass-multioutput",
         ),

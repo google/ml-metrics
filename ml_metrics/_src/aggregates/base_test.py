@@ -26,10 +26,7 @@ class AggregatesTest(absltest.TestCase):
     self.assertEqual(sum_fn(list(range(4))), 6)
 
   def test_mergeable_aggregate_fn_in_process(self):
-    makeable_deferred_sum = lazy_fns.MakeableLazyFn(
-        lazy_fns.trace(test_utils._SumMetric)()
-    )
-    sum_fn = base.MergeableMetricAggFn(makeable_deferred_sum)
+    sum_fn = base.as_agg_fn(test_utils._SumMetric)
     self.assertEqual(6, sum_fn([1, 2, 3]))
 
   def test_mergeable_aggregate_fn_from_resolvable(self):

@@ -307,40 +307,40 @@ class TopKRetrievalTest(parameterized.TestCase):
     # TopKRetrieval's mergeable state is MeanState, merging multiple of the same
     # state does not change the result since sum * N / cnt * N == sum / cnt.
     for _ in range(3):
-      topk_retrieval = retrieval.TopKRetrievalConfig(
+      topk_retrieval = retrieval.TopKRetrieval(
           metrics=metrics,
           k_list=k_list,
           input_type=input_type,
-      ).make()
+      )
       topk_retrieval.add(y_true, y_pred)
       topk_retrievals.append(topk_retrieval)
     topk_retrievals[0].merge(topk_retrievals[1])
     np.testing.assert_allclose(expected, topk_retrievals[0].result())
 
-    topk_retrieval = retrieval.TopKRetrievalConfig(
-        metrics=metrics,
-        k_list=k_list,
-        input_type=input_type,
-    ).make()
-    for _ in range(3):
-      topk_retrieval.add(y_true, y_pred)
-    np.testing.assert_allclose(expected, topk_retrievals[0].result())
-
-    topk_retrieval_agg_fn = retrieval.TopKRetrievalAggFn(
+    topk_retrieval = retrieval.TopKRetrieval(
         metrics=metrics,
         k_list=k_list,
         input_type=input_type,
     )
+    for _ in range(3):
+      topk_retrieval.add(y_true, y_pred)
+    np.testing.assert_allclose(expected, topk_retrievals[0].result())
+
+    topk_retrieval_agg_fn = retrieval.TopKRetrieval(
+        metrics=metrics,
+        k_list=k_list,
+        input_type=input_type,
+    ).as_agg_fn()
     np.testing.assert_allclose(expected, topk_retrieval_agg_fn(y_true, y_pred))
 
   def test_retrieval_metric_add(self):
     y_pred = [["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]]
     y_true = [["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]]
-    topk_retrieval = retrieval.TopKRetrievalConfig(
+    topk_retrieval = retrieval.TopKRetrieval(
         metrics=[RetrievalMetric.PRECISION],
         k_list=None,
         input_type=InputType.MULTICLASS_MULTIOUTPUT,
-    ).make()
+    )
     topk_retrieval.add(y_true, y_pred)
     topk_retrieval.add(y_true, y_pred)
     expected = {"precision": utils.MeanState(11, 16)}
@@ -349,16 +349,16 @@ class TopKRetrievalTest(parameterized.TestCase):
   def test_retrieval_metric_merge(self):
     y_pred = [["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]]
     y_true = [["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]]
-    topk_retrieval1 = retrieval.TopKRetrievalConfig(
+    topk_retrieval1 = retrieval.TopKRetrieval(
         metrics=[RetrievalMetric.PRECISION],
         k_list=None,
         input_type=InputType.MULTICLASS_MULTIOUTPUT,
-    ).make()
-    topk_retrieval2 = retrieval.TopKRetrievalConfig(
+    )
+    topk_retrieval2 = retrieval.TopKRetrieval(
         metrics=[RetrievalMetric.PRECISION],
         k_list=None,
         input_type=InputType.MULTICLASS_MULTIOUTPUT,
-    ).make()
+    )
     topk_retrieval1.add(y_true, y_pred)
     topk_retrieval2.add(y_true, y_pred)
     topk_retrieval1.merge(topk_retrieval2)
@@ -368,13 +368,13 @@ class TopKRetrievalTest(parameterized.TestCase):
   def test_fn_config_to_lazy_fn_by_module(self):
     actual = lazy_fns.maybe_make(
         lazy_fns.FnConfig(
-            fn="TopKRetrievalConfig",
+            fn="TopKRetrieval",
             module="ml_metrics._src.aggregates.retrieval",
             kwargs=dict(metrics=("recall", "precision")),
         ).make()
     )
     self.assertEqual(
-        retrieval.TopKRetrievalAggFn(metrics=("recall", "precision")),
+        retrieval.TopKRetrieval(metrics=("recall", "precision")),  # pytype: disable=wrong-arg-types
         actual,
     )
 

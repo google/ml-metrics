@@ -12,19 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Aggregates modules for all classification metrics."""
+from __future__ import annotations
 
 import collections
 from collections.abc import Iterable, Sequence
 import dataclasses
 import enum
 import itertools
-from typing import Any
+from typing import Any, Self
 
-from ml_metrics._src import base_types
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
-from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import math_utils
 import numpy as np
 
@@ -738,52 +737,6 @@ SamplewiseConfusionMatrixAggState = dict[str, utils.MeanState]
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class SamplewiseClassificationConfig(base_types.Makeable):
-  """Samplewise Classification Config.
-
-  Attributes:
-    pos_label: the value considered as positive, default to 1.
-    input_type: input encoding type, must be one of `InputType`.
-    average: fixed as `samples` average.
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-  """
-
-  metrics: Sequence[ConfusionMatrixMetric]
-  pos_label: bool | int | str | bytes = 1
-  input_type: InputType = InputType.BINARY
-  average: AverageType = dataclasses.field(
-      default=AverageType.SAMPLES, init=False
-  )
-  vocab: dict[str, int] | None = None
-  dtype: type[Any] | None = None
-
-  def __post_init__(self):
-    if self.input_type == InputType.BINARY:
-      raise ValueError(
-          'Samples average is not available for Binary classification.'
-      )
-    if self.average != AverageType.SAMPLES:
-      raise ValueError(
-          'Samplewise Confusion Matrix aggreation only accepts Samples Average'
-          f' type, got {self.average} from {self}.'
-      )
-
-  def make(self):
-    return SamplewiseClassification(
-        metrics=self.metrics,
-        pos_label=self.pos_label,
-        input_type=self.input_type,
-        vocab=self.vocab,
-        dtype=self.dtype,
-    )
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True)
 class SamplewiseClassification(base.MergeableMetric):
   """SamplewiseClassification metric.
 
@@ -811,6 +764,27 @@ class SamplewiseClassification(base.MergeableMetric):
       default_factory=lambda: collections.defaultdict(utils.MeanState),
       init=False,
   )
+
+  def __post_init__(self):
+    if self.input_type == InputType.BINARY:
+      raise ValueError(
+          'Samples average is not available for Binary classification.'
+      )
+    if self.average != AverageType.SAMPLES:
+      raise ValueError(
+          'Samplewise Confusion Matrix aggreation only accepts Samples Average'
+          f' type, got {self.average} from {self}.'
+      )
+
+  def as_agg_fn(self) -> base.MergeableMetricAggFn[Self]:
+    return base.as_agg_fn(
+        self.__class__,
+        metrics=self.metrics,
+        pos_label=self.pos_label,
+        input_type=self.input_type,
+        vocab=self.vocab,
+        dtype=self.dtype,
+    )
 
   def _metric_states(self, cm: _ConfusionMatrix) -> dict[str, utils.MeanState]:
     result = {}
@@ -864,7 +838,7 @@ class SamplewiseClassification(base.MergeableMetric):
   def state(self):
     return self._state
 
-  def merge(self, other: 'SamplewiseClassification'):
+  def merge(self, other: SamplewiseClassification):
     for key, value in other.state.items():
       self._state[key].merge(value)
 
@@ -873,10 +847,6 @@ class SamplewiseClassification(base.MergeableMetric):
     return tuple(self._state[metric].result() for metric in self.metrics)
 
 
-def SamplewiseConfusionMatrixAggFn(**kwargs):  # pylint: disable=invalid-name
+def SamplewiseConfusionMatrixAggFn(**kwargs) -> base.MergeableMetricAggFn[SamplewiseClassification]:  # pylint: disable=invalid-name
   """Convenient alias as a AggregateFn constructor."""
-  return base.MergeableMetricAggFn(SamplewiseClassificationConfig(**kwargs))
-
-lazy_fns.makeables.register(
-    SamplewiseClassificationConfig, base.MergeableMetricAggFn
-)
+  return SamplewiseClassification(**kwargs).as_agg_fn()

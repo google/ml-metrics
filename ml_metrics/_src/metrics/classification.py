@@ -31,7 +31,6 @@ ConfusionMatrixMetric = classification.ConfusionMatrixMetric
 ConfusionMatrixAggFn = classification.ConfusionMatrixAggFn
 TopKConfusionMatrixAggFn = classification.TopKConfusionMatrixAggFn
 SamplewiseClassification = classification.SamplewiseClassification
-SamplewiseClassificationConfig = classification.SamplewiseClassificationConfig
 SamplewiseConfusionMatrixAggFn = classification.SamplewiseConfusionMatrixAggFn
 
 _METRIC_PYDOC_POSTFIX = """

@@ -15,11 +15,12 @@
 from __future__ import annotations
 
 import abc
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 import dataclasses
 from typing import Any, Generic, Protocol, Self, TypeVar, runtime_checkable
 
 from ml_metrics._src import base_types
+from ml_metrics._src.chainables import lazy_fns
 
 _T = TypeVar('_T')
 _ResolvableOrMakeable = base_types.Resolvable[_T] | base_types.Makeable[_T]
@@ -37,6 +38,17 @@ class Metric(Protocol):
   def result(self) -> Any:
     """Returns the result of the metric."""
 
+_MetricT = TypeVar('_MetricT', bound=Metric)
+
+
+def as_agg_fn(
+    cls: Callable[..., _MetricT], *args, **kwargs
+) -> MergeableMetricAggFn[_MetricT]:
+  deferred_metric = lazy_fns.trace(cls)(*args, **kwargs)
+  # Try resolve the target at construction at calltime to detect errors.
+  _ = lazy_fns.maybe_make(deferred_metric)
+  return MergeableMetricAggFn(deferred_metric)
+
 
 @runtime_checkable
 class MergeableMetric(Metric, Protocol):
@@ -45,8 +57,6 @@ class MergeableMetric(Metric, Protocol):
   @abc.abstractmethod
   def merge(self, other: Self):
     """Merges the metric with another metric of the same type."""
-
-_MetricT = TypeVar('_MetricT', bound=MergeableMetric)
 
 
 @runtime_checkable

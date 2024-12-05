@@ -21,7 +21,6 @@ InputType = types.InputType
 RetrievalMetric = retrieval.RetrievalMetric
 TopKRetrieval = retrieval.TopKRetrieval
 TopKRetrievalAggFn = retrieval.TopKRetrievalAggFn
-TopKRetrievalConfig = retrieval.TopKRetrievalConfig
 
 _METRIC_PYDOC_POSTFIX = """
 

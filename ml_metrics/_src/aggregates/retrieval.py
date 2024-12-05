@@ -21,13 +21,11 @@ import dataclasses
 import enum
 import functools
 import itertools
-from typing import Any
+from typing import Any, Self
 
-from ml_metrics._src import base_types
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
-from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import math_utils
 import numpy as np
 
@@ -404,8 +402,8 @@ class ThresholdedRetrieval(base.MergeableMetric):
     return result
 
 
-@dataclasses.dataclass(kw_only=True, frozen=True)
-class TopKRetrievalConfig(base_types.Makeable):
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class TopKRetrieval(base.MergeableMetric):
   """TopKRetrievals.
 
   Attributes:
@@ -435,34 +433,26 @@ class TopKRetrievalConfig(base_types.Makeable):
       RetrievalMetric.DCG_SCORE,
       RetrievalMetric.NDCG_SCORE,
   )
-  input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT
+  input_type: dataclasses.InitVar[InputType] = InputType.MULTICLASS_MULTIOUTPUT
+  _state: MeanStatesPerMetric = dataclasses.field(
+      default_factory=lambda: collections.defaultdict(MeanState),
+      init=False,
+  )
 
-  def __post_init__(self):
-    if self.input_type not in (
+  def __post_init__(self, input_type: InputType):
+    if input_type not in (
         InputType.MULTICLASS_MULTIOUTPUT,
         InputType.MULTICLASS,
     ):
       raise NotImplementedError(f'"{str(self.input_type)}" is not supported.')
 
-  def make(self):
-    return TopKRetrieval(k_list=self.k_list, metrics=self.metrics)
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class TopKRetrieval(base.MergeableMetric):
-  """TopKRetrievals.
-
-  Attributes:
-    k_list: topk list, default to None, which means all outputs are considered.
-    metrics: The metrics to be computed.
-  """
-
-  k_list: Sequence[int] | None = None
-  metrics: Sequence[RetrievalMetric] = ()
-  _state: MeanStatesPerMetric = dataclasses.field(
-      default_factory=lambda: collections.defaultdict(MeanState),
-      init=False,
-  )
+  def as_agg_fn(self) -> base.MergeableMetricAggFn[Self]:
+    return base.as_agg_fn(
+        self.__class__,
+        k_list=self.k_list,
+        metrics=self.metrics,
+        input_type=self.input_type,
+    )
 
   @property
   def state(self):
@@ -661,8 +651,6 @@ class TopKRetrieval(base.MergeableMetric):
     return tuple(result)
 
 
-def TopKRetrievalAggFn(**kwargs):  # pylint: disable=invalid-name
+def TopKRetrievalAggFn(**kwargs) -> base.MergeableMetricAggFn[TopKRetrieval]:  # pylint: disable=invalid-name
   """Convenient alias as a AggregateFn constructor."""
-  return base.MergeableMetricAggFn(TopKRetrievalConfig(**kwargs))
-
-lazy_fns.makeables.register(TopKRetrievalConfig, base.MergeableMetricAggFn)
+  return TopKRetrieval(**kwargs).as_agg_fn()

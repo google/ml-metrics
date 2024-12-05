@@ -122,9 +122,6 @@ class MockPrecisionRecall:
   pred_p: int = 0
   gt_p: int = 0
 
-  def make(self):
-    return MockPrecisionRecall(self.matcher)
-
   def add(self, pred=None, label=None, matched_pred=None, matched_label=None):
     # The matcher can be bypassed if the matched results are provided. This
     # is to test for explicit matcher and implicit matcher logic when
@@ -1078,8 +1075,8 @@ class TransformTest(parameterized.TestCase):
         .data_source(inputs)
         .aggregate(
             output_keys=('precision', 'recall'),
-            fn=aggretates.MergeableMetricAggFn(
-                MockPrecisionRecall(iter_utils.iterate_fn(matcher))
+            fn=aggretates.as_agg_fn(
+                MockPrecisionRecall, matcher=iter_utils.iterate_fn(matcher)
             ),
             # Provide matched result directly to bypass internal matcher.
             input_keys=('pred', 'label'),
@@ -1105,9 +1102,7 @@ class TransformTest(parameterized.TestCase):
         )
         .aggregate(
             output_keys=('precision', 'recall'),
-            fn=lazy_fns.trace(aggretates.MergeableMetricAggFn)(
-                MockPrecisionRecall()
-            ),
+            fn=aggretates.as_agg_fn(MockPrecisionRecall),
             # Provide matched result directly to bypass internal matcher.
             input_keys=dict(
                 matched_pred='pred_matched', matched_label='label_matched'

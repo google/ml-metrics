@@ -15,11 +15,9 @@
 
 from collections.abc import Sequence
 
-from ml_metrics import aggregates
 from ml_metrics import chainable
 from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.aggregates import text
-from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.signals import text as text_scores
 
 
@@ -66,14 +64,12 @@ def topk_word_ngrams(
         f'k and n must be positive integers but k={k} and n={n} was passed.'
     )
 
-  return aggregates.MergeableMetricAggFn(
-      lazy_fns.trace(text.TopKWordNGrams)(
-          k=k,
-          n=n,
-          use_first_ngram_only=use_first_ngram_only,
-          count_duplicate=count_duplicate,
-      )
-  )(texts)
+  return text.TopKWordNGrams(
+      k=k,
+      n=n,
+      use_first_ngram_only=use_first_ngram_only,
+      count_duplicate=count_duplicate,
+  ).as_agg_fn()(texts)
 
 
 def pattern_frequency(
@@ -105,11 +101,9 @@ def pattern_frequency(
   if len(set(patterns)) != len(patterns):
     raise ValueError(f'Patterns must be unique: {patterns}')
 
-  return aggregates.MergeableMetricAggFn(
-      lazy_fns.trace(text.PatternFrequency)(
-          patterns=patterns, count_duplicate=count_duplicate
-      )
-  )(texts)
+  return text.PatternFrequency(
+      patterns=patterns, count_duplicate=count_duplicate
+  ).as_agg_fn()(texts)
 
 
 def avg_alphabetical_char_count(
@@ -121,8 +115,6 @@ def avg_alphabetical_char_count(
     raise ValueError('`texts` must not be empty.')
 
   batch_scorer_fn = chainable.iterate_fn(text_scores.alphabetical_char_count)
-  return aggregates.MergeableMetricAggFn(
-      lazy_fns.trace(rolling_stats.MeanAndVariance)(
-          batch_score_fn=batch_scorer_fn
-      )
-  )(texts)
+  return rolling_stats.MeanAndVariance(
+      batch_score_fn=batch_scorer_fn
+  ).as_agg_fn()(texts)
