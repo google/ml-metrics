@@ -22,7 +22,6 @@ from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, I
 from concurrent import futures
 import dataclasses as dc
 import functools
-import itertools as itt
 import queue
 import threading
 from typing import Any, Generic, Protocol, Self, TypeVar
@@ -674,23 +673,24 @@ def iterate_fn(
       )
 
     @functools.wraps(fn)
-    def wrapped_fn(*inputs, **kwargs) -> tuple[_ValueT, ...] | _ValueT:
+    def wrapped_fn(*args, **kwargs) -> tuple[_ValueT, ...] | _ValueT:
+      num_args = len(args)
       kwargs_keys = tuple(kwargs.keys())
-      args_and_kwargs = itt.zip_longest(
-          zip(*inputs), zip(*kwargs.values()), fillvalue=()
-      )
-      inputs = (
-          (row_inputs, dict(zip(kwargs_keys, row_kwinputs)))
-          for row_inputs, row_kwinputs in args_and_kwargs
+      # Unpack the args and kwargs's values first.
+      args_values = mit.zip_broadcast(*args, *kwargs.values())
+      # Recompose the kwargs keys back.
+      args_and_kwargs = (
+          (values[:num_args], dict(zip(kwargs_keys, values[num_args:])))
+          for values in args_values
       )
       if not thread_pool:
         outputs = list(
             fn(*row_inputs, **row_kwinputs)
-            for row_inputs, row_kwinputs in inputs
+            for row_inputs, row_kwinputs in args_and_kwargs
         )
       else:
         states = []
-        for row_inputs, row_kwinputs in inputs:
+        for row_inputs, row_kwinputs in args_and_kwargs:
           states.append(thread_pool.submit(fn, *row_inputs, **row_kwinputs))
         outputs = list(x.result() for x in futures.as_completed(states))
       # Only transpose when fn returns multiple items (exact tuple).
