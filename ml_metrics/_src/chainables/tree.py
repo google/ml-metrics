@@ -201,13 +201,7 @@ def _is_key(key, other_key):
   return isinstance(key, type(other_key)) and key == other_key
 
 
-class _MetaKey(type):
-
-  def __getattr__(cls, item):
-    return cls().new(item)
-
-
-class Key(tuple[BaseKey, ...], metaclass=_MetaKey):
+class Key(tuple[BaseKey, ...]):
   """Convenient subtype of a tuple for a key path.
 
   This is immutable, and can only be called by either `new('a', 'b')`

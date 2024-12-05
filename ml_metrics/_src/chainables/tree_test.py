@@ -107,8 +107,8 @@ class TreeMapViewTest(parameterized.TestCase):
 
   def test_key_path(self):
     view = TreeMapView({'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}]})
-    self.assertEqual([1, 2], view[Key.a.a1])
-    self.assertEqual(['c', 'd'], view[Key.b.at(0).at(0)])
+    self.assertEqual([1, 2], view[Key().a.a1])
+    self.assertEqual(['c', 'd'], view[Key().b.at(0).at(0)])
     self.assertEqual(view.data, view[Key.SELF])
     self.assertEqual(view.data, view[Key()])
     self.assertEqual((), view[()])
@@ -148,18 +148,18 @@ class TreeMapViewTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='dict_key',
-          key=Key.abc,
+          key=Key().abc,
           expected=Key().new('abc'),
       ),
       dict(
           testcase_name='dict_key_path',
-          key=Key.abc.bcd,
+          key=Key().abc.bcd,
           expected=Key().new('abc', 'bcd'),
       ),
       dict(
           testcase_name='multi_dict_key_path',
-          key=(Key.abc.bcd, Key.efg, Key.Index(0)),
-          expected=(Key().new('abc', 'bcd'), Key().new('efg'), Key.Index(0)),
+          key=(Key().abc.bcd, Key().efg, Key.Index(0)),
+          expected=(Key.new('abc', 'bcd'), Key.new('efg'), Key.Index(0)),
       ),
   ])
   def test_tree_key(self, key, expected):
@@ -171,7 +171,7 @@ class TreeMapViewTest(parameterized.TestCase):
     )
     np.testing.assert_equal(
         {
-            Key.a.a1: np.array([1, 2]),
+            Key().a.a1: np.array([1, 2]),
             Key.new('b', Key.Index(0), 0): np.array(['c', 'd']),
         },
         dict(view.items()),
@@ -183,7 +183,7 @@ class TreeMapViewTest(parameterized.TestCase):
     )
     np.testing.assert_equal(
         (
-            (Key.a.a1, np.array([1, 2])),
+            (Key().a.a1, np.array([1, 2])),
             (Key.new('b', Key.Index(0), 0), np.array(['c', 'd'])),
         ),
         tuple(view.items()),
@@ -211,13 +211,13 @@ class TreeMapViewTest(parameterized.TestCase):
     self.assertEqual({1: 2}, result.data)
 
   def test_copy_and_set(self):
-    data = tree._default_tree(key_path=Key.model1.pred, value=(1, 2, 3))
+    data = tree._default_tree(key_path=Key().model1.pred, value=(1, 2, 3))
     result = (
         TreeMapView(data=data)
         .copy_and_set(('a', Key.SKIP), values=(7, 8))
         .copy_and_set(Key(('c', 'b')), values=(7, 8))
-        .copy_and_set(Key.model1.pred.at(1), values=7)
-        .copy_and_set(Key.model2.pred3.at(Key.Index(0)), values=[2, 3, 8])
+        .copy_and_set(Key().model1.pred.at(1), values=7)
+        .copy_and_set(Key().model2.pred3.at(Key.Index(0)), values=[2, 3, 8])
         .copy_and_set('single_key', values=[2, 3, 8])
     ).data
     expected = {
@@ -252,13 +252,13 @@ class TreeMapViewTest(parameterized.TestCase):
     test_utils.assert_nested_container_equal(self, expected, view.apply())
 
   def test_iterate_with_user_keys(self):
-    data = tree._default_tree(key_path=Key.model1.pred, value=(1, 2, 3))
+    data = tree._default_tree(key_path=Key().model1.pred, value=(1, 2, 3))
     result = (
         TreeMapView(data=data)
         .copy_and_set(('a', Key.SKIP), values=(7, 8))
         .copy_and_set(Key(('c', 'b')), values=(7, 8))
-        .copy_and_set(Key.model1.pred.at(Key.Index(1)), values=7)
-        .copy_and_set(Key.model2.pred3.at(Key.Index(0)), values=[2, 3, 8])
+        .copy_and_set(Key().model1.pred.at(Key.Index(1)), values=7)
+        .copy_and_set(Key().model2.pred3.at(Key.Index(0)), values=[2, 3, 8])
         .copy_and_set('single_key', values=[2, 3, 8])
     ).data
     result = TreeMapView.as_view(
@@ -341,9 +341,9 @@ class TreeMapViewTest(parameterized.TestCase):
     self.assertEqual(expected, result)
 
   def test_assign_multioutputs_to_single_key(self):
-    result = TreeMapView({'a': 1}).set(Key.b, (2, 3))
+    result = TreeMapView({'a': 1}).set(Key().b, (2, 3))
     self.assertEqual({'a': 1, 'b': (2, 3)}, result.data)
-    result = TreeMapView({'a': 1}).set((Key.b,), (2, 3))
+    result = TreeMapView({'a': 1}).set((Key().b,), (2, 3))
     self.assertEqual({'a': 1, 'b': (2, 3)}, result.data)
 
   def test_copy_and_set_raise_with_multiple_keys_with_self(self):
@@ -355,17 +355,17 @@ class TreeMapViewTest(parameterized.TestCase):
       ).data
 
   def test_copy_and_update_empty(self):
-    data = TreeMapView({}).copy_and_set(Key.model1.pred, (1, 2, 3))
+    data = TreeMapView({}).copy_and_set(Key().model1.pred, (1, 2, 3))
     self.assertEqual(data, data.copy_and_update({}))
 
   def test_or_operator(self):
-    data = TreeMapView({}).copy_and_set(Key.model1.pred, (1, 2, 3))
+    data = TreeMapView({}).copy_and_set(Key().model1.pred, (1, 2, 3))
     new = (
         TreeMapView({})
         .copy_and_set(('a', 'b'), values=(7, 8))
         .copy_and_set(Key.new('c', 'b'), values=(7, 8))
-        .copy_and_set(Key.model1.pred.at(Key.Index(0)), values=7)
-        .copy_and_set(Key.model2.pred3.at(Key.Index(0)), values=[2, 3, 8])
+        .copy_and_set(Key().model1.pred.at(Key.Index(0)), values=7)
+        .copy_and_set(Key().model2.pred3.at(Key.Index(0)), values=[2, 3, 8])
         .copy_and_set('single_key', values=[2, 3, 8])
     )
     expected = {
@@ -380,13 +380,13 @@ class TreeMapViewTest(parameterized.TestCase):
     self.assertEqual(expected, actual)
 
   def test_copy_and_update_by_items(self):
-    data = TreeMapView({}).copy_and_set(Key.model1.pred, (1, 2, 3))
+    data = TreeMapView({}).copy_and_set(Key().model1.pred, (1, 2, 3))
     new = (
         TreeMapView({})
         .copy_and_set(('a', 'b'), values=(7, 8))
         .copy_and_set(Key.new('c', 'b'), values=(7, 8))
-        .copy_and_set(Key.model1.pred.at(Key.Index(0)), values=7)
-        .copy_and_set(Key.model2.pred3.at(Key.Index(0)), values=[2, 3, 8])
+        .copy_and_set(Key().model1.pred.at(Key.Index(0)), values=7)
+        .copy_and_set(Key().model2.pred3.at(Key.Index(0)), values=[2, 3, 8])
         .copy_and_set('single_key', values=[2, 3, 8])
     )
     expected = {
@@ -406,7 +406,7 @@ class TreeMapViewTest(parameterized.TestCase):
     self.assertEqual(('a',), tree.normalize_keys('a'))
     self.assertEqual((Key.Index(0),), tree.normalize_keys(Key.Index(0)))
     self.assertEqual((Key(),), tree.normalize_keys(Key()))
-    self.assertEqual((Key.SELF,), tree.normalize_keys(Key.SELF))
+    self.assertEqual((Key().SELF,), tree.normalize_keys(Key.SELF))
     self.assertEqual(('a', 'b'), tree.normalize_keys(('a', 'b')))
     self.assertEqual(('a', 'b'), tree.normalize_keys(['a', 'b']))
 
@@ -421,12 +421,12 @@ class TreeMapViewTest(parameterized.TestCase):
     )
     result = tree.tree_shape(inputs)
     expected = {
-        Key.a: (3,),
-        Key.b.c: (2, 2),
-        Key.c.at(Key.Index(0)): (2,),
-        Key.c.at(Key.Index(1)).e: int,
-        Key.d.at(Key.Index(0)): int,
-        Key.d.at(Key.Index(1)): (),
+        Key().a: (3,),
+        Key().b.c: (2, 2),
+        Key().c.at(Key.Index(0)): (2,),
+        Key().c.at(Key.Index(1)).e: int,
+        Key().d.at(Key.Index(0)): int,
+        Key().d.at(Key.Index(1)): (),
     }
     self.assertEqual(result, expected)
 
