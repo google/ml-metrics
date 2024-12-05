@@ -173,6 +173,7 @@ class RunShardedIteratorTest(absltest.TestCase):
             self.worker_pool,
             test_utils.sharded_pipeline,
             total_numbers=total_numbers,
+            num_shards=self.worker_pool.num_workers + 1,
             batch_size=batch_size,
             num_threads=1,
             result_queue=results_queue,

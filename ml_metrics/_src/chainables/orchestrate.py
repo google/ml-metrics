@@ -50,6 +50,7 @@ def sharded_pipelines_as_iterator(
         queue.SimpleQueue[transform_lib.AggregateResult] | None
     ) = None,
     retry_failures: bool = True,
+    num_shards: int = 0,
     **pipeline_kwargs,
 ) -> Iterator[Any]:
   """The orchestration for the remote distributed chainable workers.
@@ -61,13 +62,16 @@ def sharded_pipelines_as_iterator(
     with_batch_output: Whether to return the batch output.
     result_queue: The queue to output the result.
     retry_failures: Whether to retry when seeing failures.
+    num_shards: The number of shards to split the inputs as the datasource. This
+      provides some control for the granularity of how much progress are lost
+      when workers are dead.
     **pipeline_kwargs: The pipeline kwargs.
 
   Yields:
     The batch outputs of of the pipeline.
   """
   calculate_agg_result = result_queue is not None
-  num_shards = worker_pool.num_workers
+  num_shards = num_shards or worker_pool.num_workers
   worker_pool.wait_until_alive(deadline_secs=600)
   sharded_tasks = [
       lazy_fns.trace(define_pipeline)(
