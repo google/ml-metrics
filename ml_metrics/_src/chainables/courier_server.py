@@ -414,10 +414,13 @@ class PrefetchedCourierServer(CourierServer):
         self._shutdown_lock.notify_all()
 
     def _next_batch_from_iterator(batch_size: int = 0) -> list[Any]:
-      assert self._generator is not None, (
-          'Generator is not set, the worker might crashed unexpectedly'
-          ' previously.'
-      )
+      if self._generator is None:
+        raise RuntimeError(
+            'Generator is not set, the worker might be killed previously, the'
+            ' task normally will be restarted. This could be caused by worker'
+            ' killed by the Borglet. Search for "chainable:.+retries" in the'
+            ' log to see how persistent this is.'
+        )
       result = []
       try:
         result = self._generator.get_batch(batch_size, block=True)

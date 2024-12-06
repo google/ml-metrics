@@ -38,6 +38,7 @@ from ml_metrics._src.utils import iter_utils
 
 _MASTER = 'master'
 _LOGGING_INTERVAL_SECS = 60.0
+_RETRY_THRESHOLD = 999999
 
 
 def sharded_pipelines_as_iterator(
@@ -141,8 +142,7 @@ def sharded_pipelines_as_iterator(
     )
     thread.start()
 
-  # Does not allow 50% of total number of tasks failed.
-  faiure_threshold = int(len(sharded_tasks) * 0.5) + 1 if retry_failures else 0
+  faiure_threshold = _RETRY_THRESHOLD if retry_failures else 0
   iterator = worker_pool.iterate(
       sharded_tasks,
       generator_result_queue=states_queue,
