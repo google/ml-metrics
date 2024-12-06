@@ -78,6 +78,17 @@ class IterUtilsTest(parameterized.TestCase):
     self.thread_pool.shutdown()
     super().tearDown()
 
+  def test_iterate_fn_with_broadcast(self):
+    def foo(x, a=0):
+      return x + 1 + a
+
+    actual = iter_utils.iterate_fn(foo)([0, 1], a=2)
+    self.assertEqual([3, 4], actual)
+    actual = iter_utils.iterate_fn(foo)([0, 1], 2)
+    self.assertEqual([3, 4], actual)
+    actual = iter_utils.iterate_fn(foo)([0, 1])
+    self.assertEqual([1, 2], actual)
+
   def test_parallel_iterate_fn_return_tuple(self):
     sleep_time = 0.3
 
