@@ -302,7 +302,7 @@ def _dfs_iter_tree(
   elif isinstance(data, Sequence) and not isinstance(data, str) and data:
     for i, v in enumerate(data):
       yield from _dfs_iter_tree(v, parent_key_path.at(Index(i)))
-  else:
+  elif parent_key_path:
     yield Key(parent_key_path)
 
 
@@ -408,7 +408,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
   def get(self, key: TreeMapKey | tuple[TreeMapKey, ...], default: Any = None):
     try:
       return self[key]
-    except KeyError:
+    except (KeyError, IndexError):
       return default
 
   def __iter__(self) -> Iterator[TreeMapKey]:
@@ -487,7 +487,10 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
     return result
 
   def set(
-      self, keys: TreeMapKey | TreeMapKeys, values: Any, in_place: bool = True
+      self,
+      keys: TreeMapKey | TreeMapKeys = (),
+      values: Any = (),
+      in_place: bool = True,
   ) -> TreeMapView[LeafValueT]:
     """Shallow copies the nodes along the path and set the leaf as the value."""
     # Normalizes the key to Path() and routes the correct way to call single
@@ -530,8 +533,8 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
 
   def copy_and_set(
       self,
-      keys: TreeMapKey | TreeMapKeys,
-      values: Any,
+      keys: TreeMapKey | TreeMapKeys = (),
+      values: Any = (),
   ) -> TreeMapView[LeafValueT]:
     return self.set(keys, values, in_place=False)
 
@@ -552,13 +555,9 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
     """Alias for `copy_and_update`."""
     return self.copy_and_update(other)
 
-  # TODO: b/311207032 - make the container type also consistent across the tree
-  # with the original self.data.
   def apply(self) -> MapLikeTree[LeafValueT]:
     """Copy and apply a map function to the tree."""
     if self.map_fn is None and self.key_paths is None:
       return self.data
-    initial_map = TreeMapView()
-    if isinstance(self.data, tuple):
-      initial_map = TreeMapView(())
+    initial_map = TreeMapView(copy.copy(self.data))
     return initial_map.copy_and_update(self.items()).data
