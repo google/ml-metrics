@@ -17,6 +17,5 @@
 # pylint: disable=unused-import
 from ml_metrics._src.aggregates.base import Aggregatable
 from ml_metrics._src.aggregates.base import as_agg_fn
-from ml_metrics._src.aggregates.base import MergeableMetricAggFn
 # pylint: enable=g-importing-member
 # pylint: enable=unused-import
