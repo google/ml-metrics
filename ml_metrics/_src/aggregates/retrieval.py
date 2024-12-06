@@ -21,7 +21,7 @@ import dataclasses
 import enum
 import functools
 import itertools
-from typing import Any, Self
+from typing import Any
 
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
@@ -446,7 +446,7 @@ class TopKRetrieval(base.MergeableMetric):
     ):
       raise NotImplementedError(f'"{str(self.input_type)}" is not supported.')
 
-  def as_agg_fn(self) -> base.MergeableMetricAggFn[Self]:
+  def as_agg_fn(self) -> base.AggregateFn:
     return base.as_agg_fn(
         self.__class__,
         k_list=self.k_list,
@@ -651,6 +651,6 @@ class TopKRetrieval(base.MergeableMetric):
     return tuple(result)
 
 
-def TopKRetrievalAggFn(**kwargs) -> base.MergeableMetricAggFn[TopKRetrieval]:  # pylint: disable=invalid-name
+def TopKRetrievalAggFn(**kwargs) -> base.AggregateFn:  # pylint: disable=invalid-name
   """Convenient alias as a AggregateFn constructor."""
   return TopKRetrieval(**kwargs).as_agg_fn()
