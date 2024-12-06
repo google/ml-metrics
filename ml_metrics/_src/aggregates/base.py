@@ -41,6 +41,14 @@ class Metric(Protocol):
 _MetricT = TypeVar('_MetricT', bound=Metric)
 
 
+class CallableMetric(Metric, Callable[..., Any]):
+  """A metric that is also callable."""
+
+  def __call__(self, *args, **kwargs):
+    self.add(*args, **kwargs)
+    return self.result()
+
+
 def as_agg_fn(
     cls: Callable[..., _MetricT], *args, **kwargs
 ) -> MergeableMetricAggFn[_MetricT]:

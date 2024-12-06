@@ -39,6 +39,13 @@ class AggregatesTest(absltest.TestCase):
       # disable pytype check for the runtime error to surface.
       _ = base.MergeableMetricAggFn(test_utils._SumMetric())  # pytype: disable=wrong-arg-types
 
+  def test_metric_callable(self):
+    class Sum(test_utils._SumMetric, base.CallableMetric):
+      pass
+
+    sum_fn = Sum()
+    self.assertEqual(6, sum_fn([1, 2, 3]))
+
 
 if __name__ == '__main__':
   absltest.main()
