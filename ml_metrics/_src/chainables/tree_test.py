@@ -101,6 +101,11 @@ class TreeMapViewTest(parameterized.TestCase):
     view = TreeMapView.as_view(data)
     self.assertEqual(expected, view[keys])
 
+  def test_get_with_default(self):
+    self.assertIsNone(TreeMapView({}).get('a'), None)
+    self.assertIsNone(TreeMapView({}).get(('a', 'b')), None)
+    self.assertEqual(TreeMapView({}).get('a', 1), 1)
+
   def test_get_by_skip_raise_error(self):
     with self.assertRaises(KeyError):
       TreeMapView({'a': 1})[Key.SKIP, 'a']  # pylint: disable=expression-not-assigned

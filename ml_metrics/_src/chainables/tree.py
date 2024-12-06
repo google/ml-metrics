@@ -375,7 +375,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
       if base_types.is_array_like(data) or isinstance(data, Mapping):
         data = data[k]
       else:
-        raise TypeError(
+        raise KeyError(
             f'Cannot use "{k}" of as a mapping key on a type of'
             f' "{type(data).__name__}", which has to implement a Mapping'
             ' interface such as a dict.'
@@ -404,6 +404,12 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
         return tuple(self.__get(key) for key in keys)
       case _:
         return self.__get(keys)
+
+  def get(self, key: TreeMapKey | tuple[TreeMapKey, ...], default: Any = None):
+    try:
+      return self[key]
+    except KeyError:
+      return default
 
   def __iter__(self) -> Iterator[TreeMapKey]:
     # Uses user specified key_paths if available. Otherwise, DFS and yield all
