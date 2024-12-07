@@ -20,7 +20,6 @@ import dataclasses
 import math
 from typing import Any, Self
 
-from ml_metrics._src import base_types
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.utils import math_utils
@@ -227,8 +226,8 @@ class Histogram(base.MergeableMetric):
     )
 
 
-@dataclasses.dataclass(kw_only=True)
-class MeanAndVariance(base.MergeableMetric, base_types.Makeable):
+@dataclasses.dataclass(kw_only=True, eq=True)
+class MeanAndVariance(base.MergeableMetric, base.CallableMetric):
   """Computes the mean and variance of a batch of values."""
 
   # TODO(b/345249574): (1) Introduce StatsEnum to indicate the metrics to be
@@ -242,8 +241,17 @@ class MeanAndVariance(base.MergeableMetric, base_types.Makeable):
   def make(self) -> Self:
     return MeanAndVariance(batch_score_fn=self.batch_score_fn)
 
-  def as_agg_fn(self) -> base.MergeableMetricAggFn[Self]:
-    return base.as_agg_fn(self.__class__, batch_score_fn=self.batch_score_fn)
+  def as_agg_fn(
+      self,
+      *,
+      nested: bool = False,
+  ) -> base.AggregateFn:
+    return base.as_agg_fn(
+        self.__class__,
+        batch_score_fn=self.batch_score_fn if not nested else None,
+        nested=nested,
+        agg_preprocess_fn=self.batch_score_fn if nested else None,
+    )
 
   def add(self, batch: types.NumbersT) -> Self:
     """Update the statistics with the given batch.

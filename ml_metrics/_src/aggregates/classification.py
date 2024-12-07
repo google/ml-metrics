@@ -19,7 +19,7 @@ from collections.abc import Iterable, Sequence
 import dataclasses
 import enum
 import itertools
-from typing import Any, Self
+from typing import Any
 
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
@@ -776,7 +776,7 @@ class SamplewiseClassification(base.MergeableMetric):
           f' type, got {self.average} from {self}.'
       )
 
-  def as_agg_fn(self) -> base.MergeableMetricAggFn[Self]:
+  def as_agg_fn(self) -> base.AggregateFn:
     return base.as_agg_fn(
         self.__class__,
         metrics=self.metrics,
@@ -847,6 +847,6 @@ class SamplewiseClassification(base.MergeableMetric):
     return tuple(self._state[metric].result() for metric in self.metrics)
 
 
-def SamplewiseConfusionMatrixAggFn(**kwargs) -> base.MergeableMetricAggFn[SamplewiseClassification]:  # pylint: disable=invalid-name
+def SamplewiseConfusionMatrixAggFn(**kwargs) -> base.AggregateFn:  # pylint: disable=invalid-name
   """Convenient alias as a AggregateFn constructor."""
   return SamplewiseClassification(**kwargs).as_agg_fn()
