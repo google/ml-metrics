@@ -20,22 +20,24 @@ from ml_metrics._src.chainables import transform
 import numpy as np
 
 
-def assert_nested_container_equal(test: unittest.TestCase, a, b):
+def assert_nested_container_equal(test: unittest.TestCase, a, b, strict=False):
   """Asserts that two nested containers are equal."""
   try:
+    if strict:
+      test.assertEqual(type(a), type(b))
     if isinstance(a, dict) and isinstance(b, dict):
       for (k_a, v_a), (k_b, v_b) in zip(
           sorted(a.items()), sorted(b.items()), strict=True
       ):
         test.assertEqual(k_a, k_b)
-        assert_nested_container_equal(test, v_a, v_b)
+        assert_nested_container_equal(test, v_a, v_b, strict=strict)
     elif isinstance(a, str) and isinstance(b, str):
       test.assertEqual(a, b)
     elif hasattr(a, '__array__') and hasattr(b, '__array__'):
       np.testing.assert_allclose(a, b)
     elif isinstance(a, Iterable) and isinstance(b, Iterable):
       for a_elem, b_elem in zip(a, b, strict=True):
-        assert_nested_container_equal(test, a_elem, b_elem)
+        assert_nested_container_equal(test, a_elem, b_elem, strict=strict)
     elif isinstance(a, float) and isinstance(b, float):
       test.assertAlmostEqual(a, b)
     else:

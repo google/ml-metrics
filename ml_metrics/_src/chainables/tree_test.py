@@ -141,6 +141,11 @@ class TreeMapViewTest(parameterized.TestCase):
         list(view),
     )
 
+  def test_iter_with_emtpy_container(self):
+    data = {}
+    view = TreeMapView(data)
+    self.assertEqual([], list(view))
+
   def test_len(self):
     view = TreeMapView({'a': {'a1': np.array([1, 2])}, 'b': [{0: ['c', 'd']}]})
     self.assertLen(view, 3)
@@ -301,9 +306,14 @@ class TreeMapViewTest(parameterized.TestCase):
           expected=[2, 4, 6],
       ),
       dict(
-          testcase_name='array',
-          data=np.array([1, 2, 3]),
-          expected=np.array([2, 4, 6]),
+          testcase_name='list_of_array',
+          data=[np.array([1, 2, 3]), np.array([4, 5, 6])],
+          expected=[np.array([2, 4, 6]), np.array([8, 10, 12])],
+      ),
+      dict(
+          testcase_name='tuple_of_array',
+          data=(np.array([1, 2, 3]), np.array([4, 5, 6])),
+          expected=(np.array([2, 4, 6]), np.array([8, 10, 12])),
       ),
       dict(
           testcase_name='dict_of_array',
@@ -313,7 +323,9 @@ class TreeMapViewTest(parameterized.TestCase):
   ])
   def test_map_fn(self, data, expected):
     mapped = TreeMapView.as_view(data, map_fn=lambda x: x * 2).apply()
-    test_utils.assert_nested_container_equal(self, expected, mapped)
+    test_utils.assert_nested_container_equal(
+        self, expected, mapped, strict=True
+    )
 
   def test_view_with_map_fn(self):
     data = dict(a=dict(b=1, c=2), e=3)
