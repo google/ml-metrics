@@ -217,18 +217,8 @@ def _transform_make(
   )
 
 
-@functools.lru_cache(maxsize=128)
-def _cached_transform_make(
-    transform: TreeTransform,
-    recursive: bool = True,
-    mode: RunnerMode = RunnerMode.DEFAULT,
-):
-  return _transform_make(transform, recursive=recursive, mode=mode)
-
-
 def clear_cache():
   """Clear the cache for maybe_make."""
-  _cached_transform_make.cache_clear()
   lazy_fns.clear_cache()
 
 
@@ -273,8 +263,6 @@ class CombinedTreeFn:
       mode: RunnerMode = RunnerMode.DEFAULT,
   ) -> Self:
     """Builds a TreeFn from a transform with caching."""
-    if transform.use_cache:
-      return _cached_transform_make(transform, recursive=recursive, mode=mode)
     return _transform_make(transform, recursive, mode)
 
   @property
@@ -586,7 +574,6 @@ class TreeTransform(Generic[TreeFnT]):
     input_iterator: the input iterator, cannot coexist with the input_transform.
     input_transform: the transform that outputs the input of this transform.
     fns: the underlying routines of the transforms.
-    use_cache: a boolean to indicate whether to use cache for the transform.
     num_threads: maximum number of threads to run the transform.
     id: the id of the transform, unique for each transform.
     is_noop: whether the transform is a no-op, e.g., no function to execute.
@@ -597,7 +584,6 @@ class TreeTransform(Generic[TreeFnT]):
   input_iterator: base_types.MaybeResolvable[Iterable[Any]] | None = None
   input_transform: TreeTransform | None = None
   fns: tuple[TreeFnT, ...] = dataclasses.field(default_factory=tuple)
-  use_cache: bool = dataclasses.field(default=False, repr=False)
   num_threads: int = _DEFAULT_NUM_THREADS
   _id: uuid.UUID = dataclasses.field(
       default_factory=uuid.uuid4, init=False, repr=False
@@ -622,7 +608,6 @@ class TreeTransform(Generic[TreeFnT]):
       cls,
       *,
       name: str = '',
-      use_cache: bool = False,
       input_iterator: base_types.MaybeResolvable[Iterable[Any]] | None = None,
       input_transform: TreeTransformT | None = None,
       num_threads: int = _DEFAULT_NUM_THREADS,
@@ -631,7 +616,6 @@ class TreeTransform(Generic[TreeFnT]):
         input_transform=input_transform,
         input_iterator=input_iterator,
         name=name,
-        use_cache=use_cache,
         num_threads=num_threads,
     )
 
@@ -694,7 +678,6 @@ class TreeTransform(Generic[TreeFnT]):
     return TreeTransform.new(
         input_iterator=iterator,
         name=self.name,
-        use_cache=self.use_cache,
         num_threads=self.num_threads,
     )
 
@@ -806,7 +789,6 @@ class TreeTransform(Generic[TreeFnT]):
       return AggregateTransform(
           fns=(fn,),
           name=self.name,
-          use_cache=self.use_cache,
           num_threads=self.num_threads,
       )
     else:
@@ -814,7 +796,6 @@ class TreeTransform(Generic[TreeFnT]):
           input_transform=self,
           name=self.name,
           fns=(fn,),
-          use_cache=self.use_cache,
           num_threads=self.num_threads,
       )
 
@@ -829,7 +810,6 @@ class TreeTransform(Generic[TreeFnT]):
       return TreeTransform(
           input_transform=self,
           fns=(fn,),
-          use_cache=self.use_cache,
           num_threads=self.num_threads,
       )
     return dataclasses.replace(self, fns=self.fns + (fn,))

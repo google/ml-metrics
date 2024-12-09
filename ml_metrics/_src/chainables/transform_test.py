@@ -216,7 +216,7 @@ class TransformTest(parameterized.TestCase):
 
   def test_cached_make(self):
     t = (
-        transform.TreeTransform.new(use_cache=True)
+        transform.TreeTransform.new()
         .data_source(MockGenerator(range(3)))
         .apply(fn=lambda x: x + 1)
         .aggregate(fn=lazy_fns.trace(MockAverageFn)())
@@ -231,7 +231,7 @@ class TransformTest(parameterized.TestCase):
         transform, '_transform_make', autospec=True
     ) as mock_make_transform:
       lazy_fns.maybe_make(pickled_t)
-      mock_make_transform.assert_not_called()
+      mock_make_transform.assert_called_once()
 
   def test_transform_named_transforms_default(self):
     t1 = (
