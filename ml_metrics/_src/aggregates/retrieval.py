@@ -444,7 +444,7 @@ class TopKRetrieval(base.MergeableMetric):
         InputType.MULTICLASS_MULTIOUTPUT,
         InputType.MULTICLASS,
     ):
-      raise NotImplementedError(f'"{str(self.input_type)}" is not supported.')
+      raise NotImplementedError(f'"{input_type}" is not supported.')
 
   def as_agg_fn(self) -> base.AggregateFn:
     return base.as_agg_fn(
