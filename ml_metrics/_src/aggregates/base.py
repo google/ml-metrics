@@ -19,11 +19,12 @@ from collections.abc import Callable, Iterable
 import dataclasses
 from typing import Any, Generic, Protocol, Self, TypeVar, runtime_checkable
 
-from ml_metrics._src import base_types
+from ml_metrics._src import base_types as types
 from ml_metrics._src.chainables import lazy_fns
+from ml_metrics._src.chainables import tree
 
 _T = TypeVar('_T')
-_ResolvableOrMakeable = base_types.Resolvable[_T] | base_types.Makeable[_T]
+_ResolvableOrMakeable = types.Resolvable[_T] | types.Makeable[_T]
 
 
 @runtime_checkable
@@ -50,12 +51,22 @@ class CallableMetric(Metric, Callable[..., Any]):
 
 
 def as_agg_fn(
-    cls: Callable[..., _MetricT], *args, **kwargs
-) -> MergeableMetricAggFn[_MetricT]:
-  deferred_metric = lazy_fns.trace(cls)(*args, **kwargs)
+    cls: Callable[..., _MetricT],
+    *args,
+    nested: bool = False,
+    agg_preprocess_fn: Callable[..., Any] | None = None,
+    **kwargs,
+) -> AggregateFn:
+  """Creates an AggregateFn from a metric class."""
+  deferred_metric: types.Resolvable[_MetricT] = lazy_fns.trace(cls)(
+      *args, **kwargs
+  )
   # Try resolve the target at construction at calltime to detect errors.
   _ = lazy_fns.maybe_make(deferred_metric)
-  return MergeableMetricAggFn(deferred_metric)
+  agg_fn = MergeableMetricAggFn(deferred_metric)
+  if nested:
+    agg_fn = AggFnNested(agg_fn, preprocess_fn=agg_preprocess_fn)
+  return agg_fn
 
 
 @runtime_checkable
@@ -125,9 +136,7 @@ class MergeableMetricAggFn(AggregateFn, Generic[_MetricT]):
 
   def __init__(self, metric_maker: _ResolvableOrMakeable[_MetricT]):
     super().__init__()
-    if not isinstance(
-        metric_maker, (base_types.Resolvable, base_types.Makeable)
-    ):
+    if not isinstance(metric_maker, (types.Resolvable, types.Makeable)):
       raise TypeError(
           'metric_maker must be an instance of Makeable or Resolvable. got'
           f' {type(metric_maker)}'
@@ -141,7 +150,7 @@ class MergeableMetricAggFn(AggregateFn, Generic[_MetricT]):
     )
 
   def create_state(self) -> _MetricT:
-    if isinstance(self.metric_maker, base_types.Resolvable):
+    if isinstance(self.metric_maker, types.Resolvable):
       return self.metric_maker.result_()
     return self.metric_maker.make()
 
@@ -158,6 +167,55 @@ class MergeableMetricAggFn(AggregateFn, Generic[_MetricT]):
 
   def get_result(self, state: _MetricT) -> Any:
     return state.result()
+
+
+class AggFnNested(AggregateFn):
+  """AggregateFn that traverses and aggregates each leaf of a PyTree."""
+
+  fn: Aggregatable
+  preprocess_fn: Callable[..., tree.MapLikeTree[Any]] | None
+
+  def __init__(
+      self,
+      fn: Aggregatable,
+      preprocess_fn: Callable[..., tree.MapLikeTree[Any]] | None = None,
+  ):
+    if preprocess_fn is not None and not callable(preprocess_fn):
+      raise ValueError(f'preporcess_fn must be a callable. got {preprocess_fn}')
+    if not isinstance(fn, Aggregatable):
+      raise ValueError(f'fn must be an instance of Aggregatable. got {fn}')
+    super().__init__()
+    self.fn = fn
+    self.preprocess_fn = preprocess_fn
+
+  def create_state(self):
+    """Creates the initial states for the aggregation."""
+    return None
+
+  def update_state(
+      self, state: tree.TreeMapView, inputs: tree.MapLikeTree[Any]
+  ):
+    """Update the state from a batch of inputs."""
+    if self.preprocess_fn:
+      inputs = self.preprocess_fn(inputs)
+    if state is None:
+      state = tree.TreeMapView(
+          inputs, map_fn=lambda x: self.fn.create_state()
+      ).apply()
+      state = tree.TreeMapView(state)
+    inputs = tree.TreeMapView.as_view(inputs)
+    return state.copy_and_update(
+        (k, self.fn.update_state(state[k], v)) for k, v in inputs.items()
+    )
+
+  # TODO: b/311207032 - Implement this.
+  def merge_states(self, states):
+    """Mering multiple states into a one state value."""
+    raise NotImplementedError()
+
+  def get_result(self, state):
+    """Computes and returns the result from state."""
+    return tree.TreeMapView.as_view(state, map_fn=self.fn.get_result).apply()
 
 
 @dataclasses.dataclass(frozen=True)

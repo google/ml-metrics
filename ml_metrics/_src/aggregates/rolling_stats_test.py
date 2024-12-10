@@ -16,6 +16,7 @@ import math
 
 from absl.testing import parameterized
 from ml_metrics._src.aggregates import rolling_stats
+from ml_metrics._src.utils import test_utils
 import numpy as np
 
 from absl.testing import absltest
@@ -862,6 +863,79 @@ class MeanAndVarianceTest(parameterized.TestCase):
     state = rolling_stats.MeanAndVariance()
     state.add(batch)
     self.assertEqual(str(state), expected_str)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='empty_input',
+          inputs={},
+          expected={},
+      ),
+      dict(
+          testcase_name='empty_list',
+          inputs=[],
+          expected=[],
+      ),
+      dict(
+          testcase_name='empty_tuple',
+          inputs=(),
+          expected=(),
+      ),
+      dict(
+          testcase_name='dict_input',
+          inputs={'a': np.array([1, 2, 3]), 'b': np.array([4, 5, 6])},
+          expected={
+              'a': rolling_stats.MeanAndVariance()([1, 2, 3]),
+              'b': rolling_stats.MeanAndVariance()([4, 5, 6]),
+          },
+      ),
+      dict(
+          testcase_name='dict_tuple_input',
+          inputs={
+              'a': (np.array([1, 2, 3]), np.array([4, 5, 6])),
+              'b': np.array([7, 8, 9]),
+          },
+          expected={
+              'a': (
+                  rolling_stats.MeanAndVariance()([1, 2, 3]),
+                  rolling_stats.MeanAndVariance()([4, 5, 6]),
+              ),
+              'b': rolling_stats.MeanAndVariance()([7, 8, 9]),
+          },
+      ),
+      dict(
+          testcase_name='list_input',
+          inputs=[np.array([1, 2, 3]), np.array([4, 5, 6])],
+          expected=[
+              rolling_stats.MeanAndVariance()([1, 2, 3]),
+              rolling_stats.MeanAndVariance()([4, 5, 6]),
+          ],
+      ),
+      dict(
+          testcase_name='tuple_input',
+          inputs=(np.array([1, 2, 3]), np.array([4, 5, 6])),
+          expected=(
+              rolling_stats.MeanAndVariance()([1, 2, 3]),
+              rolling_stats.MeanAndVariance()([4, 5, 6]),
+          ),
+      ),
+      dict(
+          testcase_name='batch_score_input',
+          inputs=np.array([[1, 2, 3], [4, 5, 6]]),
+          batch_score_fn=lambda x: {'x': x[0], 'y': x[1]},
+          expected={
+              'x': rolling_stats.MeanAndVariance()([1, 2, 3]),
+              'y': rolling_stats.MeanAndVariance()([4, 5, 6]),
+          },
+      ),
+  ])
+  def test_nested_agg_fn_nested(self, inputs, expected, batch_score_fn=None):
+    agg_fn = rolling_stats.MeanAndVariance(
+        batch_score_fn=batch_score_fn
+    ).as_agg_fn(nested=True)
+    actual = agg_fn(inputs)
+    test_utils.assert_nested_container_equal(
+        self, expected, actual, strict=True
+    )
 
 
 class MinMaxAndCountTest(parameterized.TestCase):

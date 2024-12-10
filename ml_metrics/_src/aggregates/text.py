@@ -17,7 +17,6 @@ import collections
 from collections.abc import Sequence
 import dataclasses
 import re
-from typing import Self
 
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import utils
@@ -70,7 +69,7 @@ class TopKWordNGrams(base.MergeableMetric):
           ' passed.'
       )
 
-  def as_agg_fn(self) -> base.MergeableMetricAggFn[Self]:
+  def as_agg_fn(self) -> base.AggregateFn:
     return base.as_agg_fn(
         self.__class__,
         k=self.k,
@@ -142,7 +141,7 @@ class PatternFrequency(base.MergeableMetric):
     if len(set(self.patterns)) != len(self.patterns):
       raise ValueError(f'Patterns must be unique: {self.patterns}')
 
-  def as_agg_fn(self) -> base.MergeableMetricAggFn[Self]:
+  def as_agg_fn(self) -> base.AggregateFn:
     return base.as_agg_fn(
         self.__class__,
         patterns=self.patterns,
