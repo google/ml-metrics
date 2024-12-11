@@ -238,9 +238,6 @@ class MeanAndVariance(base.MergeableMetric, base.CallableMetric):
   _mean: types.NumbersT = np.nan
   _var: types.NumbersT = np.nan
 
-  def make(self) -> Self:
-    return MeanAndVariance(batch_score_fn=self.batch_score_fn)
-
   def as_agg_fn(
       self,
       *,
