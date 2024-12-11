@@ -562,14 +562,3 @@ def trace(
   # the object. Unlike LazyObject.new(value) that stores the value locally
   # and can only be derefernced later.
   return LazyObject.new(value, cache_result=False, lazy_result=lazy_result)
-
-
-# TODO: b/311207032 - Deprecate Makeable interface in favor of Resolvable.
-@dc.dataclass(frozen=True)
-class MakeableLazyFn(base_types.Makeable[_T]):
-  """Wraps a LazyFn to be used as a Makeable."""
-
-  lazy_fn: base_types.Resolvable[_T]
-
-  def make(self) -> _T:
-    return maybe_make(self.lazy_fn)

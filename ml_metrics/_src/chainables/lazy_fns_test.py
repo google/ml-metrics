@@ -399,10 +399,6 @@ class LazyFnsTest(parameterized.TestCase):
         ),
     )
 
-  def test_makeable_lazy_fn(self):
-    makeable_foo = lazy_fns.MakeableLazyFn(trace(Foo)(a=1))
-    self.assertEqual(3, makeable_foo.make()(x=2))
-
   def test_lazy_getitem_direct(self):
     self.assertEqual(3, maybe_make(trace(lambda: [1, 2, 3])()[2]))
 
