@@ -394,7 +394,9 @@ class LazyFnsTest(parameterized.TestCase):
   def test_fn_config_to_lazy_fn_direct(self):
     self.assertEqual(
         2,
-        lazy_fns.maybe_make(lazy_fns.FnConfig(fn='len', args=[[1, 2]]).make()),
+        lazy_fns.maybe_make(
+            lazy_fns.FnConfig(fn='len', args=[[1, 2]]).make_lazy_fn()
+        ),
     )
 
   def test_makeable_lazy_fn(self):

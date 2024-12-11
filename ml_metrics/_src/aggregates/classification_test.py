@@ -849,7 +849,7 @@ class ClassificationTest(parameterized.TestCase):
                 metrics=("recall", "precision"),
                 input_type="multiclass-multioutput",
             ),
-        ).make()
+        ).make_lazy_fn()
     )
     self.assertEqual(
         classification.SamplewiseClassification(  # pytype: disable=wrong-arg-types

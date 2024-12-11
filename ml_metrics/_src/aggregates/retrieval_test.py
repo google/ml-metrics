@@ -371,7 +371,7 @@ class TopKRetrievalTest(parameterized.TestCase):
             fn="TopKRetrieval",
             module="ml_metrics._src.aggregates.retrieval",
             kwargs=dict(metrics=("recall", "precision")),
-        ).make()
+        ).make_lazy_fn()
     )
     self.assertEqual(
         retrieval.TopKRetrieval(metrics=("recall", "precision")),  # pytype: disable=wrong-arg-types

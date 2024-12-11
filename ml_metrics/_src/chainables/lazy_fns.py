@@ -263,7 +263,7 @@ class FnConfig:
   def from_json_str(cls, json_str: str):
     return cls(**json.loads(json_str))
 
-  def make(self):
+  def make_lazy_fn(self):
     if self.module:
       actual_fn = getattr(importlib.import_module(self.module), self.fn)
     else:
