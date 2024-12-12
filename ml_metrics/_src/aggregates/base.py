@@ -19,7 +19,7 @@ from collections.abc import Callable, Iterable
 import dataclasses
 from typing import Any, Generic, Protocol, Self, TypeVar, runtime_checkable
 
-from ml_metrics._src import base_types as types
+from ml_metrics._src import types
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
 

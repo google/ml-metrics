@@ -26,7 +26,7 @@ import time
 from typing import Any, NamedTuple, TypeVar
 
 from absl import logging
-from ml_metrics._src import base_types
+from ml_metrics._src import types
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import courier_utils
@@ -49,7 +49,7 @@ def wait_until_alive(address: str, deadline_secs: float = 120):
 
 
 def _as_generator_task(
-    task: GeneratorTask | base_types.Resolvable,
+    task: GeneratorTask | types.Resolvable,
 ) -> GeneratorTask:
   if isinstance(task, GeneratorTask):
     return task

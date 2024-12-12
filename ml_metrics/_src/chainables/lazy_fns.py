@@ -30,7 +30,7 @@ import uuid
 
 from absl import logging
 import cloudpickle as pickle
-from ml_metrics._src import base_types
+from ml_metrics._src import types
 from ml_metrics._src.utils import func_utils
 
 _KeyT = TypeVar('_KeyT')
@@ -177,9 +177,9 @@ makeables = _Makers()
 
 
 def _maybe_make(
-    maybe_lazy: base_types.MaybeResolvable[_T],
-) -> base_types.MaybeResolvable[_T]:
-  if base_types.is_resolvable(maybe_lazy):
+    maybe_lazy: types.MaybeResolvable[_T],
+) -> types.MaybeResolvable[_T]:
+  if types.is_resolvable(maybe_lazy):
     return maybe_lazy.result_()
   if maker := makeables[type(maybe_lazy)]:
     return maker(maybe_lazy)
@@ -187,8 +187,8 @@ def _maybe_make(
 
 
 def maybe_make(
-    maybe_lazy: base_types.MaybeResolvable[_T] | bytes,
-) -> base_types.MaybeResolvable[_T]:
+    maybe_lazy: types.MaybeResolvable[_T] | bytes,
+) -> types.MaybeResolvable[_T]:
   """Dereference a lazy object or lazy function when applicable."""
   maybe_lazy = maybe_unpickle(maybe_lazy)
   return _maybe_make(maybe_lazy)
@@ -268,7 +268,7 @@ class FnConfig:
 
 
 @dc.dataclass(kw_only=True, frozen=True)
-class LazyObject(base_types.Resolvable[_T]):
+class LazyObject(types.Resolvable[_T]):
   """A remote object that can be pickled.
 
   Attributes:

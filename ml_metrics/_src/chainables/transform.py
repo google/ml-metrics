@@ -56,7 +56,7 @@ from typing import Any, Generic, Self, TypeVar
 import uuid
 
 from absl import logging
-from ml_metrics._src import base_types
+from ml_metrics._src import types
 from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
@@ -581,7 +581,7 @@ class TreeTransform(Generic[TreeFnT]):
   """
 
   name: str = ''
-  input_iterator: base_types.MaybeResolvable[Iterable[Any]] | None = None
+  input_iterator: types.MaybeResolvable[Iterable[Any]] | None = None
   input_transform: TreeTransform | None = None
   fns: tuple[TreeFnT, ...] = dataclasses.field(default_factory=tuple)
   num_threads: int = _DEFAULT_NUM_THREADS
@@ -608,7 +608,7 @@ class TreeTransform(Generic[TreeFnT]):
       cls,
       *,
       name: str = '',
-      input_iterator: base_types.MaybeResolvable[Iterable[Any]] | None = None,
+      input_iterator: types.MaybeResolvable[Iterable[Any]] | None = None,
       input_transform: TreeTransformT | None = None,
       num_threads: int = _DEFAULT_NUM_THREADS,
   ) -> Self:
@@ -687,7 +687,7 @@ class TreeTransform(Generic[TreeFnT]):
       # TODO: b/376296013 - output_keys is deprecated, use assign_keys instead.
       output_keys: TreeMapKey | TreeMapKeys = (),
       *,
-      fn: base_types.MaybeResolvable[Callable[..., Any]] | None = None,
+      fn: types.MaybeResolvable[Callable[..., Any]] | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       fn_batch_size: int = 0,
       batch_size: int = 0,
@@ -733,7 +733,7 @@ class TreeTransform(Generic[TreeFnT]):
       self,
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       *,
-      fn: base_types.MaybeResolvable[aggregates.Aggregatable] | None = None,
+      fn: types.MaybeResolvable[aggregates.Aggregatable] | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       disable_slicing: bool = False,
   ) -> AggregateTransform:
@@ -754,7 +754,7 @@ class TreeTransform(Generic[TreeFnT]):
       self,
       *,
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      fn: base_types.MaybeResolvable[Callable[..., Any]] | None = None,
+      fn: types.MaybeResolvable[Callable[..., Any]] | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       fn_batch_size: int = 0,
       batch_size: int = 0,
@@ -829,7 +829,7 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
       self,
       *,
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      fn: base_types.MaybeResolvable[aggregates.Aggregatable] | None = None,
+      fn: types.MaybeResolvable[aggregates.Aggregatable] | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       disable_slicing: bool = False,
   ) -> 'AggregateTransform':

@@ -11,8 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from ml_metrics._src import base_types
 from absl.testing import absltest
+from ml_metrics._src import types
 
 
 class BaseTypesTest(absltest.TestCase):
@@ -25,8 +25,8 @@ class BaseTypesTest(absltest.TestCase):
       def result_(cls):
         pass
 
-    self.assertIsInstance(Foo(), base_types.Resolvable)
-    self.assertFalse(base_types.is_resolvable(Foo()))
+    self.assertIsInstance(Foo(), types.Resolvable)
+    self.assertFalse(types.is_resolvable(Foo()))
 
   def test_is_makeable(self):
 
@@ -36,8 +36,8 @@ class BaseTypesTest(absltest.TestCase):
       def make(cls):
         pass
 
-    self.assertIsInstance(Foo(), base_types.Makeable)
-    self.assertFalse(base_types.is_makeable(Foo()))
+    self.assertIsInstance(Foo(), types.Makeable)
+    self.assertFalse(types.is_makeable(Foo()))
 
 
 if __name__ == "__main__":

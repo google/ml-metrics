@@ -22,7 +22,7 @@ import dataclasses
 import functools
 from typing import Any, Protocol, Self, TypeVar, Union, overload
 
-from ml_metrics._src import base_types
+from ml_metrics._src import types
 import numpy as np
 
 
@@ -130,10 +130,10 @@ def apply_mask(
     A tree of inputs with the masks applied.
   """
   # Test comparison to literal boolean True, note, this includs 1.
-  if not base_types.is_array_like(masks) and masks == True:  # pylint: disable=singleton-comparison
+  if not types.is_array_like(masks) and masks == True:  # pylint: disable=singleton-comparison
     return items
   # array like masks and items, this includes list, tuple, np array.
-  elif base_types.is_array_like(masks) and base_types.is_array_like(items):
+  elif types.is_array_like(masks) and types.is_array_like(items):
     if hasattr(masks, '__array__') and getattr(masks, 'dtype') == bool:
       if replace_false_with != DEFAULT_FILTER:
         return np.where(masks, items, replace_false_with)
@@ -180,7 +180,7 @@ def apply_mask(
   # When masks is not a dict, broadcasting to apply the mask to the leaf
   # elements of the dict. All the leaf elements of the nested structures have
   # to be non-Mapping and non-Sequence (with exception of str).
-  elif base_types.is_array_like(masks) and isinstance(items, Mapping):
+  elif types.is_array_like(masks) and isinstance(items, Mapping):
     return TreeMapView.as_view(
         items,
         map_fn=functools.partial(
@@ -372,7 +372,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
         return self._maybe_map(data)
       if isinstance(k, Literal):
         return k.value
-      if base_types.is_array_like(data) or isinstance(data, Mapping):
+      if types.is_array_like(data) or isinstance(data, Mapping):
         data = data[k]
       else:
         raise KeyError(
@@ -462,7 +462,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
         case (Reserved() as reserved, *_):
           if _is_key(reserved, _SKIP):
             pass
-        case (key, *rest_keys) if base_types.is_array_like(result):
+        case (key, *rest_keys) if types.is_array_like(result):
           if key == len(result):
             assert isinstance(result, list)
             result.append(NullMap())

@@ -28,7 +28,7 @@ from typing import Any, Generic, NamedTuple, Protocol, Self, TypeVar
 
 from absl import logging
 import courier
-from ml_metrics._src import base_types
+from ml_metrics._src import types
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import func_utils
 from ml_metrics._src.utils import iter_utils
@@ -97,7 +97,7 @@ class Task(FutureLike[_T]):
     )
 
   @classmethod
-  def maybe_as_task(cls, task: Task | base_types.Resolvable) -> Task:
+  def maybe_as_task(cls, task: Task | types.Resolvable) -> Task:
     if isinstance(task, Task):
       return task
     return cls.new(task)
@@ -149,7 +149,7 @@ class GeneratorTask(Task):
 
 
 @dc.dataclass(frozen=True)
-class RemoteObject(Generic[_T], base_types.Resolvable[_T]):
+class RemoteObject(Generic[_T], types.Resolvable[_T]):
   """Remote object holds remote reference that behaves like a local object."""
 
   value: lazy_fns.LazyObject[_T]
@@ -247,7 +247,7 @@ class RemoteIteratorQueue(iter_utils.AsyncIterableQueue[_T]):
   @classmethod
   def new(
       cls,
-      q: base_types.MaybeResolvable[iter_utils.IteratorQueue[_T]],
+      q: types.MaybeResolvable[iter_utils.IteratorQueue[_T]],
       *,
       server_addr: str | CourierClient | ClientConfig,
       name: str = '',
@@ -293,7 +293,7 @@ class RemoteIterator(Iterator[_T]):
   @classmethod
   def new(
       cls,
-      iterator: base_types.MaybeResolvable[Iterable[_T]],
+      iterator: types.MaybeResolvable[Iterable[_T]],
       *,
       server_addr: str | CourierClient | ClientConfig,
   ) -> Self:
@@ -318,7 +318,7 @@ class RemoteIterator(Iterator[_T]):
 
 
 async def async_remote_iter(
-    iterator: base_types.MaybeResolvable[Iterable[_T]],
+    iterator: types.MaybeResolvable[Iterable[_T]],
     *,
     worker: str | CourierClient | None = None,
     buffer_size: int = 0,
@@ -608,7 +608,7 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
       return RemoteObject.new(result, worker=self)
     return result
 
-  def get_result(self, lazy_obj: base_types.Resolvable[_T]) -> _T:
+  def get_result(self, lazy_obj: types.Resolvable[_T]) -> _T:
     """Low level blocking courier call to retrieve the result."""
     self.wait_until_alive()
     future = self.call(lazy_obj, return_exception=True, compress=True)
@@ -626,7 +626,7 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
           e.add_note(f'Courier worker {self} died.')
       raise e
 
-  async def async_get_result(self, lazy_obj: base_types.Resolvable[_T]) -> _T:
+  async def async_get_result(self, lazy_obj: types.Resolvable[_T]) -> _T:
     """Low level async courier call to retrieve the result."""
     await self.async_wait_until_alive()
     future = self.call(lazy_obj, return_exception=True, compress=True)
@@ -646,7 +646,7 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
           e.add_note(f'Courier worker {self} died.')
       raise e
 
-  def submit(self, task: Task[_T] | base_types.Resolvable[_T]) -> Task[_T]:
+  def submit(self, task: Task[_T] | types.Resolvable[_T]) -> Task[_T]:
     """Runs tasks sequentially and returns the task."""
     self.wait_until_alive()
     if not isinstance(task, Task):

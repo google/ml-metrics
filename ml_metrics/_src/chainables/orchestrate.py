@@ -28,7 +28,7 @@ import time
 from typing import Any
 
 from absl import logging
-from ml_metrics._src import base_types
+from ml_metrics._src import types
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
@@ -461,7 +461,7 @@ def run_pipeline_interleaved(
 
 def as_completed(
     worker_pool: courier_worker.WorkerPool,
-    task_iterator: Iterable[courier_worker.Task | base_types.Resolvable],
+    task_iterator: Iterable[courier_worker.Task | types.Resolvable],
     ignore_failures: bool = False,
 ) -> Iterator[Any]:
   """Run tasks within the worker pool."""

@@ -21,7 +21,7 @@ import functools
 import itertools as it
 from typing import Any, Callable, Generic, Hashable, Iterable, Iterator, Mapping, Self, TypeVar
 
-from ml_metrics._src import base_types
+from ml_metrics._src import types
 from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
@@ -144,7 +144,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
   @functools.cached_property
   def lazy(self):
     fn = self.fn
-    return base_types.is_resolvable(fn)
+    return types.is_resolvable(fn)
 
   @functools.cached_property
   def actual_fn(self) -> FnT:
