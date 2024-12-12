@@ -14,7 +14,7 @@
 """Base types used throughout the library."""
 
 import abc
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from typing import Any, Protocol, TypeGuard, TypeVar, runtime_checkable
 from numpy import typing as npt
 
 _T = TypeVar('_T')
@@ -39,6 +39,20 @@ class Resolvable(Protocol[_T]):
 
 
 MaybeResolvable = Resolvable[_T] | _T
+
+
+def is_resolvable(obj: Resolvable[_T] | Any) -> TypeGuard[Resolvable[_T]]:
+  """Checks if the object is a Resolvable."""
+  result_ = getattr(obj, 'result_', None)
+  # Also distinguish between classmethod or instance method.
+  return result_ and getattr(result_, '__self__', None) is obj
+
+
+def is_makeable(obj: Makeable[_T] | Any) -> TypeGuard[Makeable[_T]]:
+  """Checks if the object is a Makeable."""
+  make = getattr(obj, 'make', None)
+  # Also distinguish between classmethod or instance method.
+  return make and getattr(make, '__self__', None) is obj
 
 
 def is_array_like(obj: list[Any] | tuple[Any, ...] | npt.ArrayLike) -> bool:

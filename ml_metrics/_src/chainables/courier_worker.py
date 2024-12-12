@@ -51,9 +51,9 @@ def wait_until_alive(address: str, deadline_secs: float = 120):
 def _as_generator_task(
     task: GeneratorTask | base_types.Resolvable,
 ) -> GeneratorTask:
-  if isinstance(task, base_types.Resolvable):
-    return GeneratorTask.new(task)
-  return task
+  if isinstance(task, GeneratorTask):
+    return task
+  return GeneratorTask.new(task)
 
 
 MaybeDoneTasks = NamedTuple(

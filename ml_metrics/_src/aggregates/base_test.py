@@ -34,6 +34,25 @@ class AggregatesTest(absltest.TestCase):
     sum_fn = base.MergeableMetricAggFn(makeable_deferred_sum)
     self.assertEqual(6, sum_fn([1, 2, 3]))
 
+  def test_mergeable_aggregate_fn_from_makeable(self):
+
+    class MakeableSum(test_utils._SumMetric):
+
+      def make(self):
+        return self
+
+    sum_fn = base.MergeableMetricAggFn(MakeableSum())
+    self.assertEqual(6, sum_fn([1, 2, 3]))
+
+  def test_mergeable_aggregate_fn_eq(self):
+    sum_fn = base.MergeableMetricAggFn(lazy_fns.trace(test_utils._SumMetric)())
+    makeable_deferred_sum = lazy_fns.trace(test_utils._SumMetric)()
+    other_sum_fn = base.MergeableMetricAggFn(makeable_deferred_sum)
+    self.assertEqual(sum_fn, other_sum_fn)
+    makeable_deferred_sum = lazy_fns.trace(test_utils._SumMetric)(len)
+    other_sum_fn = base.MergeableMetricAggFn(makeable_deferred_sum)
+    self.assertNotEqual(sum_fn, other_sum_fn)
+
   def test_mergeable_aggregate_fn_unsupported_type(self):
     with self.assertRaisesRegex(TypeError, 'must be an instance of.+ got'):
       # disable pytype check for the runtime error to surface.

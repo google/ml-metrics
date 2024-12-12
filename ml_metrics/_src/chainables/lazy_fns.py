@@ -179,7 +179,7 @@ makeables = _Makers()
 def _maybe_make(
     maybe_lazy: base_types.MaybeResolvable[_T],
 ) -> base_types.MaybeResolvable[_T]:
-  if isinstance(maybe_lazy, base_types.Resolvable):
+  if base_types.is_resolvable(maybe_lazy):
     return maybe_lazy.result_()
   if maker := makeables[type(maybe_lazy)]:
     return maker(maybe_lazy)
@@ -230,10 +230,6 @@ def async_iterate_fn(fn):
       return outputs
 
   return wrapped_fun
-
-
-def normalize_kwargs(kwargs: Mapping[str, Hashable]):
-  return tuple(kwargs.items())
 
 
 @dc.dataclass(kw_only=True, frozen=True)
@@ -425,7 +421,7 @@ class LazyFn(LazyObject[_T]):
     return cls(
         value=value,
         args=tuple(args),
-        kwargs=normalize_kwargs(kwargs or {}),
+        kwargs=tuple((kwargs or {}).items()),
         _cache_result=cache_result,
         _lazy_result=lazy_result,
     )
@@ -452,12 +448,13 @@ class LazyFn(LazyObject[_T]):
       return hash(self.id)
 
   def __eq__(self, other: Self):
-    if self.id == other.id:
-      return True
-    return (
-        self.value == other.value
-        and self.args == other.args
-        and self.kwargs == other.kwargs
+    return isinstance(other, LazyFn) and (
+        self.id == other.id
+        or (
+            self.value == other.value
+            and self.args == other.args
+            and self.kwargs == other.kwargs
+        )
     )
 
   @_maybe_lru_cache(maxsize=128)
@@ -495,12 +492,6 @@ def object_info():
 def clear_object():
   """Returns the cache info for lazy_objects."""
   return LazyObject.result_.cache_clear()
-
-
-def is_resolvable(obj: Any):
-  return (
-      isinstance(obj, base_types.Resolvable) or makeables[type(obj)] is not None
-  )
 
 
 def trace(

@@ -136,7 +136,9 @@ class MergeableMetricAggFn(AggregateFn, Generic[_MetricT]):
 
   def __init__(self, metric_maker: _ResolvableOrMakeable[_MetricT]):
     super().__init__()
-    if not isinstance(metric_maker, (types.Resolvable, types.Makeable)):
+    if not (
+        types.is_resolvable(metric_maker) or types.is_makeable(metric_maker)
+    ):
       raise TypeError(
           'metric_maker must be an instance of Makeable or Resolvable. got'
           f' {type(metric_maker)}'
@@ -150,9 +152,13 @@ class MergeableMetricAggFn(AggregateFn, Generic[_MetricT]):
     )
 
   def create_state(self) -> _MetricT:
-    if isinstance(self.metric_maker, types.Resolvable):
-      return self.metric_maker.result_()
-    return self.metric_maker.make()
+    metric = self.metric_maker
+    if types.is_makeable(metric):
+      return metric.make()
+    elif types.is_resolvable(metric):
+      return metric.result_()
+    else:
+      raise TypeError(f'{type(metric)} is not a Makeable or Resolvable.')
 
   def update_state(self, state: _MetricT, *args, **kwargs) -> _MetricT:
     state.add(*args, **kwargs)
