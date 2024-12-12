@@ -96,6 +96,36 @@ class MathUtilsTest(parameterized.TestCase):
     ):
       math_utils.safe_to_scalar(arr)
 
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='partial_nans',
+          a=[1, 0],
+          b=[1, np.nan],
+          expected=[2, 0],
+      ),
+      dict(
+          testcase_name='both_nans',
+          a=[1, np.nan],
+          b=[1, np.nan],
+          expected=[2, np.nan],
+      ),
+      dict(
+          testcase_name='constant_broadcast',
+          a=[np.nan, 0],
+          b=3,
+          expected=[3, 3],
+      ),
+      dict(
+          testcase_name='nan_broadcast',
+          a=[1, 0],
+          b=np.nan,
+          expected=[1, 0],
+      ),
+  )
+  def test_nanadd(self, a, b, expected):
+    actual = math_utils.nanadd(a, b)
+    np.testing.assert_allclose(actual, expected)
+
 
 if __name__ == '__main__':
   absltest.main()

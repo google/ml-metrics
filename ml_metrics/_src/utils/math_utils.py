@@ -13,20 +13,18 @@
 # limitations under the License.
 """Math Utils."""
 
-from typing import Any
-
 from ml_metrics._src.aggregates import types
 import numpy as np
 
 
-def pos_sqrt(value):
+def pos_sqrt(value) -> types.NumbersT:
   """Returns sqrt of value or raises ValueError if negative."""
   if np.any(value < 0):
     raise ValueError('Attempt to take sqrt of negative value: {}'.format(value))
   return np.sqrt(value)
 
 
-def safe_divide(a, b):
+def safe_divide(a, b) -> types.NumbersT:
   """Divide arguments element-wise (a / b), but returns zero(s) if b is 0."""
   result = np.divide(
       a, b, out=np.zeros_like(a, dtype=types.DefaultDType), where=(b != 0)
@@ -35,7 +33,7 @@ def safe_divide(a, b):
   return result.item() if result.ndim == 0 else result
 
 
-def safe_to_scalar(arr: tuple[Any] | list[Any] | np.ndarray) -> Any:  # pylint: disable=g-one-element-tuple
+def safe_to_scalar(arr: types.NumbersT) -> types.NumbersT:
   """Returns tuple, list, or np.ndarray as a scalar. Returns 0.0 if empty.
 
   Originally from tensorflow_model_analysis/metrics/metric_util.py
@@ -65,3 +63,10 @@ def safe_to_scalar(arr: tuple[Any] | list[Any] | np.ndarray) -> Any:  # pylint: 
 
   # >1 element.
   raise ValueError('Array should have exactly 1 value to a Python scalar')
+
+
+def nanadd(a: types.NumbersT, b: types.NumbersT) -> types.NumbersT:
+  """Returns element-wise a + b, but ignores NaN as 0 unless both are NaN."""
+  a_nan, b_nan = np.isnan(a), np.isnan(b)
+  result = np.where(a_nan, 0, a) + np.where(b_nan, 0, b)
+  return np.where(a_nan & b_nan, np.nan, result)
