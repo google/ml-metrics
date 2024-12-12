@@ -182,12 +182,13 @@ def get_expected_mean_and_variance(batches, batch_score_fn=None):
   if batch_score_fn is not None:
     batches = [batch_score_fn(batch) for batch in batches]
   batches = np.asarray(batches)
-  batch = np.asarray(batches).reshape(-1, *batches.shape[2:])
+  batch = batches.reshape(-1, *batches.shape[2:])
   return rolling_stats.MeanAndVariance(
       batch_score_fn=batch_score_fn,
       _mean=np.nanmean(batch, axis=0),
       _var=np.nanvar(batch, axis=0),
       _count=np.nansum(~np.isnan(batch), axis=0),
+      _input_shape=batches.shape[1:] if batch.size else (),
   )
 
 
@@ -588,10 +589,27 @@ class MeanAndVarianceTest(parameterized.TestCase):
     got = dataclasses.asdict(got)
     self.assertEqual(expected.keys(), got.keys())
     for key, value in expected.items():
-      if key == 'batch_score_fn':
-        self.assertAlmostEqual(value, got[key])
-      else:
-        np.testing.assert_allclose(value, got[key])
+      try:
+        if key == 'batch_score_fn':
+          self.assertAlmostEqual(value, got[key])
+        elif key == '_input_shape':
+          np.testing.assert_array_equal(value[1:], got[key][1:])
+        else:
+          np.testing.assert_allclose(value, got[key])
+      except AssertionError:
+        self.fail(f'Failed to assert {key}: {value} == {got[key]}')
+
+  def test_mean_normal(self):
+    # This only tests that Mean().get_result() returns the mean value directly.
+    state = rolling_stats.Mean().add([1, 2, 3])
+    self.assertEqual(2, state.result())
+    self.assertEqual('mean: 2.0', str(state))
+
+  def test_var_normal(self):
+    # This only tests that Var().get_result() returns the variance directly.
+    state = rolling_stats.Var().add([1, 1, 1])
+    self.assertEqual(0, state.result())
+    self.assertEqual('var: 0.0', str(state))
 
   @parameterized.named_parameters([
       dict(
@@ -685,7 +703,6 @@ class MeanAndVarianceTest(parameterized.TestCase):
     ]
     state = rolling_stats.MeanAndVariance(batch_score_fn=batch_score_fn)
     state.add(batch)
-
     expected_state = get_expected_mean_and_variance([batch], batch_score_fn)
     self.assertDataclassAlmostEqual(expected_state, state)
 
@@ -719,6 +736,21 @@ class MeanAndVarianceTest(parameterized.TestCase):
     expected_state = get_expected_mean_and_variance(batches)
     self.assertDataclassAlmostEqual(expected_state, state)
 
+  def test_mean_and_variance_add_with_incompatible_shape(self):
+    batch = np.array([[1, 2], [2, 3]])
+    state = rolling_stats.MeanAndVariance()
+    state.add(batch)
+    with self.assertRaisesRegex(ValueError, 'Incompatible shape'):
+      state.add(np.array([1, 2]))
+
+  def test_mean_and_variance_merge_with_incompatible_shape(self):
+    batch1 = np.array([[1, 2], [2, 3]])
+    batch2 = np.array([1, 2])
+    state1 = rolling_stats.MeanAndVariance().add(batch1)
+    state2 = rolling_stats.MeanAndVariance().add(batch2)
+    with self.assertRaisesRegex(ValueError, 'Incompatible shape'):
+      state1.merge(state2)
+
   @parameterized.named_parameters([
       dict(
           testcase_name='all_nan',
@@ -737,39 +769,29 @@ class MeanAndVarianceTest(parameterized.TestCase):
     expected_state = get_expected_mean_and_variance(batch)
     self.assertDataclassAlmostEqual(expected_state, state)
 
-  def test_mean_and_variance_invalid_batch_score_fn(self):
-    batch = [1, 2, 3]
-    state = rolling_stats.MeanAndVariance(batch_score_fn=lambda x: [0])
-    with self.assertRaisesRegex(
-        ValueError,
-        'The `batch_score_fn` must return a series of the same length as the'
-        ' `batch`.',
-    ):
-      state.add(batch)
-
   @parameterized.named_parameters([
       dict(
-          testcase_name='merge_nonempty_states',
+          testcase_name='nonempty_states',
           is_self_empty=False,
           is_other_empty=False,
       ),
       dict(
-          testcase_name='merge_nonempty_with_empty_state',
+          testcase_name='nonempty_with_empty_state',
           is_self_empty=False,
           is_other_empty=True,
       ),
       dict(
-          testcase_name='merge_empty_with_nonempty_state',
+          testcase_name='empty_with_nonempty_state',
           is_self_empty=True,
           is_other_empty=False,
       ),
       dict(
-          testcase_name='merge_empty_states',
+          testcase_name='empty_states',
           is_self_empty=True,
           is_other_empty=True,
       ),
       dict(
-          testcase_name='merge_nonempty_multi_dim_states',
+          testcase_name='nonempty_multi_dim_states',
           is_self_empty=True,
           is_other_empty=True,
           num_dimension=10,
@@ -792,7 +814,7 @@ class MeanAndVarianceTest(parameterized.TestCase):
     self_state.merge(other_state)
 
     expected_state = get_expected_mean_and_variance(
-        np.append(self_batch, other_batch)
+        np.append(self_batch, other_batch, axis=0)
     )
     self.assertDataclassAlmostEqual(expected_state, self_state)
 

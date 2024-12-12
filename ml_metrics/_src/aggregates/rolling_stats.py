@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Common statistics aggregations."""
+from __future__ import annotations
 
 import abc
 import collections
@@ -227,7 +228,7 @@ class Histogram(base.MergeableMetric):
 
 
 @dataclasses.dataclass(kw_only=True, eq=True)
-class MeanAndVariance(base.MergeableMetric, base.CallableMetric):
+class Mean(base.MergeableMetric, base.CallableMetric):
   """Computes the mean and variance of a batch of values."""
 
   # TODO(b/345249574): (1) Introduce StatsEnum to indicate the metrics to be
@@ -236,7 +237,7 @@ class MeanAndVariance(base.MergeableMetric, base.CallableMetric):
   batch_score_fn: Callable[..., types.NumbersT] | None = None
   _count: types.NumbersT = 0
   _mean: types.NumbersT = np.nan
-  _var: types.NumbersT = np.nan
+  _input_shape: tuple[int, ...] = ()
 
   def as_agg_fn(
       self,
@@ -248,6 +249,16 @@ class MeanAndVariance(base.MergeableMetric, base.CallableMetric):
         batch_score_fn=self.batch_score_fn if not nested else None,
         nested=nested,
         agg_preprocess_fn=self.batch_score_fn if nested else None,
+    )
+
+  def _process(self, batch: types.NumbersT) -> types.NumbersT:
+    batch = np.asarray(
+        self.batch_score_fn(batch) if self.batch_score_fn else batch
+    )
+    return self.__class__(
+        _count=np.sum(~np.isnan(batch), axis=0),
+        _mean=np.nanmean(batch, axis=0),
+        _input_shape=batch.shape if batch.size else (),
     )
 
   def add(self, batch: types.NumbersT) -> Self:
@@ -263,43 +274,16 @@ class MeanAndVariance(base.MergeableMetric, base.CallableMetric):
       batch: A non-vacant series of values.
 
     Returns:
-      MeanAndVariance
+      Mean
 
     Raise:
       ValueError:
         If `batch_score_fn` is provided and the returned series is not the same
         length as the `batch`.
     """
-
-    if np.all(self.count == 0):
-      # This assumes the first dimension is the batch dimension.
-      if self.batch_score_fn is not None:
-        org_batch_size = len(batch)
-        batch = self.batch_score_fn(batch)
-        if len(batch) != org_batch_size:
-          raise ValueError(
-              'The `batch_score_fn` must return a series of the same length as'
-              ' the `batch`.'
-          )
-
-      # Sufficient statistics for mean, variance and standard deviation.
-      self._count = np.nansum(~np.isnan(batch), axis=0)
-      self._mean = np.nanmean(batch, axis=0)
-      self._var = np.nanvar(batch, axis=0)
-      return self.result()
-
-    batch_state = MeanAndVariance(batch_score_fn=self.batch_score_fn)
-    batch_state.add(batch)
-    self.merge(batch_state)
-    return batch_state.result()
-
-  @property
-  def var(self) -> types.NumbersT:
-    return self._var
-
-  @property
-  def stddev(self) -> types.NumbersT:
-    return np.sqrt(self._var)
+    batch_result = self._process(batch)
+    self.merge(batch_result)
+    return batch_result
 
   @property
   def mean(self) -> types.NumbersT:
@@ -315,36 +299,78 @@ class MeanAndVariance(base.MergeableMetric, base.CallableMetric):
         self._count == 0, np.zeros_like(self._mean), self._mean * self._count
     )
 
-  def merge(self, other: 'MeanAndVariance'):
-    if np.all(other.count == 0):
-      return
+  @property
+  def input_shape(self) -> tuple[int, ...]:
+    return self._input_shape
 
-    # When self count is zero and other's count is not zero, we copy the state
-    # from other. The values and and shape of the states will be from other.
-    if np.all(self.count == 0):
-      self._count = other.count
-      self._mean = other.mean
-      self._var = other.var
+  def merge(self, other: Mean):
+    if np.all(np.isnan(other.mean)):
       return
-
-    prev_mean, prev_count = np.copy(self._mean), np.copy(self._count)
+    self._input_shape = self._input_shape or other.input_shape
+    if other.input_shape and other.input_shape[1:] != self._input_shape[1:]:
+      raise ValueError(
+          f'Incompatible shape {other.input_shape} while the'
+          f' other have shape {self._input_shape}.'
+      )
     self._count += other.count
-    self._mean += (other.mean - prev_mean) * math_utils.safe_divide(
-        other.count, self._count
+    mean_diff = math_utils.nanadd(other.mean, -self._mean)
+    update = mean_diff * math_utils.safe_divide(other.count, self._count)
+    self._mean = math_utils.nanadd(self._mean, update)
+
+  def result(self) -> Self:
+    return self.mean
+
+  def __str__(self):
+    return f'mean: {self.mean}'
+
+
+@dataclasses.dataclass(kw_only=True, eq=True)
+class MeanAndVariance(Mean):
+  """Computes the mean and variance of a batch of values."""
+
+  _var: types.NumbersT = np.nan
+
+  def _process(self, batch: types.NumbersT) -> types.NumbersT:
+    batch = np.asarray(
+        self.batch_score_fn(batch) if self.batch_score_fn else batch
+    )
+    return self.__class__(
+        _count=np.sum(~np.isnan(batch), axis=0),
+        _mean=np.nanmean(batch, axis=0),
+        _var=np.nanvar(batch, axis=0),
+        _input_shape=batch.shape if batch.size else (),
     )
 
+  @property
+  def var(self) -> types.NumbersT:
+    return self._var
+
+  @property
+  def stddev(self) -> types.NumbersT:
+    return np.sqrt(self._var)
+
+  def merge(self, other: MeanAndVariance):
+    if np.all(np.isnan(other.var)):
+      return
+    prev_mean, prev_count = np.copy(self._mean), np.copy(self._count)
+    super().merge(other)
+    if np.all(np.isnan(self._var)):
+      self._var = other.var
+      return
     # Reference
     # (https://math.stackexchange.com/questions/2971315/how-do-i-combine-standard-deviations-of-two-groups)
     prev_count_ratio = math_utils.safe_divide(prev_count, self._count)
     other_count_ratio = math_utils.safe_divide(other.count, self._count)
+    delta_mean = math_utils.nanadd(self._mean, -prev_mean)
+    mean_diff = math_utils.nanadd(other.mean, -self._mean)
     self._var = (
         prev_count_ratio * self._var
         + other_count_ratio * other.var
-        + prev_count_ratio * (prev_mean - self._mean) ** 2
-        + other_count_ratio * (other.mean - self._mean) ** 2
+        + prev_count_ratio * delta_mean**2
+        + other_count_ratio * mean_diff**2
     )
 
-  def result(self) -> 'MeanAndVariance':
+  def result(self) -> types.NumbersT:
     return self
 
   def __str__(self):
@@ -352,6 +378,15 @@ class MeanAndVariance(base.MergeableMetric, base.CallableMetric):
         f'count: {self.count}, total: {self.total}, mean: {self.mean}, '
         f'var: {self.var}, stddev: {self.stddev}'
     )
+
+
+class Var(MeanAndVariance):
+
+  def result(self) -> types.NumbersT:
+    return self.var
+
+  def __str__(self):
+    return f'var: {self.var}'
 
 
 def MeanAndVarianceAggFn(*args, **kwargs):  # pylint: disable=invalid-name
