@@ -41,6 +41,20 @@ class Resolvable(Protocol[_T]):
 MaybeResolvable = Resolvable[_T] | _T
 
 
+def is_resolvable(obj: Any) -> bool:
+  """Checks if the object is a Resolvable."""
+  result_ = getattr(obj, 'result_', None)
+  # Also distinguish between classmethod or instance method.
+  return result_ and getattr(result_, '__self__', None) is obj
+
+
+def is_makeable(obj: Any) -> bool:
+  """Checks if the object is a Makeable."""
+  make = getattr(obj, 'make', None)
+  # Also distinguish between classmethod or instance method.
+  return make and getattr(make, '__self__', None) is obj
+
+
 def is_array_like(obj: list[Any] | tuple[Any, ...] | npt.ArrayLike) -> bool:
   """Checks if the object is an array-like object."""
   return isinstance(obj, (list, tuple)) or (
