@@ -121,10 +121,28 @@ class MathUtilsTest(parameterized.TestCase):
           b=np.nan,
           expected=[1, 0],
       ),
+      dict(
+          testcase_name='scalar',
+          a=1,
+          b=np.nan,
+          expected=1,
+      ),
+      dict(
+          testcase_name='scalar_nans',
+          a=np.nan,
+          b=np.nan,
+          expected=np.nan,
+      ),
   )
   def test_nanadd(self, a, b, expected):
     actual = math_utils.nanadd(a, b)
     np.testing.assert_allclose(actual, expected)
+
+  def test_where(self):
+    self.assertEqual(1, math_utils.where(True, 1, 0))
+    self.assertEqual([0, 1], math_utils.where(False, 1, [0, 1]))
+    actual = math_utils.where([True, False], [1, 1], [0, 0])
+    np.testing.assert_array_equal([1, 0], actual)
 
 
 if __name__ == '__main__':
