@@ -295,9 +295,7 @@ class Mean(base.MergeableMetric, base.CallableMetric):
 
   @property
   def total(self) -> types.NumbersT:
-    return np.where(
-        self._count == 0, np.zeros_like(self._mean), self._mean * self._count
-    )
+    return math_utils.where(self._count > 0, self._mean * self._count, 0)
 
   @property
   def input_shape(self) -> tuple[int, ...]:

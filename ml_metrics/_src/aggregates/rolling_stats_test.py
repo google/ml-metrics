@@ -602,13 +602,25 @@ class MeanAndVarianceTest(parameterized.TestCase):
   def test_mean_normal(self):
     # This only tests that Mean().get_result() returns the mean value directly.
     state = rolling_stats.Mean().add([1, 2, 3])
-    self.assertEqual(2, state.result())
-    self.assertEqual('mean: 2.0', str(state))
+    self.assertIsInstance(state.result(), float)
+    self.assertEqual(2.0, state.result())
+    state.add([4, 5, 6])
+    result = state.result()
+    self.assertIsInstance(result, float)
+    self.assertIsInstance(state.count, np.int64)
+    self.assertIsInstance(state.total, float)
+    self.assertEqual(3.5, result)
+    self.assertEqual('mean: 3.5', str(state))
 
   def test_var_normal(self):
     # This only tests that Var().get_result() returns the variance directly.
     state = rolling_stats.Var().add([1, 1, 1])
+    self.assertIsInstance(state.result(), float)
     self.assertEqual(0, state.result())
+    state.add([1, 1, 1])
+    result = state.result()
+    self.assertIsInstance(result, float)
+    self.assertEqual(0, result)
     self.assertEqual('var: 0.0', str(state))
 
   @parameterized.named_parameters([
@@ -878,7 +890,7 @@ class MeanAndVarianceTest(parameterized.TestCase):
       dict(
           testcase_name='empty_batch',
           batch=[],
-          expected_str='count: 0, total: 0.0, mean: nan, var: nan, stddev: nan',
+          expected_str='count: 0, total: 0, mean: nan, var: nan, stddev: nan',
       ),
   ])
   def test_mean_and_variance_string_representation(self, batch, expected_str):
