@@ -199,6 +199,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
         compress: bool = False,
         ignore_result: bool = False,
     ):
+      self._last_heartbeat = time.time()
       try:
         # ignore_result still honors other arguements compress and
         # return_exception where optionally compress the result (None) and
@@ -386,6 +387,7 @@ class PrefetchedCourierServer(CourierServer):
     """Set up (e.g. binding to methods) at server build time."""
 
     def pickled_init_iterator(maybe_lazy):
+      self._last_heartbeat = time.time()
       result = lazy_fns.maybe_make(maybe_lazy)
       if not isinstance(result, Iterable):
         raise TypeError(
@@ -414,6 +416,7 @@ class PrefetchedCourierServer(CourierServer):
         self._shutdown_lock.notify_all()
 
     def _next_batch_from_iterator(batch_size: int = 0) -> list[Any]:
+      self._last_heartbeat = time.time()
       if self._generator is None:
         raise RuntimeError(
             'Generator is not set, the worker might be killed previously, the'
@@ -424,6 +427,9 @@ class PrefetchedCourierServer(CourierServer):
       result = []
       try:
         result = self._generator.get_batch(batch_size, block=True)
+        with self._tx_stats_lock:
+          ticker, bytes_sent, num_txs = self._tx_stats
+          self._tx_stats = (ticker, bytes_sent + len(result), num_txs + 1)
       except Exception as e:  # pylint: disable=broad-exception-caught
         if not iter_utils.is_stop_iteration(e):
           logging.exception('chainable: exception when flushing generator.')
