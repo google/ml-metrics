@@ -19,7 +19,6 @@ from ml_metrics._src.metrics.rolling_stats import count
 from ml_metrics._src.metrics.rolling_stats import Mean
 from ml_metrics._src.metrics.rolling_stats import mean
 from ml_metrics._src.metrics.rolling_stats import MeanAndVariance
-from ml_metrics._src.metrics.rolling_stats import MeanAndVarianceAggFn
 from ml_metrics._src.metrics.rolling_stats import stddev
 from ml_metrics._src.metrics.rolling_stats import total
 from ml_metrics._src.metrics.rolling_stats import Var

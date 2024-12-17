@@ -20,7 +20,6 @@ from ml_metrics._src.aggregates import types
 MeanAndVariance = rolling_stats.MeanAndVariance
 Mean = rolling_stats.Mean
 Var = rolling_stats.Var
-MeanAndVarianceAggFn = rolling_stats.MeanAndVarianceAggFn
 
 
 _METRIC_PYDOC_POSTFIX = """

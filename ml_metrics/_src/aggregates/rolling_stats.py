@@ -387,11 +387,6 @@ class Var(MeanAndVariance):
     return f'var: {self.var}'
 
 
-def MeanAndVarianceAggFn(*args, **kwargs):  # pylint: disable=invalid-name
-  """AggFn wrapper of the MeanAndVariance."""
-  return MeanAndVariance(*args, **kwargs).as_agg_fn()
-
-
 # TODO(b/345249574): Add a preprocessing function of len per row.
 @dataclasses.dataclass(slots=True)
 class MinMaxAndCount(base.MergeableMetric):

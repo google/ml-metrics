@@ -864,7 +864,7 @@ class MeanAndVarianceTest(parameterized.TestCase):
       np.testing.assert_allclose(getattr(state.result(), property_name), value)
 
   def test_mean_and_variance_agg_fn(self):
-    agg_fn = rolling_stats.MeanAndVarianceAggFn()
+    agg_fn = rolling_stats.MeanAndVariance().as_agg_fn()
     batches = np.arange(3)
     actual = agg_fn(batches)
     self.assertDataclassAlmostEqual(
