@@ -18,7 +18,6 @@
 from ml_metrics import aggregates
 from ml_metrics import chainable
 from ml_metrics import signals
-from ml_metrics import types
 from ml_metrics.metrics import classification
 from ml_metrics.metrics import retrieval
 from ml_metrics.metrics import rolling_stats
