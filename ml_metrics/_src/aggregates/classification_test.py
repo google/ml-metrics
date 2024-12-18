@@ -538,21 +538,21 @@ class ClassificationTest(parameterized.TestCase):
 
   def test_confusion_matrix_metric_invalid_average_type(self):
     confusion_matrix = classification.ConfusionMatrixAggFn(
-        metrics=(ConfusionMatrixMetric.PRECISION,),
-        average=AverageType.WEIGHTED,
+        metrics="precision",
+        average="weighted",
     )
     with self.assertRaisesRegex(
         NotImplementedError, '"weighted" average is not supported'
     ):
       confusion_matrix([0, 1, 0], [1, 0, 0])
 
-  def test_topk_confusion_matrix_invalid_input_type(self):
+  def test_topk_confusion_matrix_invalidinput_type(self):
     with self.assertRaisesRegex(ValueError, '"binary" input is not supported'):
-      classification.TopKConfusionMatrixAggFn(input_type=InputType.BINARY)
+      classification.TopKConfusionMatrixAggFn(input_type="binary")
 
   def test_confusion_matrix_metric_invalid_metric(self):
     confusion_matrix = classification.ConfusionMatrixAggFn(
-        metrics=(ConfusionMatrixMetric.MEAN_AVERAGE_PRECISION,),
+        metrics="mean_average_precision"
     )
     with self.assertRaisesRegex(NotImplementedError, "metric is not supported"):
       confusion_matrix([0, 1, 0], [1, 0, 0])
@@ -774,7 +774,7 @@ class ClassificationTest(parameterized.TestCase):
     self.assertEqual(3, cm.p)
     self.assertEqual(4, cm.t)
 
-  def test_confusion_matrix_invalid_input_type(self):
+  def test_confusion_matrix_invalidinput_type(self):
     y_pred = [1, 0, 1, 0, 1, 0, 0]
     y_true = [1, 1, 0, 0, 1, 0, 1]
     confusion_matrix = classification.ConfusionMatrixAggFn(
@@ -783,7 +783,7 @@ class ClassificationTest(parameterized.TestCase):
     with self.assertRaisesRegex(NotImplementedError, "is not supported"):
       confusion_matrix(y_true, y_pred)
 
-  def test_samplewise_confusion_matrix_invalid_input_type(self):
+  def test_samplewise_confusion_matrix_invalidinput_type(self):
     y_pred = [1, 0, 1, 0, 1, 0, 0]
     y_true = [1, 1, 0, 0, 1, 0, 1]
     confusion_matrix = classification.SamplewiseClassification(
