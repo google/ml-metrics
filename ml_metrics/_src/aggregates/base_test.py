@@ -59,10 +59,7 @@ class AggregatesTest(absltest.TestCase):
       _ = base.MergeableMetricAggFn(test_utils._SumMetric())  # pytype: disable=wrong-arg-types
 
   def test_metric_callable(self):
-    class Sum(test_utils._SumMetric, base.CallableMetric):
-      pass
-
-    sum_fn = Sum()
+    sum_fn = test_utils._SumMetric()
     self.assertEqual(6, sum_fn([1, 2, 3]))
 
 

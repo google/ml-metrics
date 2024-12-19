@@ -12,20 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """test_utils."""
+from ml_metrics._src.aggregates import base
 
 
-class _SumMetric:
+class _SumMetric(base.CallableMetric):
   """Mock Metric for test."""
 
-  def __init__(self):
-    self._state = 0
+  def __init__(self, state=0):
+    self._state = state
 
   @property
   def state(self):
     return self._state
 
-  def add(self, x):
-    self._state += sum(x)
+  def process(self, x):
+    return _SumMetric(state=sum(x))
+
+  # def add(self, x):
+  #   self._state += sum(x)
 
   def merge(self, other):
     self._state += other.state

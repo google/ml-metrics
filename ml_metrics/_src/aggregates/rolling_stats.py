@@ -151,8 +151,8 @@ HistogramResult = collections.namedtuple(
 )
 
 
-@dataclasses.dataclass(slots=True)
-class Histogram(base.MergeableMetric):
+@dataclasses.dataclass(slots=True, kw_only=True)
+class Histogram(base.CallableMetric):
   """Computes the Histogram of the inputs.
 
   Attributes:
@@ -166,13 +166,17 @@ class Histogram(base.MergeableMetric):
 
   range: tuple[float, float]
   bins: int = 10
-  _hist: np.ndarray = dataclasses.field(init=False)
-  _bin_edges: np.ndarray = dataclasses.field(init=False)
+  _hist: np.ndarray = dataclasses.field(default_factory=lambda: np.empty(0))
+  _bin_edges: np.ndarray = dataclasses.field(
+      default_factory=lambda: np.empty(0)
+  )
 
   def __post_init__(self):
-    self._hist, self._bin_edges = np.histogram(
-        a=(), bins=self.bins, range=self.range
-    )
+    if not self._hist.size and not self._bin_edges.size:
+      self._hist, self._bin_edges = np.histogram(
+          a=(), bins=self.bins, range=self.range
+      )
+      return
 
   @property
   def hist(self) -> np.ndarray:
@@ -182,9 +186,25 @@ class Histogram(base.MergeableMetric):
   def bin_edges(self) -> np.ndarray:
     return self._bin_edges
 
-  def _merge(self, hist: np.ndarray, bin_edges: np.ndarray) -> 'Histogram':
-    if not np.array_equal(bin_edges, self._bin_edges):
+  def process(
+      self, inputs: types.NumbersT, weights: types.NumbersT | None = None
+  ) -> Histogram:
+    new_histogram, new_bin_edges = np.histogram(
+        inputs,
+        bins=self.bins,
+        range=self.range,
+        weights=weights,
+    )
+    return self.__class__(
+        range=self.range,
+        bins=self.bins,
+        _hist=new_histogram,
+        _bin_edges=new_bin_edges,
+    )
 
+  def merge(self, other: Self) -> Self:
+    hist, bin_edges = other.hist, other.bin_edges
+    if not np.array_equal(bin_edges, self._bin_edges):
       # Self hist and new hist have different bin edges.
       if self._bin_edges.shape == bin_edges.shape:
         # Self hist and new hist have the same shape of bin edges.
@@ -194,7 +214,6 @@ class Histogram(base.MergeableMetric):
             ' which have different elements at indices'
             f' {np.where(self._bin_edges != bin_edges)}.'
         )
-
       else:
         # Self hist and new hist have different shapes of bin edges.
         raise ValueError(
@@ -203,23 +222,8 @@ class Histogram(base.MergeableMetric):
             f' which have shapes {self._bin_edges.shape} and {bin_edges.shape},'
             ' respectively.'
         )
-
     self._hist = self._hist + hist
     return self
-
-  def add(
-      self, inputs: types.NumbersT, weights: types.NumbersT | None = None
-  ) -> 'Histogram':
-    new_histogram, new_bin_edges = np.histogram(
-        inputs,
-        bins=self.bins,
-        range=self.range,
-        weights=weights,
-    )
-    return self._merge(new_histogram, new_bin_edges)
-
-  def merge(self, other: 'Histogram') -> 'Histogram':
-    return self._merge(other.hist, other.bin_edges)
 
   def result(self) -> HistogramResult:
     return HistogramResult(
@@ -228,7 +232,7 @@ class Histogram(base.MergeableMetric):
 
 
 @dataclasses.dataclass(kw_only=True, eq=True)
-class Mean(base.MergeableMetric, base.CallableMetric):
+class Mean(base.CallableMetric):
   """Computes the mean and variance of a batch of values."""
 
   # TODO(b/345249574): (1) Introduce StatsEnum to indicate the metrics to be
@@ -251,18 +255,8 @@ class Mean(base.MergeableMetric, base.CallableMetric):
         agg_preprocess_fn=self.batch_score_fn if nested else None,
     )
 
-  def _process(self, batch: types.NumbersT) -> types.NumbersT:
-    batch = np.asarray(
-        self.batch_score_fn(batch) if self.batch_score_fn else batch
-    )
-    return self.__class__(
-        _count=np.sum(~np.isnan(batch), axis=0),
-        _mean=np.nanmean(batch, axis=0),
-        _input_shape=batch.shape if batch.size else (),
-    )
-
-  def add(self, batch: types.NumbersT) -> Self:
-    """Update the statistics with the given batch.
+  def process(self, batch: types.NumbersT) -> types.NumbersT:
+    """Computes the suffient statistics of a batch of values.
 
     If `batch_score_fn` is provided, it will evaluate the batch and assign a
     score to each item. Subsequently, the statistics are computed based on
@@ -275,15 +269,15 @@ class Mean(base.MergeableMetric, base.CallableMetric):
 
     Returns:
       Mean
-
-    Raise:
-      ValueError:
-        If `batch_score_fn` is provided and the returned series is not the same
-        length as the `batch`.
     """
-    batch_result = self._process(batch)
-    self.merge(batch_result)
-    return batch_result
+    batch = np.asarray(
+        self.batch_score_fn(batch) if self.batch_score_fn else batch
+    )
+    return self.__class__(
+        _count=np.sum(~np.isnan(batch), axis=0),
+        _mean=np.nanmean(batch, axis=0),
+        _input_shape=batch.shape if batch.size else (),
+    )
 
   @property
   def mean(self) -> types.NumbersT:
@@ -328,7 +322,7 @@ class MeanAndVariance(Mean):
 
   _var: types.NumbersT = np.nan
 
-  def _process(self, batch: types.NumbersT) -> types.NumbersT:
+  def process(self, batch: types.NumbersT) -> types.NumbersT:
     batch = np.asarray(
         self.batch_score_fn(batch) if self.batch_score_fn else batch
     )

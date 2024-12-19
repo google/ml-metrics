@@ -42,14 +42,6 @@ class Metric(Protocol):
 _MetricT = TypeVar('_MetricT', bound=Metric)
 
 
-class CallableMetric(Metric, Callable[..., Any]):
-  """A metric that is also callable."""
-
-  def __call__(self, *args, **kwargs):
-    self.add(*args, **kwargs)
-    return self.result()
-
-
 def as_agg_fn(
     cls: Callable[..., _MetricT],
     *args,
@@ -76,6 +68,30 @@ class MergeableMetric(Metric, Protocol):
   @abc.abstractmethod
   def merge(self, other: Self):
     """Merges the metric with another metric of the same type."""
+
+
+class CallableMetric(MergeableMetric, Callable[..., Any]):
+  """A metric that is also callable.
+
+  The CallableMetric is the recommended interface to implement a metric that
+  supports both calculating batch result (`process`) and merging batch results
+  (`merge`). A default `add` method is provided, but should be overwritten if
+  the `merge` method is not applicable for `add`.
+  """
+
+  @abc.abstractmethod
+  def process(self, *args, **kwargs) -> Self:
+    """Calculate the suffient statistics, should be idemponent."""
+
+  def add(self, *args, **kwargs):
+    """Updates the sufficient statistics with a batch of inputs."""
+    batch_result = self.process(*args, **kwargs)
+    self.merge(batch_result)
+    return batch_result
+
+  def __call__(self, *args, **kwargs):
+    """Calculates the result from the sufficient statistics."""
+    return self.process(*args, **kwargs).result()
 
 
 @runtime_checkable

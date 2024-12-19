@@ -71,12 +71,10 @@ class HistogramTest(parameterized.TestCase):
     input_1 = (0, 1, 0, 1, 1, 1, 0, 1)
     input_2 = (0.2, 0.8, 0.5, -0.1, 0.5, 0.8, 0.2, 1.1)
 
-    actual_result = (
-        rolling_stats.Histogram(range=bin_range, bins=bins)
-        .add(input_1)
-        .add(input_2)
-        .result()
-    )
+    histogram = rolling_stats.Histogram(range=bin_range, bins=bins)
+    histogram.add(input_1)
+    histogram.add(input_2)
+    actual = histogram.result()
 
     expected_histogram = (
         # Input values in each bin:
@@ -88,10 +86,8 @@ class HistogramTest(parameterized.TestCase):
     )
     expected_bin_edges = (0, 0.2, 0.4, 0.6, 0.8, 1)
 
-    np.testing.assert_equal(actual_result.hist, expected_histogram)
-    np.testing.assert_allclose(
-        actual_result.bin_edges, expected_bin_edges
-    )
+    np.testing.assert_equal(actual.hist, expected_histogram)
+    np.testing.assert_allclose(actual.bin_edges, expected_bin_edges)
 
   def test_histogram_one_large_batch(self):
     np.random.seed(seed=0)
@@ -167,15 +163,19 @@ class HistogramTest(parameterized.TestCase):
     place_holder_range = (0, 1)
     place_holder_hist = np.array((1, 1, 1, 1))
 
-    hist_1 = rolling_stats.Histogram(place_holder_range)
-    hist_1._hist = place_holder_hist
-    hist_1._bin_edges = np.array(bin_edges_1)
+    hist_1 = rolling_stats.Histogram(
+        range=place_holder_range,
+        bins=4,
+        _hist=place_holder_hist,
+        _bin_edges=np.array(bin_edges_1),
+    )
 
+    hist_2 = dataclasses.replace(hist_1, _bin_edges=np.array(bin_edges_2))
     with self.assertRaisesRegex(
         ValueError,
         'The bin edges of the two Histograms must be equal, but recieved'
     ):
-      hist_1._merge(place_holder_hist, np.array(bin_edges_2))
+      hist_1.merge(hist_2)
 
 
 def get_expected_mean_and_variance(batches, batch_score_fn=None):
