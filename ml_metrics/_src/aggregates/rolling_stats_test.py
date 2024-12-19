@@ -17,6 +17,7 @@ import math
 from absl.testing import parameterized
 from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.utils import test_utils
+import more_itertools as mit
 import numpy as np
 
 from absl.testing import absltest
@@ -195,16 +196,11 @@ def get_expected_mean_and_variance(batches, batch_score_fn=None):
 class FixedSizeSampleTest(parameterized.TestCase):
   def _assert_fixed_size_samples_equal(self, actual, expected):
     self.assertEqual(actual.max_size, expected.max_size)
-    self.assertEqual(actual._random_seed, expected._random_seed)
+    self.assertEqual(actual.seed, expected.seed)
     self.assertSameElements(actual._reservoir, expected._reservoir)
     self.assertEqual(
         actual._num_samples_reviewed, expected._num_samples_reviewed
     )
-
-  def _batch_data(self, data, batch_size):
-    """Splits data into batches of equal length."""
-    for i in range(0, len(data), batch_size):
-      yield data[i : i + batch_size]
 
   @parameterized.named_parameters(
       dict(
@@ -273,49 +269,54 @@ class FixedSizeSampleTest(parameterized.TestCase):
   ):
     original = rolling_stats.FixedSizeSample(
         max_size=5,
-        _random_seed=0,
+        seed=0,
         _reservoir=reservoir_original,
         _num_samples_reviewed=num_samples_original,
     )
     other = rolling_stats.FixedSizeSample(
         max_size=5,
+        seed=0,
         _reservoir=reservoir_other,
         _num_samples_reviewed=num_samples_other,
     )
-
-    expected_result = rolling_stats.FixedSizeSample(
+    original.merge(other)
+    expected = rolling_stats.FixedSizeSample(
         max_size=5,
-        _random_seed=0,
+        seed=0,
         _reservoir=expected_reservoir,
         _num_samples_reviewed=expected_num_samples_reviewed,
     )
-
-    self._assert_fixed_size_samples_equal(
-        original.merge(other), expected_result
-    )
+    self._assert_fixed_size_samples_equal(expected, original)
 
   def test_fixed_size_sample_merge_different_max_sizes(self):
-    max_size_1 = 5
-    max_size_2 = 10
-
     res_1 = [1, 2, 3, 4, 5]
     res_2 = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-
-    original = rolling_stats.FixedSizeSample(
-        max_size=max_size_1,
-        _random_seed=0,
+    sampler = rolling_stats.FixedSizeSample(
+        max_size=5,
+        seed=0,
         _reservoir=res_1,
         _num_samples_reviewed=10,
     )
     other = rolling_stats.FixedSizeSample(
-        max_size=max_size_2, _reservoir=res_2, _num_samples_reviewed=10
+        max_size=10, seed=0, _reservoir=res_2, _num_samples_reviewed=10
     )
-
-    original.merge(other)
-
+    sampler.merge(other)
     expected_result = (2, 1, 70, 100, 60)
+    np.testing.assert_array_equal(sampler.result(), expected_result)
 
-    np.testing.assert_array_equal(original.result(), expected_result)
+  def test_fixed_size_sample_merge_smaller_samples_than_max_size(self):
+    sampler = rolling_stats.FixedSizeSample(
+        max_size=5,
+        seed=0,
+        _reservoir=[1, 2],
+        _num_samples_reviewed=2,
+    )
+    other = rolling_stats.FixedSizeSample(
+        max_size=10, seed=0, _reservoir=[10], _num_samples_reviewed=1
+    )
+    sampler.merge(other)
+    expected_result = (1, 2, 10)
+    np.testing.assert_array_equal(sampler.result(), expected_result)
 
   @parameterized.named_parameters(
       dict(
@@ -376,14 +377,9 @@ class FixedSizeSampleTest(parameterized.TestCase):
   )
   def test_fixed_size_sample_random_seed(self, random_seed, expected_reservoir):
     stream = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
-
-    actual_reservoir = (
-        rolling_stats.FixedSizeSample(max_size=8, _random_seed=random_seed)
-        .add(stream)
-        .result()
-    )
-
-    np.testing.assert_array_equal(actual_reservoir, expected_reservoir)
+    sampler = rolling_stats.FixedSizeSample(max_size=8, seed=random_seed)
+    sampler.add(stream)
+    np.testing.assert_array_equal(expected_reservoir, sampler.result())
 
   def test_fixed_size_sample_str(self):
     stream = (
@@ -398,30 +394,19 @@ class FixedSizeSampleTest(parameterized.TestCase):
         'Jackfruit',
         'Kiwi',
     )
-
-    actual_reservoir = (
-        rolling_stats.FixedSizeSample(max_size=4, _random_seed=0)
-        .add(stream)
-        .result()
-    )
-
+    sampler = rolling_stats.FixedSizeSample(max_size=4, seed=0)
+    sampler.add(stream)
     expected_reservoir = ('Fig', 'Elderberry', 'Jackfruit', 'Honeydew')
-
-    np.testing.assert_array_equal(actual_reservoir, expected_reservoir)
+    np.testing.assert_array_equal(expected_reservoir, sampler.result())
 
   def test_fixed_size_sample_one_large_batch(self):
     batch_size = 1000000
     datastream = np.random.default_rng(0).uniform(
         low=-1e6, high=1e6, size=batch_size
     )
-
-    actual_reservoir = (
-        rolling_stats.FixedSizeSample(max_size=10, _random_seed=0)
-        .add(datastream)
-        .result()
-    )
-
-    expected_reservoir = (
+    sampler = rolling_stats.FixedSizeSample(max_size=10, seed=0)
+    sampler.add(datastream)
+    expected = (
         780105.0592725971,
         278814.6430954598,
         -630990.0367278787,
@@ -433,10 +418,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
         974427.8183713104,
         -999283.5926202195,
     )
-
-    self.assertSequenceAlmostEqual(
-        actual_reservoir, expected_reservoir, places=9
-    )
+    self.assertSequenceAlmostEqual(expected, sampler.result(), places=9)
 
   def test_fixed_size_sample_many_batches(self):
     size = (1000, 1000)
@@ -444,7 +426,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
         low=-1e6, high=1e6, size=size
     )
 
-    metric = rolling_stats.FixedSizeSample(max_size=10, _random_seed=0)
+    metric = rolling_stats.FixedSizeSample(max_size=10, seed=0)
     for datastream in datastreams:
       metric.add(datastream)
 
@@ -460,121 +442,46 @@ class FixedSizeSampleTest(parameterized.TestCase):
         612068.7958296072,
         958226.8426046742,
     )
-
     self.assertSequenceAlmostEqual(
         metric.result(), expected_reservoir, places=9
     )
 
-  def test_fixed_size_sample_algorithm(self):
-    # This tests checks that the algorithm for generating the reservoir is
-    # correct.
-    seeds = 2  # Number of seeds to test.
-    num_reservoirs = 300  # Number of times to run the algorithm.
-    batches = 50  # Number of times to add a batch of data.
-    max_sample = 25  # Max of the samples.
-
-    res_len = 10  # Max length of the reservoir.
-    batch_len = 100  # Number of samples per batch.
-
-    margin_of_error = 0.25
-
-    final_num_samples = num_reservoirs * res_len
-    ideal_final_count = final_num_samples / max_sample
-    min_final_count = ideal_final_count * (1 - margin_of_error)
-    max_final_count = ideal_final_count * (1 + margin_of_error)
-
-    for seed in range(seeds):
-      rng = np.random.default_rng(seed)
-      sample_histo = [0] * max_sample
-
-      for _ in range(num_reservoirs):
-        # Generate a reservoir.
-        sampler = rolling_stats.FixedSizeSample(
-            max_size=res_len, _random_seed=0
-        )
-        for _ in range(batches):
-          sampler.add(
-              rng.integers(
-                  low=0, high=max_sample, size=batch_len, endpoint=False
-              )
-          )
-
-        # Update the histogram with the reservoir values.
-        for sample in sampler.result():
-          sample_histo[sample] += 1
-
-      # Assert that all the reservoir samples were added to the histogram.
-      self.assertEqual(sum(sample_histo), final_num_samples)
-
-      # Assert that the histogram values are within the margin of error.
-      self.assertTrue(all(bucket > min_final_count for bucket in sample_histo))
-      self.assertTrue(all(bucket < max_final_count for bucket in sample_histo))
-
-  def test_fixed_size_sample_small_batch_size(self):
-    num_seeds = 50000
-    samples_per_seed = 30
-    batch_size = 3
-    res_len = 10
-    margin_of_error = 0.02
-
-    final_num_samples = num_seeds * res_len
-    ideal_final_count = final_num_samples / samples_per_seed
-    min_final_count = ideal_final_count * (1 - margin_of_error)
-    max_final_count = ideal_final_count * (1 + margin_of_error)
-
-    sample_histo = [0] * samples_per_seed
-    for seed in range(num_seeds):
-      sampler = rolling_stats.FixedSizeSample(
-          max_size=res_len, _random_seed=seed
-      )
-
-      for batch in self._batch_data(range(samples_per_seed), batch_size):
+  def test_sampling_add_uniformness(self):
+    # There is a 1/10 chance that each value is sampled.
+    max_range, max_size = 100, 10
+    actual_counter = np.zeros(max_range)
+    num_runs = 1000
+    for i in range(num_runs):
+      sampler = rolling_stats.FixedSizeSample(max_size=max_size, seed=i)
+      for batch in mit.batched(np.arange(max_range), 9):
         sampler.add(batch)
+      for v in sampler.result():
+        actual_counter[v] += 1
+    actual_counter /= num_runs
+    np.testing.assert_array_less(actual_counter - max_size / max_range, 0.03)
 
-      for sample in sampler.result():
-        sample_histo[int(sample)] += 1
+  def test_sampling_merge_uniformness(self):
+    # There is a 1/10 chance that each value is sampled.
+    max_range, max_size = 100, 10
+    actual_counter = np.zeros(max_range)
+    num_runs = 1000
+    for i in range(num_runs):
+      sampler = rolling_stats.FixedSizeSample(max_size=max_size, seed=i)
+      for batch in mit.batched(np.arange(max_range), 9):
+        other = rolling_stats.FixedSizeSample(max_size=max_size, seed=i)
+        other.add(batch)
+        sampler.merge(other)
+      for v in sampler.result():
+        actual_counter[v] += 1
+    actual_counter /= num_runs
+    np.testing.assert_array_less(actual_counter - max_size / max_range, 0.03)
 
-    # Assert that all the reservoir samples were added to the histogram.
-    self.assertEqual(sum(sample_histo), final_num_samples)
-
-    # Assert that the histogram values are within the margin of error.
-    self.assertTrue(all(bucket > min_final_count for bucket in sample_histo))
-    self.assertTrue(all(bucket < max_final_count for bucket in sample_histo))
-
-  def test_fixed_size_sample_small_batch_size_merge(self):
-    num_seeds = 5000
-    samples_per_seed = 30
-    batch_size = 3
-    res_len = 10
-    margin_of_error = 0.05
-
-    final_num_samples = num_seeds * res_len
-    ideal_final_count = final_num_samples / samples_per_seed
-    min_final_count = ideal_final_count * (1 - margin_of_error)
-    max_final_count = ideal_final_count * (1 + margin_of_error)
-
-    sample_histo = [0] * samples_per_seed
-    for seed in range(num_seeds):
-      sampler = rolling_stats.FixedSizeSample(
-          max_size=res_len, _random_seed=seed
-      )
-
-      for batch in self._batch_data(range(samples_per_seed), batch_size):
-        sampler.merge(
-            rolling_stats.FixedSizeSample(
-                max_size=res_len, _random_seed=seed
-            ).add(batch)
-        )
-
-      for sample in sampler.result():
-        sample_histo[int(sample)] += 1
-
-    # Assert that all the reservoir samples were added to the histogram.
-    self.assertEqual(sum(sample_histo), final_num_samples)
-
-    # Assert that the histogram values are within the margin of error.
-    self.assertTrue(all(bucket > min_final_count for bucket in sample_histo))
-    self.assertTrue(all(bucket < max_final_count for bucket in sample_histo))
+  def test_as_agg_fn(self):
+    sampler = rolling_stats.FixedSizeSample(max_size=5, seed=0)
+    sampler_agg_fn = sampler.as_agg_fn()
+    actual = sampler_agg_fn(np.arange(10))
+    sampler.add(np.arange(10))
+    self.assertEqual(sampler.result(), actual)
 
 
 class MeanAndVarianceTest(parameterized.TestCase):

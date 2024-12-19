@@ -26,7 +26,7 @@ from ml_metrics._src.aggregates import types
 from ml_metrics._src.utils import math_utils
 import numpy as np
 
-_FLOAT_EPSNEG = np.finfo(float).epsneg
+_EPSNEG = np.finfo(float).epsneg
 
 
 @dataclasses.dataclass(slots=True)
@@ -43,104 +43,82 @@ class FixedSizeSample(base.MergeableMetric):
 
   Attributes:
     max_size: The number of samples to store in the reservoir.
-    _random_seed: The random_seed used to initialize the random number
-      generator.
-    _reservoir: The reservoir of samples. The length of this reservoir will
+    seed: The random_seed used to initialize the random number generator.
+    reservoir: The reservoir of samples. The length of this reservoir will
       always be less than or equal to "max_size".
-    _num_samples_reviewed: The running number of samples reviewed. This counts
+    num_samples_reviewed: The running number of samples reviewed. This counts
       both samples that were and samples that were not added to the reservoir.
   """
 
   max_size: int
-  _random_seed: dataclasses.InitVar[int | None] = None
+  seed: int | None = dataclasses.field(default=None, kw_only=True)
   _reservoir: list[Any] = dataclasses.field(default_factory=list)
   _num_samples_reviewed: int = 0
+  _logw: float = dataclasses.field(init=False)
+  _rng: np.random.Generator = dataclasses.field(init=False)
 
-  def __post_init__(self, seed):
-    self._rng = np.random.default_rng(seed)
-    self._w = np.exp(
-        np.log(self._rng.uniform(low=_FLOAT_EPSNEG)) / self.max_size
-    )
+  def __post_init__(self):
+    self._rng = np.random.default_rng(self.seed)
+    self._logw = np.log(self._rng.uniform(low=_EPSNEG)) / self.max_size
+
+  @property
+  def num_samples_reviewed(self) -> int:
+    return self._num_samples_reviewed
+
+  @property
+  def reservoir(self) -> list[Any]:
+    return self._reservoir
+
+  @property
+  def logw(self) -> float:
+    return self._logw
+
+  def as_agg_fn(self) -> base.AggregateFn:
+    return base.as_agg_fn(FixedSizeSample, self.max_size, seed=self.seed)
 
   def _add_samples_to_reservoir(self, samples: list[Any], n: int):
     # This is Algorithm L: https://dl.acm.org/doi/10.1145/198429.198435.
-
-    i = -1
-    for _ in range(min(self.max_size - len(self._reservoir), n)):
-      i += 1
-      self._reservoir.append(samples[i])
-
+    len_n = min(self.max_size - len(self._reservoir), n)
+    self._reservoir.extend(samples[:len_n])
+    i = len_n - 1
     while i < n:
-      i += (
-          np.floor(
-              np.log(self._rng.uniform(low=_FLOAT_EPSNEG)) / np.log(1 - self._w)
-          ).astype(int)
-          + 1
-      )
-
+      w = np.exp(self._logw)
+      di = np.log(self._rng.uniform(low=_EPSNEG)) / np.log(1 - w)
+      i += np.floor(di).astype(int) + 1
       if i < n:
         self._reservoir[self._rng.integers(self.max_size)] = samples[i]
-        self._w *= np.exp(
-            np.log(self._rng.uniform(low=_FLOAT_EPSNEG)) / self.max_size
-        )
+        self._logw += np.log(self._rng.uniform(low=_EPSNEG)) / self.max_size
+    self._num_samples_reviewed += n
 
-  def _merge_reservoirs(
-      self,
-      reservoir_new: list[Any],
-      num_samples_new: int,
-  ) -> list[Any]:
-    if (
-        len(combined_reservoir := self._reservoir + reservoir_new)
-        <= self.max_size
-    ):
-      # If the combined reservoir is within the size limit, we can simply make
-      # it our new reservoir.
-      return combined_reservoir
+  def _merge_reservoirs(self, other: FixedSizeSample) -> list[Any]:
+    # TODO: b/370053191 - For efficiency, sample from the combined reservoir
+    # in one-shot.
+    result = []
+    num_samples_orig = self._num_samples_reviewed
+    reservoir_new, num_samples_new = other.reservoir, other.num_samples_reviewed
+    while len(result) < self.max_size and num_samples_orig + num_samples_new:
+      thr_from_orig = num_samples_orig / (num_samples_orig + num_samples_new)
+      if self._rng.uniform() < thr_from_orig:
+        sample = self._reservoir.pop(self._rng.integers(len(self._reservoir)))
+        num_samples_orig -= 1
+      else:
+        sample = reservoir_new.pop(self._rng.integers(len(reservoir_new)))
+        num_samples_new -= 1
+      result.append(sample)
+    return result
 
-    else:
+  def add(self, inputs: types.NumbersT):
+    self._add_samples_to_reservoir(inputs, n=len(inputs))
 
-      # TODO: b/370053191 - For efficiency, sample from the combined reservoir
-      # in one-shot.
-      merged_res = []
-      num_samples_orig = self._num_samples_reviewed
-      for _ in range(self.max_size):
-        from_orig = self._rng.uniform() < (
-            num_samples_orig / (num_samples_orig + num_samples_new)
-        )
-
-        if from_orig:
-          merged_res.append(
-              self._reservoir.pop(self._rng.integers(len(self._reservoir)))
-          )
-          num_samples_orig -= 1
-        else:
-          merged_res.append(
-              reservoir_new.pop(self._rng.integers(len(reservoir_new)))
-          )
-          num_samples_new -= 1
-
-    return merged_res
-
-  def add(self, inputs: types.NumbersT) -> 'FixedSizeSample':
-    num_inputs = len(inputs)
-
-    self._add_samples_to_reservoir(samples=inputs, n=num_inputs)
-
-    self._num_samples_reviewed += num_inputs
-
-    return self
-
-  def merge(self, other: 'FixedSizeSample') -> 'FixedSizeSample':
-    num_new_samples_reviewed = other._num_samples_reviewed  # pylint: disable=protected-access
-
-    self._reservoir = self._merge_reservoirs(
-        reservoir_new=other.result(),
-        num_samples_new=num_new_samples_reviewed,
-    )
-
-    self._num_samples_reviewed += num_new_samples_reviewed
-
-    return self
+  def merge(self, other: FixedSizeSample):
+    if self.seed != other.seed:
+      raise ValueError(
+          'The seeds of the two samplers must be equal, but recieved'
+          f' self.seed={self.seed} and other.seed={other.seed}.'
+      )
+    self._reservoir = self._merge_reservoirs(other)
+    self._num_samples_reviewed += other.num_samples_reviewed
+    self._logw += other.logw
 
   def result(self) -> types.NumbersT:
     return self._reservoir
