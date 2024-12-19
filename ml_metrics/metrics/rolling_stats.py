@@ -15,13 +15,18 @@
 
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
+from ml_metrics._src.aggregates.rolling_stats import FixedSizeSample
+from ml_metrics._src.aggregates.rolling_stats import Histogram
+from ml_metrics._src.aggregates.rolling_stats import Mean
+from ml_metrics._src.aggregates.rolling_stats import MeanAndVariance
+from ml_metrics._src.aggregates.rolling_stats import MinMaxAndCount
+from ml_metrics._src.aggregates.rolling_stats import R2Tjur
+from ml_metrics._src.aggregates.rolling_stats import R2TjurRelative
+from ml_metrics._src.aggregates.rolling_stats import RRegression
+from ml_metrics._src.aggregates.rolling_stats import SymmetricPredictionDifference
+from ml_metrics._src.aggregates.rolling_stats import Var
 from ml_metrics._src.metrics.rolling_stats import count
-from ml_metrics._src.metrics.rolling_stats import Mean
 from ml_metrics._src.metrics.rolling_stats import mean
-from ml_metrics._src.metrics.rolling_stats import MeanAndVariance
 from ml_metrics._src.metrics.rolling_stats import stddev
 from ml_metrics._src.metrics.rolling_stats import total
-from ml_metrics._src.metrics.rolling_stats import Var
 from ml_metrics._src.metrics.rolling_stats import var
-# pylint: enable=g-importing-member
-# pylint: enable=unused-import

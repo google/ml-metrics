@@ -17,11 +17,6 @@ from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.aggregates import types
 
 
-MeanAndVariance = rolling_stats.MeanAndVariance
-Mean = rolling_stats.Mean
-Var = rolling_stats.Var
-
-
 _METRIC_PYDOC_POSTFIX = """
 
   The metric is computed based on non-nan values within the batch.
