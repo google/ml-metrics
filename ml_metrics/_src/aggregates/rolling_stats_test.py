@@ -195,7 +195,7 @@ def get_expected_mean_and_variance(batches, batch_score_fn=None):
 class FixedSizeSampleTest(parameterized.TestCase):
   def _assert_fixed_size_samples_equal(self, actual, expected):
     self.assertEqual(actual.max_size, expected.max_size)
-    self.assertEqual(actual._random_seed, expected._random_seed)
+    self.assertEqual(actual.seed, expected.seed)
     self.assertSameElements(actual._reservoir, expected._reservoir)
     self.assertEqual(
         actual._num_samples_reviewed, expected._num_samples_reviewed
@@ -273,7 +273,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
   ):
     original = rolling_stats.FixedSizeSample(
         max_size=5,
-        _random_seed=0,
+        seed=0,
         _reservoir=reservoir_original,
         _num_samples_reviewed=num_samples_original,
     )
@@ -282,17 +282,14 @@ class FixedSizeSampleTest(parameterized.TestCase):
         _reservoir=reservoir_other,
         _num_samples_reviewed=num_samples_other,
     )
-
-    expected_result = rolling_stats.FixedSizeSample(
+    original.merge(other)
+    expected = rolling_stats.FixedSizeSample(
         max_size=5,
-        _random_seed=0,
+        seed=0,
         _reservoir=expected_reservoir,
         _num_samples_reviewed=expected_num_samples_reviewed,
     )
-
-    self._assert_fixed_size_samples_equal(
-        original.merge(other), expected_result
-    )
+    self._assert_fixed_size_samples_equal(expected, original)
 
   def test_fixed_size_sample_merge_different_max_sizes(self):
     max_size_1 = 5
@@ -303,7 +300,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
 
     original = rolling_stats.FixedSizeSample(
         max_size=max_size_1,
-        _random_seed=0,
+        seed=0,
         _reservoir=res_1,
         _num_samples_reviewed=10,
     )
@@ -378,7 +375,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
     stream = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 
     actual_reservoir = (
-        rolling_stats.FixedSizeSample(max_size=8, _random_seed=random_seed)
+        rolling_stats.FixedSizeSample(max_size=8, seed=random_seed)
         .add(stream)
         .result()
     )
@@ -400,9 +397,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
     )
 
     actual_reservoir = (
-        rolling_stats.FixedSizeSample(max_size=4, _random_seed=0)
-        .add(stream)
-        .result()
+        rolling_stats.FixedSizeSample(max_size=4, seed=0).add(stream).result()
     )
 
     expected_reservoir = ('Fig', 'Elderberry', 'Jackfruit', 'Honeydew')
@@ -416,7 +411,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
     )
 
     actual_reservoir = (
-        rolling_stats.FixedSizeSample(max_size=10, _random_seed=0)
+        rolling_stats.FixedSizeSample(max_size=10, seed=0)
         .add(datastream)
         .result()
     )
@@ -444,7 +439,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
         low=-1e6, high=1e6, size=size
     )
 
-    metric = rolling_stats.FixedSizeSample(max_size=10, _random_seed=0)
+    metric = rolling_stats.FixedSizeSample(max_size=10, seed=0)
     for datastream in datastreams:
       metric.add(datastream)
 
@@ -460,10 +455,21 @@ class FixedSizeSampleTest(parameterized.TestCase):
         612068.7958296072,
         958226.8426046742,
     )
-
     self.assertSequenceAlmostEqual(
         metric.result(), expected_reservoir, places=9
     )
+
+  # def test_uniformness(self):
+  #   inputs = np.arange(100).reshape(10, -1)
+  #   # Do 100 times sampling.
+  #   actual = collections.Counter()
+  #   for _ in range(100):
+  #     sampler = rolling_stats.FixedSizeSample(max_size=1)
+  #     for batch in inputs:
+  #       sampler.add(batch)
+  #     actual.update(sampler.result())
+  #   print(sorted(actual.items()))
+  #   raise ValueError()
 
   def test_fixed_size_sample_algorithm(self):
     # This tests checks that the algorithm for generating the reservoir is
@@ -489,9 +495,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
 
       for _ in range(num_reservoirs):
         # Generate a reservoir.
-        sampler = rolling_stats.FixedSizeSample(
-            max_size=res_len, _random_seed=0
-        )
+        sampler = rolling_stats.FixedSizeSample(max_size=res_len, seed=0)
         for _ in range(batches):
           sampler.add(
               rng.integers(
@@ -524,9 +528,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
 
     sample_histo = [0] * samples_per_seed
     for seed in range(num_seeds):
-      sampler = rolling_stats.FixedSizeSample(
-          max_size=res_len, _random_seed=seed
-      )
+      sampler = rolling_stats.FixedSizeSample(max_size=res_len, seed=seed)
 
       for batch in self._batch_data(range(samples_per_seed), batch_size):
         sampler.add(batch)
@@ -555,15 +557,13 @@ class FixedSizeSampleTest(parameterized.TestCase):
 
     sample_histo = [0] * samples_per_seed
     for seed in range(num_seeds):
-      sampler = rolling_stats.FixedSizeSample(
-          max_size=res_len, _random_seed=seed
-      )
+      sampler = rolling_stats.FixedSizeSample(max_size=res_len, seed=seed)
 
       for batch in self._batch_data(range(samples_per_seed), batch_size):
         sampler.merge(
-            rolling_stats.FixedSizeSample(
-                max_size=res_len, _random_seed=seed
-            ).add(batch)
+            rolling_stats.FixedSizeSample(max_size=res_len, seed=seed).add(
+                batch
+            )
         )
 
       for sample in sampler.result():
