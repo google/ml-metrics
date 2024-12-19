@@ -831,7 +831,7 @@ class SamplewiseClassification(base.MergeableMetric):
     for metric in self.metrics:
       if (score := cm.derive_metric(metric)) is not None:
         result[metric] = score
-        self._state[metric].merge(utils.MeanState(np.sum(score), len(score)))
+        self._state[metric].add(score)
     return result
 
   @property
