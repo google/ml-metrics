@@ -12,22 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Utils for aggregates."""
+from __future__ import annotations
 
 import collections
 import dataclasses
 
+from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.utils import math_utils
 
 
 @dataclasses.dataclass
-class MeanState:
+class MeanState(base.CallableMetric):
   """Mergeable states for batch update in an aggregate function."""
 
   total: types.NumbersT = 0.0
   count: types.NumbersT = 0
 
-  def merge(self, other: 'MeanState'):
+  def process(self, inputs: types.NumbersT) -> types.NumbersT:
+    return MeanState(total=sum(inputs), count=len(inputs))
+
+  def merge(self, other: MeanState):
     self.total += other.total
     self.count += other.count
 
@@ -45,7 +50,7 @@ class FrequencyState:
   )
   count: int = 0
 
-  def merge(self, other: 'FrequencyState'):
+  def merge(self, other: FrequencyState):
     self.counter.update(other.counter)
     self.count += other.count
 
