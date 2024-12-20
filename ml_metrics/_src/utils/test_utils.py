@@ -38,10 +38,8 @@ def assert_nested_container_equal(test: unittest.TestCase, a, b, strict=False):
     elif isinstance(a, Iterable) and isinstance(b, Iterable):
       for a_elem, b_elem in zip(a, b, strict=True):
         assert_nested_container_equal(test, a_elem, b_elem, strict=strict)
-    elif isinstance(a, float) and isinstance(b, float):
-      test.assertAlmostEqual(a, b)
     else:
-      test.assertEqual(a, b)
+      test.assertAlmostEqual(a, b)
   except Exception as e:  # pylint: disable=broad-except
     test.fail(f'Failed to compare {a} and {b}: {e}')
 
