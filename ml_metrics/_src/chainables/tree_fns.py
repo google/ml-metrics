@@ -113,10 +113,6 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
     # arguement passing: foo(a=Key('data'), b=Literal('value'))).
     if isinstance(input_keys, Mapping):
       input_argkeys, input_keys = tuple(zip(*input_keys.items()))
-    if isinstance(output_keys, Mapping):
-      raise NotImplementedError(
-          f'dict output_keys is not supported, got {output_keys=}.'
-      )
     # These require a tuple for positional inputs. Normalize_keys converts
     # the keys into a tuple of keys to make sure the actual selected inputs
     # are also wrapped in a tuple.
@@ -244,7 +240,16 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
   def _get_outputs(
       self, outputs: Any, inputs: Any = tree.NullMap()
   ) -> tree.MapLikeTree[ValueT]:
-    return tree.TreeMapView(inputs).copy_and_set(self.output_keys, outputs).data
+    result = tree.TreeMapView(inputs)
+    if len(self.output_keys) == 1 and len(outputs) > 1:
+      return result.copy_and_set(self.output_keys, outputs).data
+    for keys, output in zip(self.output_keys, outputs, strict=True):
+      if isinstance(keys, Mapping):
+        values = tree.TreeMapView(output)[tuple(keys.values())]
+        result = result.copy_and_set(tuple(keys.keys()), values)
+      else:
+        result = result.copy_and_set(keys, output)
+    return result.data
 
   def __call__(
       self, inputs: tree.MapLikeTree[ValueT] | None = None
