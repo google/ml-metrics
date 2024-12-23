@@ -58,6 +58,32 @@ class RetrievalMetric(enum.StrEnum):  # pylint: disable=invalid-enum-extension
   DCG_SCORE = 'dcg_score'  # Discounted Cumulative Gain
   NDCG_SCORE = 'ndcg_score'  # Normalized Discounted Cumulative Gain
 
+_DEFAULT_RETRIEVAL_METRICS = (
+    RetrievalMetric.PRECISION,
+    RetrievalMetric.PPV,
+    RetrievalMetric.RECALL,
+    RetrievalMetric.SENSITIVITY,
+    RetrievalMetric.TPR,
+    RetrievalMetric.POSITIVE_PREDICTIVE_VALUE,
+    RetrievalMetric.INTERSECTION_OVER_UNION,
+    RetrievalMetric.F1_SCORE,
+    RetrievalMetric.ACCURACY,
+    RetrievalMetric.MEAN_AVERAGE_PRECISION,
+    RetrievalMetric.MEAN_RECIPROCAL_RANK,
+    RetrievalMetric.MISS_RATE,
+    RetrievalMetric.FALSE_DISCOVERY_RATE,
+    RetrievalMetric.THREAT_SCORE,
+    RetrievalMetric.FOWLKES_MALLOWS_INDEX,
+    RetrievalMetric.DCG_SCORE,
+    RetrievalMetric.NDCG_SCORE,
+)
+
+_THRESHOLDED_RETRIEVAL_METRICS = (
+    RetrievalMetric.PRECISION,
+    RetrievalMetric.RECALL,
+    RetrievalMetric.F1_SCORE,
+)
+
 
 def _accuracy(tp_at_topks, k_list):
   return (tp_at_topks[:, k_list - 1] > 0).astype(np.int32)
@@ -311,11 +337,8 @@ class ThresholdedRetrieval(base.MergeableMetric):
   """
 
   thresholds: types.NumbersT | Sequence[float] = (0.0,)
-  metrics: Sequence[RetrievalMetric | RetrievalMetricAtThreshold] = (
-      RetrievalMetric.PRECISION,
-      RetrievalMetric.RECALL,
-      RetrievalMetric.F1_SCORE,
-  )
+  metrics: Sequence[RetrievalMetric | str] = _THRESHOLDED_RETRIEVAL_METRICS
+  _metrics: Sequence[RetrievalMetricAtThreshold] = dataclasses.field(init=False)
   matcher: Callable[..., Any] | None = retrieval_matcher
   _confusion_matrix: _ThresholdedConfusionMatrix = dataclasses.field(
       default_factory=_ThresholdedConfusionMatrix, init=False
@@ -327,7 +350,7 @@ class ThresholdedRetrieval(base.MergeableMetric):
     confusion_matrix = _ThresholdedConfusionMatrix(thresholds=thresholds)
     object.__setattr__(self, '_confusion_matrix', confusion_matrix)
     metrics = [RetrievalMetricAtThreshold(metric) for metric in self.metrics]
-    object.__setattr__(self, 'metrics', metrics)
+    object.__setattr__(self, '_metrics', metrics)
 
   @property
   def confusion_matrix(self):
@@ -397,7 +420,7 @@ class ThresholdedRetrieval(base.MergeableMetric):
     """Returns the metrics."""
     result = {'thresholds': self.thresholds}
     assert self._confusion_matrix is not None
-    for metric in self.metrics:
+    for metric in self._metrics:
       result[metric] = self._confusion_matrix.get_metric(metric)
     return result
 
@@ -414,37 +437,24 @@ class TopKRetrieval(base.MergeableMetric):
   """
 
   k_list: Sequence[int] | None = None
-  metrics: Sequence[RetrievalMetric] = (
-      RetrievalMetric.PRECISION,
-      RetrievalMetric.PPV,
-      RetrievalMetric.RECALL,
-      RetrievalMetric.SENSITIVITY,
-      RetrievalMetric.TPR,
-      RetrievalMetric.POSITIVE_PREDICTIVE_VALUE,
-      RetrievalMetric.INTERSECTION_OVER_UNION,
-      RetrievalMetric.F1_SCORE,
-      RetrievalMetric.ACCURACY,
-      RetrievalMetric.MEAN_AVERAGE_PRECISION,
-      RetrievalMetric.MEAN_RECIPROCAL_RANK,
-      RetrievalMetric.MISS_RATE,
-      RetrievalMetric.FALSE_DISCOVERY_RATE,
-      RetrievalMetric.THREAT_SCORE,
-      RetrievalMetric.FOWLKES_MALLOWS_INDEX,
-      RetrievalMetric.DCG_SCORE,
-      RetrievalMetric.NDCG_SCORE,
+  metrics: Sequence[RetrievalMetric | str] = _DEFAULT_RETRIEVAL_METRICS
+  _metrics: Sequence[RetrievalMetric] = dataclasses.field(init=False)
+  input_type: dataclasses.InitVar[InputType | str] = (
+      InputType.MULTICLASS_MULTIOUTPUT
   )
-  input_type: dataclasses.InitVar[InputType] = InputType.MULTICLASS_MULTIOUTPUT
   _state: MeanStatesPerMetric = dataclasses.field(
       default_factory=lambda: collections.defaultdict(MeanState),
       init=False,
   )
 
   def __post_init__(self, input_type: InputType):
-    if input_type not in (
+    if InputType(input_type) not in (
         InputType.MULTICLASS_MULTIOUTPUT,
         InputType.MULTICLASS,
     ):
       raise NotImplementedError(f'"{input_type}" is not supported.')
+    metrics = [RetrievalMetric(metric) for metric in self.metrics]
+    object.__setattr__(self, '_metrics', metrics)
 
   def as_agg_fn(self) -> base.AggregateFn:
     return base.as_agg_fn(
@@ -492,7 +502,7 @@ class TopKRetrieval(base.MergeableMetric):
     k_range = np.arange(max_pred_count) + 1
 
     result = {}
-    if 'accuracy' in self.metrics:
+    if 'accuracy' in self._metrics:
       accuracy = _accuracy(tp_at_topks, k_list)
       self._state['accuracy'].merge(
           MeanState(accuracy.sum(axis=0), accuracy.shape[0])
@@ -500,38 +510,38 @@ class TopKRetrieval(base.MergeableMetric):
       result['accuracy'] = accuracy
 
     precision, recall = None, None
-    if 'precision' in self.metrics:
+    if 'precision' in self._metrics:
       precision = _precision(tp_at_topks, k_list, y_pred_count)
       self._state['precision'].merge(
           MeanState(precision.sum(axis=0), precision.shape[0])
       )
       result['precision'] = precision
 
-    if 'ppv' in self.metrics:
+    if 'ppv' in self._metrics:
       ppv = _ppv(tp_at_topks, k_list, y_pred_count)
       self._state['ppv'].merge(MeanState(ppv.sum(axis=0), ppv.shape[0]))
       result['ppv'] = ppv
 
-    if 'recall' in self.metrics:
+    if 'recall' in self._metrics:
       recall = _recall(tp_at_topks, k_list, y_true_count)
       self._state['recall'].merge(
           MeanState(recall.sum(axis=0), recall.shape[0])
       )
       result['recall'] = recall
 
-    if 'sensitivity' in self.metrics:
+    if 'sensitivity' in self._metrics:
       sensitivity = _sensitivity(tp_at_topks, k_list, y_true_count)
       self._state['sensitivity'].merge(
           MeanState(sensitivity.sum(axis=0), sensitivity.shape[0])
       )
       result['sensitivity'] = sensitivity
 
-    if 'tpr' in self.metrics:
+    if 'tpr' in self._metrics:
       tpr = _tpr(tp_at_topks, k_list, y_true_count)
       self._state['tpr'].merge(MeanState(tpr.sum(axis=0), tpr.shape[0]))
       result['tpr'] = tpr
 
-    if 'positive_predictive_value' in self.metrics:
+    if 'positive_predictive_value' in self._metrics:
       positive_predictive_value = _positive_predictive_value(
           tp_at_topks, k_list, y_pred_count
       )
@@ -543,7 +553,7 @@ class TopKRetrieval(base.MergeableMetric):
       )
       result['positive_predictive_value'] = positive_predictive_value
 
-    if 'intersection_over_union' in self.metrics:
+    if 'intersection_over_union' in self._metrics:
       intersection_over_union = _intersection_over_union(
           tp_at_topks, k_list, y_true_count, y_pred_count
       )
@@ -555,7 +565,7 @@ class TopKRetrieval(base.MergeableMetric):
       )
       result['intersection_over_union'] = intersection_over_union
 
-    if 'f1_score' in self.metrics:
+    if 'f1_score' in self._metrics:
       if precision is None:
         precision = _precision(tp_at_topks, k_list, y_pred_count)
       if recall is None:
@@ -564,7 +574,7 @@ class TopKRetrieval(base.MergeableMetric):
       self._state['f1_score'].merge(MeanState(f1.sum(axis=0), f1.shape[0]))
       result['f1_score'] = f1
 
-    if 'mean_average_precision' in self.metrics:
+    if 'mean_average_precision' in self._metrics:
       mean_average_precision = _mean_average_precision(
           tp, tp_at_topks, k_range, k_list, y_true_count
       )
@@ -576,7 +586,7 @@ class TopKRetrieval(base.MergeableMetric):
       )
       result['mean_average_precision'] = mean_average_precision
 
-    if 'mean_reciprocal_rank' in self.metrics:
+    if 'mean_reciprocal_rank' in self._metrics:
       reciprocal_ranks = _mean_reciprocal_rank(tp_at_topks, k_list)
       self._state['mean_reciprocal_rank'].merge(
           MeanState(
@@ -586,14 +596,14 @@ class TopKRetrieval(base.MergeableMetric):
       )
       result['reciprocal_ranks'] = reciprocal_ranks
 
-    if 'miss_rate' in self.metrics:
+    if 'miss_rate' in self._metrics:
       miss_rate = _miss_rate(tp_at_topks, k_list, y_true_count)
       self._state['miss_rate'].merge(
           MeanState(miss_rate.sum(axis=0), miss_rate.shape[0])
       )
       result['miss_rate'] = miss_rate
 
-    if 'false_discovery_rate' in self.metrics:
+    if 'false_discovery_rate' in self._metrics:
       false_discovery_rate = _false_discovery_rate(
           tp_at_topks, k_list, y_pred_count
       )
@@ -605,14 +615,14 @@ class TopKRetrieval(base.MergeableMetric):
       )
       result['false_discovery_rate'] = false_discovery_rate
 
-    if 'threat_score' in self.metrics:
+    if 'threat_score' in self._metrics:
       threat_score = _threat_score(tp_at_topks, k_list, y_true_count)
       self._state['threat_score'].merge(
           MeanState(threat_score.sum(axis=0), threat_score.shape[0])
       )
       result['threat_score'] = threat_score
 
-    if 'fowlkes_mallows_index' in self.metrics:
+    if 'fowlkes_mallows_index' in self._metrics:
       fowlkes_mallows_index = _fowlkes_mallows_index(
           tp_at_topks, k_list, y_true_count, y_pred_count
       )
@@ -624,12 +634,12 @@ class TopKRetrieval(base.MergeableMetric):
       )
       result['fowlkes_mallows_index'] = fowlkes_mallows_index
 
-    if 'dcg_score' in self.metrics:
+    if 'dcg_score' in self._metrics:
       dcg = _dcg_score(tp, k_range, k_list)
       self._state['dcg_score'].merge(MeanState(dcg.sum(axis=0), dcg.shape[0]))
       result['dcg_score'] = dcg
 
-    if 'ndcg_score' in self.metrics:
+    if 'ndcg_score' in self._metrics:
       ndcg = _ndcg_score(tp, k_range, k_list, y_true_count)
       self._state['ndcg_score'].merge(
           MeanState(ndcg.sum(axis=0), ndcg.shape[0])
@@ -638,11 +648,11 @@ class TopKRetrieval(base.MergeableMetric):
     return result
 
   def merge(self, other: 'TopKRetrieval'):
-    for metric in self.metrics:
+    for metric in self._metrics:
       self._state[metric].merge(other.state[metric])
 
   def result(self):
-    result = [self._state[metric].result() for metric in self.metrics]
+    result = [self._state[metric].result() for metric in self._metrics]
     # Extends the remaining Ks from the last value.
     if self.k_list and result and len(self.k_list) > len(result[0]):
       for i, metric_result in enumerate(result):
