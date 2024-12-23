@@ -80,18 +80,18 @@ class CallableMetric(MergeableMetric, Callable[..., Any]):
   """
 
   @abc.abstractmethod
-  def process(self, *args, **kwargs) -> Self:
+  def new(self, *args, **kwargs) -> Self:
     """Calculate the suffient statistics, should be idemponent."""
 
   def add(self, *args, **kwargs):
     """Updates the sufficient statistics with a batch of inputs."""
-    batch_result = self.process(*args, **kwargs)
+    batch_result = self.new(*args, **kwargs)
     self.merge(batch_result)
     return batch_result
 
   def __call__(self, *args, **kwargs):
     """Calculates the result from the sufficient statistics."""
-    return self.process(*args, **kwargs).result()
+    return self.new(*args, **kwargs).result()
 
 
 @runtime_checkable

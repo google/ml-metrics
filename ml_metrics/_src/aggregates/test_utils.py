@@ -25,7 +25,7 @@ class _SumMetric(base.CallableMetric):
   def state(self):
     return self._state
 
-  def process(self, x):
+  def new(self, x):
     return _SumMetric(state=sum(x))
 
   # def add(self, x):

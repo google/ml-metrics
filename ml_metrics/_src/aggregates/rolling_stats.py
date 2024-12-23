@@ -164,7 +164,7 @@ class Histogram(base.CallableMetric):
   def bin_edges(self) -> np.ndarray:
     return self._bin_edges
 
-  def process(
+  def new(
       self, inputs: types.NumbersT, weights: types.NumbersT | None = None
   ) -> Histogram:
     new_histogram, new_bin_edges = np.histogram(
@@ -233,7 +233,7 @@ class Mean(base.CallableMetric):
         agg_preprocess_fn=self.batch_score_fn if nested else None,
     )
 
-  def process(self, batch: types.NumbersT) -> types.NumbersT:
+  def new(self, batch: types.NumbersT) -> types.NumbersT:
     """Computes the suffient statistics of a batch of values.
 
     If `batch_score_fn` is provided, it will evaluate the batch and assign a
@@ -300,7 +300,7 @@ class MeanAndVariance(Mean):
 
   _var: types.NumbersT = np.nan
 
-  def process(self, batch: types.NumbersT) -> types.NumbersT:
+  def new(self, batch: types.NumbersT) -> types.NumbersT:
     batch = np.asarray(
         self.batch_score_fn(batch) if self.batch_score_fn else batch
     )
