@@ -54,6 +54,28 @@ class _QueueLike(Protocol[_ValueT]):
 STOP_ITERATION = StopIteration()
 
 
+class _IteratorWithLatest(Iterator[_ValueT]):
+  """Iterator that returns the last item."""
+
+  def __init__(self, it: Iterator[_ValueT]):
+    self._it = it
+    self._last_item = None
+
+  def latest(self) -> _ValueT | None:
+    return self._last_item
+
+  def __next__(self) -> _ValueT:
+    self._last_item = next(self._it)
+    return self._last_item
+
+  def __iter__(self):
+    return self
+
+
+def iter_with_latest(it: Iterable[_ValueT]) -> _IteratorWithLatest[_ValueT]:
+  return _IteratorWithLatest(iter(it))
+
+
 class SequenceArray(Sequence):
   """Impelements Python Sequence interfaces for a numpy array.
 
