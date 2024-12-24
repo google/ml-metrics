@@ -208,6 +208,16 @@ class ClassificationTest(parameterized.TestCase):
     )
     self.assertEqual((expected,), confusion_matrix(y_true, y_pred))
 
+  def test_unhashable_inputs(self):
+    agg_fn = classification.ConfusionMatrixAggFn(
+        input_type=InputType.MULTICLASS
+    )
+    y_pred = np.array([1, 0, 1, 0, 1, 0, 0])
+    y_pred = np.expand_dims(y_pred, axis=1)
+    y_true = [1, 1, 0, 0, 1, 0, 1]
+    with self.assertRaisesRegex(TypeError, "Unhashable elements in the input"):
+      agg_fn(y_true, y_pred)
+
   @parameterized.named_parameters([
       dict(
           testcase_name="multiclass_micro_average",

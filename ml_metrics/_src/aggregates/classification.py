@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import collections
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 import dataclasses
 import enum
 import itertools
@@ -26,7 +26,6 @@ from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
 from ml_metrics._src.utils import math_utils
 import numpy as np
-
 
 AverageType = types.AverageType
 InputType = types.InputType
@@ -477,14 +476,35 @@ def _indicator_confusion_matrix(
   return _ConfusionMatrix(tp_cnt, tn_cnt, fp_cnt, fn_cnt)
 
 
+class _LastItemIterator(Iterator[Any]):
+  """Iterator that returns the last item."""
+
+  def __init__(self, it: Iterator[Any]):
+    self._it = it
+    self._last_item = None
+
+  def last(self):
+    return self._last_item
+
+  def __next__(self):
+    self._last_item = next(self._it)
+    return self._last_item
+
+  def __iter__(self):
+    return self
+
+
 def get_vocab(rows: Iterable[Any], multioutput: bool) -> dict[str, int]:
   """Constructs a vocabulary that maps hashables to an integer."""
-  if multioutput:
-    return {
-        k: i for i, k in enumerate(set(itertools.chain.from_iterable(rows)))
-    }
-  else:
-    return {k: i for i, k in enumerate(set(rows))}
+  it_rows = itertools.chain.from_iterable(rows) if multioutput else iter(rows)
+  it_rows = _LastItemIterator(it_rows)
+  try:
+    return {k: i for i, k in enumerate(set(it_rows))}
+  except TypeError as e:
+    last = it_rows.last()
+    raise TypeError(
+        f'Unhashable elements in the input, got a {type(last)}: {last}'
+    ) from e
 
 
 def _apply_vocab(rows: Sequence[Any], vocab: dict[str, int], multioutput: bool):
