@@ -67,6 +67,8 @@ class ConfusionMatrixMetric(enum.StrEnum):
   BALANCED_ACCURACY = 'balanced_accuracy'
   MEAN_AVERAGE_PRECISION = 'mean_average_precision'
 
+_CFMMetric = ConfusionMatrixMetric | str
+
 
 class _ConfusionMatrix:
   """Confusion Matrix accumulator with kwargs used to compute it.
@@ -557,11 +559,14 @@ class ConfusionMatrixAggFn(base.AggregateFn):
   """
 
   pos_label: bool | int | str | bytes = 1
-  input_type: InputType = InputType.BINARY
+  input_type: InputType | str = InputType.BINARY
+  _input_type: InputType = dataclasses.field(init=False)
   # TODO(b/311208939): implements average = None.
-  average: AverageType = AverageType.BINARY
+  average: AverageType | str = AverageType.BINARY
+  _average: AverageType = dataclasses.field(init=False)
   vocab: dict[str, int] | None = None
-  metrics: Sequence[ConfusionMatrixMetric] = ()
+  metrics: Sequence[_CFMMetric] | _CFMMetric = ()
+  _metrics: Sequence[ConfusionMatrixMetric] = dataclasses.field(init=False)
   dtype: type[Any] | None = None
 
   def __post_init__(self):
@@ -569,21 +574,27 @@ class ConfusionMatrixAggFn(base.AggregateFn):
       raise ValueError(
           '"samples" average is unsupported, use the Samplewise version.'
       )
+    # Normalizes the metrics to ConfusionMatrixMetric.
+    metrics = [self.metrics] if isinstance(self.metrics, str) else self.metrics
+    metrics = [ConfusionMatrixMetric(metric) for metric in metrics]
+    object.__setattr__(self, '_input_type', InputType(self.input_type))
+    object.__setattr__(self, '_average', AverageType(self.average))
+    object.__setattr__(self, '_metrics', metrics)
 
   def _calculate_confusion_matrix(
       self,
       y_true: types.NumbersT,
       y_pred: types.NumbersT,
   ) -> _ConfusionMatrix:
-    if self.input_type in (InputType.MULTICLASS_INDICATOR, InputType.BINARY):
+    if self._input_type in (InputType.MULTICLASS_INDICATOR, InputType.BINARY):
       return _indicator_confusion_matrix(
           y_true,
           y_pred,
           pos_label=self.pos_label,
-          multiclass=(self.input_type == InputType.MULTICLASS_INDICATOR),
-          average=self.average,
+          multiclass=(self._input_type == InputType.MULTICLASS_INDICATOR),
+          average=self._average,
       )
-    elif self.input_type in (
+    elif self._input_type in (
         InputType.MULTICLASS,
         InputType.MULTICLASS_MULTIOUTPUT,
     ):
@@ -591,11 +602,11 @@ class ConfusionMatrixAggFn(base.AggregateFn):
           y_true,
           y_pred,
           vocab=self.vocab,
-          multioutput=(self.input_type == InputType.MULTICLASS_MULTIOUTPUT),
-          average=self.average,
+          multioutput=(self._input_type == InputType.MULTICLASS_MULTIOUTPUT),
+          average=self._average,
       )
     else:
-      raise NotImplementedError(f'"{self.input_type}" input is not supported.')
+      raise NotImplementedError(f'"{self._input_type}" input is not supported.')
 
   def update_state(
       self, state: ConfusionMatrixAggState | None, *inputs: Any
@@ -607,10 +618,10 @@ class ConfusionMatrixAggFn(base.AggregateFn):
       self, states: list[ConfusionMatrixAggState]
   ) -> ConfusionMatrixAggState:
     if (
-        self.average in (AverageType.WEIGHTED, AverageType.MACRO)
+        self._average in (AverageType.WEIGHTED, AverageType.MACRO)
         and self.vocab is None
     ):
-      raise ValueError(f'Global vocab is needed for "{self.average}" average.')
+      raise ValueError(f'Global vocab is needed for "{self._average}" average.')
     iter_acc = iter(states)
     result = next(iter_acc)
     for accumulator in iter_acc:
@@ -618,10 +629,10 @@ class ConfusionMatrixAggFn(base.AggregateFn):
     return result
 
   def get_result(self, state: ConfusionMatrixAggState) -> Any:
-    if self.metrics:
+    if self._metrics:
       return tuple(
-          state.derive_metric(metric, average=self.average)
-          for metric in self.metrics
+          state.derive_metric(metric, average=self._average)
+          for metric in self._metrics
       )
     return (state,)
 
@@ -710,6 +721,7 @@ class TopKConfusionMatrixAggFn(ConfusionMatrixAggFn):
   k_list: Sequence[int] = ()
 
   def __post_init__(self):
+    super().__post_init__()
     if self.input_type not in (
         InputType.MULTICLASS,
         InputType.MULTICLASS_MULTIOUTPUT,
@@ -727,8 +739,8 @@ class TopKConfusionMatrixAggFn(ConfusionMatrixAggFn):
         y_pred,
         k_list=self.k_list,
         vocab=self.vocab,
-        multioutput=(self.input_type == InputType.MULTICLASS_MULTIOUTPUT),
-        average=AverageType(self.average),
+        multioutput=(self._input_type == InputType.MULTICLASS_MULTIOUTPUT),
+        average=AverageType(self._average),
     )
     return result
 

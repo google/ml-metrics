@@ -287,8 +287,8 @@ class TopKRetrievalTest(parameterized.TestCase):
           testcase_name="multiclass_multioutput_infinity_k",
           y_pred=[["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]],
           y_true=[["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]],
-          input_type=InputType.MULTICLASS_MULTIOUTPUT,
-          metrics=[RetrievalMetric.PRECISION],
+          input_type="multiclass-multioutput",
+          metrics=["precision"],
           k_list=None,
           # precision = mean([1, 1/2, 0, 1, 0, 1, 0, 1]) = 5.5 / 8
           expected=([[5.5 / 8]]),
@@ -337,9 +337,9 @@ class TopKRetrievalTest(parameterized.TestCase):
     y_pred = [["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]]
     y_true = [["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]]
     topk_retrieval = retrieval.TopKRetrieval(
-        metrics=[RetrievalMetric.PRECISION],
+        metrics=["precision"],
         k_list=None,
-        input_type=InputType.MULTICLASS_MULTIOUTPUT,
+        input_type="multiclass-multioutput",
     )
     topk_retrieval.add(y_true, y_pred)
     topk_retrieval.add(y_true, y_pred)
