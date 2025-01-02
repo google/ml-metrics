@@ -210,8 +210,8 @@ class TransformTest(parameterized.TestCase):
         .data_source(MockGenerator(range(3)))
         .apply(fn=lambda x: x + 1)
     )
-    self.assertEqual(t.make()(), [1, 2, 3])
-    self.assertEqual([2, 3, 4], t.make()(input_iterator=range(1, 4)))
+    self.assertEqual(list(t.make()), [1, 2, 3])
+    self.assertEqual([2, 3, 4], list(t.make().iterate(range(1, 4))))
     self.assertEqual(2, t.make()(1))
 
   def test_cached_make(self):
@@ -233,6 +233,19 @@ class TransformTest(parameterized.TestCase):
       lazy_fns.maybe_make(pickled_t)
       mock_make_transform.assert_called_once()
 
+  def test_non_aggregate_call_with_iterator_raise_error(self):
+    t = transform.TreeTransform.new().data_source(MockGenerator(range(3)))
+    with self.assertRaisesRegex(
+        ValueError, 'Non-aggregate transform is not callable with iterator'
+    ):
+      _ = list(t.make()())
+
+    t = transform.TreeTransform.new().apply(fn=lambda x: x + 1)
+    with self.assertRaisesRegex(
+        ValueError, 'Non-aggregate transform is not callable with iterator'
+    ):
+      _ = list(t.make()(input_iterator=range(3)))
+
   def test_transform_named_transforms_default(self):
     t1 = (
         transform.TreeTransform.new()
@@ -252,14 +265,15 @@ class TransformTest(parameterized.TestCase):
     self.assertSameElements(t.named_transforms().keys(), ('', 'A', 'B'))
     # The first group of nodes are identical.
     self.assertEqual(t.named_transforms()[''], t1)
-    self.assertEqual(t.named_transforms()[''].make()(), t1.make()())
+    self.assertEqual(list(t.named_transforms()[''].make()), list(t1.make()))
     inputs = [1, 2, 3]
     self.assertEqual(
         t.named_transforms()['A'].make()(inputs), t2.make()(inputs)
     )
     inputs = [1, 2, 3]
     self.assertEqual(
-        t.named_transforms()['B'].make()(inputs), t3.make()(inputs)
+        list(t.named_transforms()['B'].make().iterate(inputs)),
+        list(t3.make().iterate(inputs)),
     )
 
   def test_transform_named_transforms_with_duplicate_names(self):
@@ -486,7 +500,7 @@ class TransformTest(parameterized.TestCase):
         fn_batch_size=fn_batch_size,
         batch_size=batch_size,
     )
-    actual = t.make()(input_iterator=inputs)
+    actual = list(t.make().iterate(inputs))
     test_utils.assert_nested_container_equal(self, expected, actual)
 
   @parameterized.named_parameters([
@@ -568,7 +582,7 @@ class TransformTest(parameterized.TestCase):
         fn_batch_size=fn_batch_size,
         batch_size=batch_size,
     )
-    actual = t.make()(input_iterator=inputs)
+    actual = list(t.make().iterate(inputs))
     test_utils.assert_nested_container_equal(self, expected, actual)
 
   def test_assign_invalid_keys(self):
@@ -1128,7 +1142,6 @@ class TransformTest(parameterized.TestCase):
     iterator = transform.iterate_with_returned(actual_fn)
     self.assertEqual([6, 9, None], list(iterator))
     self.assertEqual([6, 9], list(actual_fn.iterate(input_iterator)))
-    self.assertEqual([6, 9], actual_fn(input_iterator=input_iterator))
 
   def test_input_iterator_aggregate(self):
     input_iterator = [[1, 2, 3], [2, 3, 4]]

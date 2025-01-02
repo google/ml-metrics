@@ -489,15 +489,19 @@ class CombinedTreeFn:
     return iter_result.agg_state or {}
 
   def __call__(self, inputs=None, *, input_iterator=None):
-    iter_input = self._actual_inputs(inputs, input_iterator)
-    iter_result = self.iterate(iter_input)
-    result = mit.last(iter_result) if self.agg_fns else list(iter_result)
+    if (
+        not self.agg_fns
+        and inputs is None
+        and (input_iterator is not None or self.input_iterator is not None)
+    ):
+      raise ValueError(
+          'Non-aggregate transform is not callable with iterator inputs, uses '
+          '`iterate()` instead.'
+      )
+    iter_result = self.iterate(self._actual_inputs(inputs, input_iterator))
+    result = mit.last(iter_result)
     if iter_result.agg_result is not None:
       return iter_result.agg_result
-    # When inputs (vs. iterator) is fed, there is only one batch to compute,
-    # directly returns the only element in the result.
-    if inputs is not None:
-      return result[0]
     return result
 
 
