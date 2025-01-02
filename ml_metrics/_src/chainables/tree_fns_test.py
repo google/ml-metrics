@@ -46,6 +46,12 @@ class TestAverageFn:
     return (result, 0) if self.return_tuple else result
 
 
+class TestAverageFnDictOutput(TestAverageFn):
+
+  def get_result(self, state):
+    return {'mean': super().get_result(state), 'state': state}
+
+
 class TreeFnTest(parameterized.TestCase):
 
   def test_tree_fn(self):
@@ -89,6 +95,46 @@ class TreeFnTest(parameterized.TestCase):
         output_keys=['a', 'b'],
     )
     with self.assertRaises(ValueError):
+      tree_fn(data)
+
+  def test_tree_fn_pass_output_keys_by_kwargs(self):
+    data = {
+        'a': 7,
+        'c': {'b': (7, 8)},
+        'model2': {'pred3': [([2, 3, 8],)]},
+    }
+    tree_fn = tree_fns.TreeFn.new(
+        fn=lambda x, y: {'o1': x + 1, 'o2': y + 1},
+        input_keys=('a', Key().c.b.at(0)),
+        output_keys=dict(a='o1', b='o2'),
+    )
+    self.assertEqual({'a': 8, 'b': 8}, tree_fn(data))
+
+  def test_tree_fn_pass_output_keys_by_tuple_with_kwargs(self):
+    data = {
+        'a': 7,
+        'c': {'b': (7, 8)},
+        'model2': {'pred3': [([2, 3, 8],)]},
+    }
+    tree_fn = tree_fns.TreeFn.new(
+        fn=lambda x, y: ({'o1': x + 1, 'o2': y + 1}, {'o3': x + 2}, 10),
+        input_keys=('a', Key().c.b.at(0)),
+        output_keys=(dict(a='o1', b='o2'), dict(c='o3'), 'd')
+    )
+    self.assertEqual({'a': 8, 'b': 8, 'c': 9, 'd': 10}, tree_fn(data))
+
+  def test_tree_fn_pass_output_keys_by_kwargs_wrong_kwarg(self):
+    data = {
+        'a': 7,
+        'c': {'b': (7, 8)},
+        'model2': {'pred3': [([2, 3, 8],)]},
+    }
+    tree_fn = tree_fns.TreeFn.new(
+        fn=lambda x, y: {'o1': x + 1, 'o2': y + 1},
+        input_keys=('a', Key().c.b.at(0)),
+        output_keys=dict(a='o3', b='o2'),
+    )
+    with self.assertRaises(KeyError):
       tree_fn(data)
 
   @mock.patch.object(tree_fns.TreeFn, 'actual_fn', autospec=True)
@@ -176,6 +222,26 @@ class TreeFnTest(parameterized.TestCase):
     }
     self.assertEqual(expected, tree_fn(data))
 
+  def test_assign_with_kw_output_keys(self):
+    data = {
+        'a': 7,
+        'b': 8,
+        'c': {'b': (7, 8)},
+    }
+    tree_fn = tree_fns.Assign.new(
+        fn=lambda x, y: {'x': x + 1, 'y': y + 1},
+        input_keys=[Key().a, Key().c.b.at(Key.Index(0))],
+        output_keys=dict(g='x', h='y'),
+    )
+    expected = {
+        'a': 7,
+        'b': 8,
+        'c': {'b': (7, 8)},
+        'g': 8,
+        'h': 8,
+    }
+    self.assertEqual(expected, tree_fn(data))
+
   def test_assign_multiple_outputs_single_key(self):
     data = {
         'a': 7,
@@ -211,6 +277,22 @@ class TreeFnTest(parameterized.TestCase):
     }
     self.assertEqual(expected, tree_fn(data))
 
+  def test_select_with_kw_output_keys(self):
+    data = {
+        'a': 7,
+        'b': 8,
+        'c': {'b': (7, 8)},
+    }
+    tree_fn = tree_fns.Select.new(
+        input_keys='c',
+        output_keys=dict(e='b', f=Key().b.at(1)),
+    )
+    expected = {
+        'e': (7, 8),
+        'f': 8,
+    }
+    self.assertEqual(expected, tree_fn(data))
+
   def test_tree_aggfn_iterate_not_implemented(self):
     data = [[1, 2, 3], [1, 2, 3]]
     tree_fn = tree_fns.TreeAggregateFn.new(fn=TestAverageFn())
@@ -234,6 +316,22 @@ class TreeFnTest(parameterized.TestCase):
         output_keys=Key.SELF,
     )
     self.assertEqual((2.0, 0), agg_fn(data))
+
+  def test_tree_aggregate_fn_dict_output(self):
+    data = [1, 2, 3]
+    agg_fn = tree_fns.TreeAggregateFn.new(
+        fn=TestAverageFnDictOutput(batch_output=False),
+        output_keys={Key.SELF: 'mean'},
+    )
+    self.assertEqual(2.0, agg_fn(data))
+
+  def test_tree_aggregate_fn_dict_multiple_output(self):
+    data = [1, 2, 3]
+    agg_fn = tree_fns.TreeAggregateFn.new(
+        fn=TestAverageFnDictOutput(batch_output=False),
+        output_keys=dict(output_mean='mean', state='state'),
+    )
+    self.assertEqual(dict(output_mean=2.0, state=(6, 3)), agg_fn(data))
 
   def test_tree_aggregate_with_lazyfn(self):
     data = {'a': [1, 2, 3], 'b': [4, 5, 6]}
