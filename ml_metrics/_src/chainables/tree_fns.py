@@ -106,7 +106,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       fn_batch_size: int = 0,
       batch_size: int = 0,
       **disable_slicing,
-  ) -> TreeFn[FnT, ValueT]:
+  ) -> Self:
     """Normalizes the arguments before constructing a TreeFn."""
     input_argkeys = ()
     # TODO: b/311207032 - support literals in dictionary input_keys for non-data
