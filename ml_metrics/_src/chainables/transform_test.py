@@ -402,12 +402,18 @@ class TransformTest(parameterized.TestCase):
           input_keys='inputs',
           output_keys='output',
       ),
+      dict(
+          testcase_name='assign_with_dict_assign_keys',
+          inputs={'inputs': [0, 1]},
+          expected={'inputs': [0, 1], 'output': 1},
+          output_keys=dict(output=Key.new('inputs', -1)),
+      ),
   ])
   def test_assign_transform(
       self,
       inputs,
-      fn,
       expected,
+      fn=None,
       input_keys=tree.Key.SELF,
       output_keys=tree.Key.SELF,
   ):

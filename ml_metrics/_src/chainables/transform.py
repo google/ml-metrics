@@ -685,6 +685,26 @@ class TreeTransform(Generic[TreeFnT]):
         num_threads=self.num_threads,
     )
 
+  def _check_assign_keys(self, assign_keys):
+    """Checks the assign keys are valid."""
+    new_keys = set(k for k in assign_keys if not isinstance(k, dict))
+    dict_keys = (k.keys() for k in assign_keys if isinstance(k, dict))
+    new_keys.update(itertools.chain.from_iterable(dict_keys))
+    fn_by_output_keys = {}
+    for fn_ in self.fns:
+      fn_by_output_keys.update({key: fn_ for key in fn_.output_keys})
+    if conflicting_keys := new_keys.intersection(fn_by_output_keys):
+      raise ValueError(
+          f'Duplicate output_keys: {conflicting_keys} from assignment of'
+          f' {assign_keys}'
+      )
+    all_keys = set(fn_by_output_keys.keys()) | new_keys
+    if tree.Key.SELF in all_keys and len(all_keys) > 1:
+      raise ValueError(
+          'Cannot mix SELF with other keys as assign keys, got'
+          f' {assign_keys=} all keys so far: {all_keys}.'
+      )
+
   def assign(
       self,
       assign_keys: TreeMapKey | TreeMapKeys = (),
@@ -710,19 +730,7 @@ class TreeTransform(Generic[TreeFnT]):
         fn_batch_size=fn_batch_size,
         batch_size=batch_size,
     )
-    fn_by_output_keys = {}
-    for fn_ in self.fns:
-      fn_by_output_keys.update({key: fn_ for key in fn_.output_keys})
-    if conflicting_keys := set(fn.output_keys).intersection(fn_by_output_keys):
-      raise ValueError(
-          f'Duplicate output_keys: {conflicting_keys} from assignment of'
-          f' {fn.output_keys}'
-      )
-    if tree.Key.SELF in fn_by_output_keys:
-      raise ValueError(
-          f'Cannot assign values to {fn.output_keys} when output key of another'
-          f'fn is SELF, the function is: {fn_by_output_keys[tree.Key.SELF]}.'
-      )
+    self._check_assign_keys(fn.output_keys)
     return self._maybe_new_transform(fn)
 
   def select(
@@ -844,20 +852,7 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
         input_keys=input_keys,
         disable_slicing=disable_slicing,
     )
-    agg_fns = {}
-    for fn_ in self.fns:
-      agg_fns.update({key: fn_ for key in fn_.output_keys})
-    if conficting_keys := set(fn.output_keys).intersection(agg_fns):
-      raise ValueError(
-          f'Duplicate output_keys {conficting_keys} from aggregate output keys'
-          f' {fn.output_keys}.'
-      )
-    agg_fns.update({key: fn for key in fn.output_keys})
-    if tree.Key.SELF in agg_fns and len(agg_fns) > 1:
-      raise ValueError(
-          f'Cannot add new key {fn.output_keys} when other aggregate output is'
-          f' SELF: {agg_fns[tree.Key.SELF]}'
-      )
+    self._check_assign_keys(fn.output_keys)
     return dataclasses.replace(self, fns=self.fns + (fn,))
 
   def add_slice(
