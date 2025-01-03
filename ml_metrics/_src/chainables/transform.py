@@ -511,6 +511,8 @@ def _eq(a, b):
   except Exception:  # pylint: disable=broad-exception-caught
     return False
 
+_is_dict = lambda x: isinstance(x, dict)
+
 
 @dataclasses.dataclass(frozen=True, kw_only=True, eq=False)
 class TreeTransform(Generic[TreeFnT]):
@@ -684,6 +686,15 @@ class TreeTransform(Generic[TreeFnT]):
         name=self.name,
         num_threads=self.num_threads,
     )
+
+  @property
+  def output_keys(self) -> set[TreeMapKey]:
+    """Returns the output_keys (assign_keys for assign) of this transform."""
+    result = set()
+    for fn in self.fns:
+      non_dict_keys, dict_keys = mit.partition(_is_dict, fn.output_keys)
+      result.update(itertools.chain(non_dict_keys, *dict_keys))
+    return result
 
   def _check_assign_keys(self, assign_keys):
     """Checks the assign keys are valid."""

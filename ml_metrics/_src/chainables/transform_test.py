@@ -233,6 +233,18 @@ class TransformTest(parameterized.TestCase):
       lazy_fns.maybe_make(pickled_t)
       mock_make_transform.assert_called_once()
 
+  def test_output_keys(self):
+    p = (
+        transform.TreeTransform()
+        .apply(fn=len, output_keys='a')
+        .assign('b', fn=lambda x: x + 1, input_keys='a')
+    )
+    self.assertEqual(p.output_keys, {'a', 'b'})
+    p = p.aggregate(fn=MockAverageFn(), output_keys='c').add_aggregate(
+        output_keys='d', fn=MockAverageFn()
+    )
+    self.assertEqual(p.output_keys, {'c', 'd'})
+
   def test_non_aggregate_call_with_iterator_raise_error(self):
     t = transform.TreeTransform.new().data_source(MockGenerator(range(3)))
     with self.assertRaisesRegex(
