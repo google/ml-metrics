@@ -41,6 +41,26 @@ class MeanState(base.CallableMetric):
 
 
 @dataclasses.dataclass
+class TupleMeanState(base.CallableMetric):
+  """MeanState for a tuple of inputs."""
+
+  states: tuple[MeanState, ...] = ()
+
+  def new(self, *inputs: tuple[types.NumbersT, ...]) -> TupleMeanState:
+    return TupleMeanState(tuple(MeanState().new(x) for x in inputs))
+
+  def merge(self, other: TupleMeanState):
+    if not self.states:
+      self.states = other.states
+      return
+    for state, state_other in zip(self.states, other.states, strict=True):
+      state.merge(state_other)
+
+  def result(self):
+    return tuple(state.result() for state in self.states)
+
+
+@dataclasses.dataclass
 class FrequencyState:
   """Mergeable frequency states for batch update in an aggregate function."""
 
