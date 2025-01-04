@@ -51,8 +51,7 @@ class TupleMeanState(base.CallableMetric):
 
   def merge(self, other: TupleMeanState):
     if not self.states:
-      self.states = other.states
-      return
+      self.states = tuple(MeanState() for _ in other.states)
     for state, state_other in zip(self.states, other.states, strict=True):
       state.merge(state_other)
 
