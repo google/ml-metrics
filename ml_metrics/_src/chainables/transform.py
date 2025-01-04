@@ -166,6 +166,8 @@ def _transform_make(
     # Iterator node can also be other types of nodes.
     if agg_node is None:
       if isinstance(node, AggregateTransform):
+        if node.is_noop:
+          raise ValueError('Empty aggregation, forgot to add aggregation?')
         agg_node = node
       else:
         input_nodes.append(node)
@@ -761,13 +763,14 @@ class TreeTransform(Generic[TreeFnT]):
       disable_slicing: bool = False,
   ) -> AggregateTransform:
     """Create an aggregate transform on the previous transform."""
-    fn = tree_fns.TreeAggregateFn.new(
+    if not fn:
+      input_keys, output_keys = (), ()
+    return self._maybe_new_agg_transform().add_aggregate(
         output_keys=output_keys,
         fn=fn,
         input_keys=input_keys,
         disable_slicing=disable_slicing,
     )
-    return self._maybe_new_agg_transform(fn)
 
   def agg(self, **kwargs) -> AggregateTransform:
     """Alias for aggregate."""
@@ -805,20 +808,29 @@ class TreeTransform(Generic[TreeFnT]):
         current_transform
     ]
 
-  def _maybe_new_agg_transform(self, fn) -> AggregateTransform:
-    """Breaks apart the transform when this is an aggregate or source."""
-    if self.is_noop:
-      assert self.input_transform is None
+  def _maybe_new_agg_transform(
+      self,
+      fn: tree_fns.TreeAggregateFn | None = None,
+  ) -> AggregateTransform:
+    """Appends a new aggregate while optionally creates a new transform."""
+    fns = (fn,) if fn else ()
+    if isinstance(self, AggregateTransform):
+      if fn:
+        self._check_assign_keys(fn.output_keys)
+      return dataclasses.replace(self, fns=self.fns + fns)
+    elif self.is_noop:
+      # assert self.input_transform is None, f'got {self.input_transform=}'
       return AggregateTransform(
-          fns=(fn,),
+          fns=fns,
           name=self.name,
           num_threads=self.num_threads,
+          input_transform=self.input_transform,
       )
     else:
       return AggregateTransform(
           input_transform=self,
           name=self.name,
-          fns=(fn,),
+          fns=fns,
           num_threads=self.num_threads,
       )
 
@@ -852,19 +864,22 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
       self,
       *,
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      fn: types.MaybeResolvable[aggregates.Aggregatable] | None = None,
+      fn: types.MaybeResolvable[aggregates.Aggregatable],
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       disable_slicing: bool = False,
-  ) -> 'AggregateTransform':
+  ) -> Self:
     """Adds a aggregate and stack it on the existing aggregates."""
-    fn = tree_fns.TreeAggregateFn.new(
-        output_keys=output_keys,
-        fn=fn,
-        input_keys=input_keys,
-        disable_slicing=disable_slicing,
-    )
-    self._check_assign_keys(fn.output_keys)
-    return dataclasses.replace(self, fns=self.fns + (fn,))
+    if fn:
+      fn = tree_fns.TreeAggregateFn.new(
+          output_keys=output_keys,
+          fn=fn,
+          input_keys=input_keys,
+          disable_slicing=disable_slicing,
+      )
+    return self._maybe_new_agg_transform(fn)
+
+  def add_agg(self, **kwargs) -> Self:
+    return self.add_aggregate(**kwargs)
 
   def add_slice(
       self,
