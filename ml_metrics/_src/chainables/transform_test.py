@@ -665,6 +665,19 @@ class TransformTest(parameterized.TestCase):
     )
     self.assertEqual(expected, t.make()(inputs))
 
+  def test_aggregate_starts_with_empty_agg(self):
+    p = (
+        transform.TreeTransform.new()
+        .apply(fn=lambda x: x * 10)
+        .agg()
+        .add_agg(fn=MockAverageFn(), output_keys='a')
+        .add_agg(fn=MockAverageFn(), output_keys='b')
+    )
+    it_p = p.make().iterate([1, 2, 3])
+    self.assertEqual([10, 20, 30], list(it_p))
+    self.assertLen(p.fns, 2)
+    self.assertEqual({'a': [20.0], 'b': [20.0]}, it_p.agg_result)
+
   @parameterized.named_parameters([
       dict(
           testcase_name='agg_self',
