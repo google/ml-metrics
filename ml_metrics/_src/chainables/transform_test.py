@@ -610,13 +610,56 @@ class TransformTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       transform.TreeTransform.new().assign('a', fn=len).assign(fn=len)
 
-  def test_assign_duplicate_keys(self):
-    with self.assertRaises(ValueError):
-      (
-          transform.TreeTransform.new()
-          .assign(('a', 'b'), fn=len)
-          .assign('a', fn=len)
-      )
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='simple_keys',
+          k1=('a', 'b'),
+          k2='a',
+      ),
+      dict(
+          testcase_name='dict_keys_last',
+          k1=('a', 'b', 'c'),
+          k2=dict(a='a', b='b'),
+      ),
+      dict(
+          testcase_name='dict_keys_first',
+          k1=dict(a='a', b='b'),
+          k2=('a', 'b', 'c'),
+      ),
+      dict(
+          testcase_name='tuple_of_dict_keys',
+          k1=(dict(a='a', b='b'), 'c'),
+          k2=('a', 'b', 'c'),
+      ),
+      dict(
+          testcase_name='tuple_of_dict_keys_last',
+          k1=('a', 'b', 'c'),
+          k2=(dict(a='a', b='b'), 'c'),
+      ),
+  ])
+  def test_assign_duplicate_keys_invalid(self, k1, k2):
+    with self.assertRaisesRegex(KeyError, 'Duplicate output_keys'):
+      # fn=len is not sensible here but the error should be raised at pipeline
+      # construction time. So not reaching that point is part of the test.
+      (transform.TreeTransform.new().assign(k1, fn=len).assign(k2, fn=len))
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='self_key',
+          k1=Key.SELF,
+          k2=('a', 'b', 'c'),
+      ),
+      dict(
+          testcase_name='self_key_last',
+          k1=('a', 'b', 'c'),
+          k2=Key.SELF,
+      ),
+  ])
+  def test_assign_self_keys_invalid(self, k1, k2):
+    with self.assertRaisesRegex(KeyError, 'Cannot mix SELF with other keys'):
+      # fn=len is not sensible here but the error should be raised at pipeline
+      # construction time. So not reaching that point is part of the test.
+      (transform.TreeTransform.new().assign(k1, fn=len).assign(k2, fn=len))
 
   @parameterized.named_parameters([
       dict(testcase_name='select_self', inputs=[0], expected=[0]),
@@ -717,19 +760,19 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual(expected, t.make()(inputs))
 
   def test_aggregate_invalid_keys(self):
-    with self.assertRaises(ValueError):
+    with self.assertRaisesRegex(KeyError, 'Cannot mix SELF with other keys'):
       transform.TreeTransform.new().aggregate(
           fn=MockAverageFn(),
       ).add_aggregate(fn=MockAverageFn(), output_keys='a')
 
-    with self.assertRaises(ValueError):
+    with self.assertRaisesRegex(KeyError, 'Cannot mix SELF with other keys'):
       transform.TreeTransform.new().aggregate(
           fn=MockAverageFn(),
           output_keys='a',
       ).add_aggregate(fn=MockAverageFn())
 
   def test_aggregate_duplicate_keys(self):
-    with self.assertRaises(ValueError):
+    with self.assertRaisesRegex(KeyError, 'Duplicate output_keys'):
       transform.TreeTransform.new().aggregate(
           fn=MockAverageFn(),
           output_keys='a',

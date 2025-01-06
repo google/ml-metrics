@@ -80,6 +80,8 @@ _ValueT = TypeVar('_ValueT')
 _LOGGING_INTERVAL_SECS = 60
 _DEFAULT_NUM_THREADS = 0
 
+_is_dict = lambda x: isinstance(x, dict)
+
 
 def iterate_with_returned(
     iterator: Iterable[_ValueT],
@@ -698,24 +700,21 @@ class TreeTransform(Generic[TreeFnT]):
       result.update(itertools.chain(non_dict_keys, *dict_keys))
     return result
 
-  def _check_assign_keys(self, assign_keys):
+  def _check_assign_keys(self, assign_keys: TreeMapKeys):
     """Checks the assign keys are valid."""
-    new_keys = set(k for k in assign_keys if not isinstance(k, dict))
-    dict_keys = (k.keys() for k in assign_keys if isinstance(k, dict))
-    new_keys.update(itertools.chain.from_iterable(dict_keys))
-    fn_by_output_keys = {}
-    for fn_ in self.fns:
-      fn_by_output_keys.update({key: fn_ for key in fn_.output_keys})
-    if conflicting_keys := new_keys.intersection(fn_by_output_keys):
-      raise ValueError(
+    non_dict_keys, dict_keys = mit.partition(_is_dict, assign_keys)
+    new_keys = set(itertools.chain(non_dict_keys, *dict_keys))
+    output_keys = self.output_keys
+    if conflicting_keys := new_keys.intersection(output_keys):
+      raise KeyError(
           f'Duplicate output_keys: {conflicting_keys} from assignment of'
           f' {assign_keys}'
       )
-    all_keys = set(fn_by_output_keys.keys()) | new_keys
+    all_keys = output_keys | new_keys
     if tree.Key.SELF in all_keys and len(all_keys) > 1:
-      raise ValueError(
-          'Cannot mix SELF with other keys as assign keys, got'
-          f' {assign_keys=} all keys so far: {all_keys}.'
+      raise KeyError(
+          'Cannot mix SELF with other keys as output keys, got'
+          f' {assign_keys=} all output keys so far: {output_keys}.'
       )
 
   def assign(

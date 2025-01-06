@@ -249,7 +249,11 @@ class Key(tuple[BaseKey, ...]):
 
 TreeMapKey = BaseKey | Key | Reserved | Literal
 # For keys, if there is tuple, the first dimension is always keys dimension.
-TreeMapKeys = tuple[TreeMapKey, ...] | Mapping[str, TreeMapKey]
+TreeMapKeys = (
+    tuple[TreeMapKey, ...]
+    | Mapping[str, TreeMapKey]
+    | tuple[Mapping[str, TreeMapKey], ...]
+)
 
 
 def normalize_keys(keys: TreeMapKey | TreeMapKeys) -> TreeMapKeys:
