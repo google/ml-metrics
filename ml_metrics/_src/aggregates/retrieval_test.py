@@ -315,7 +315,10 @@ class TopKRetrievalTest(parameterized.TestCase):
       topk_retrieval.add(y_true, y_pred)
       topk_retrievals.append(topk_retrieval)
     topk_retrievals[0].merge(topk_retrievals[1])
-    np.testing.assert_allclose(expected, topk_retrievals[0].result())
+    expected = dict(zip(metrics, expected))
+    test_utils.assert_nested_container_equal(
+        self, expected, topk_retrievals[0].result()
+    )
 
     topk_retrieval = retrieval.TopKRetrieval(
         metrics=metrics,
@@ -324,14 +327,18 @@ class TopKRetrievalTest(parameterized.TestCase):
     )
     for _ in range(3):
       topk_retrieval.add(y_true, y_pred)
-    np.testing.assert_allclose(expected, topk_retrievals[0].result())
+    test_utils.assert_nested_container_equal(
+        self, expected, topk_retrievals[0].result()
+    )
 
     topk_retrieval_agg_fn = retrieval.TopKRetrieval(
         metrics=metrics,
         k_list=k_list,
         input_type=input_type,
     ).as_agg_fn()
-    np.testing.assert_allclose(expected, topk_retrieval_agg_fn(y_true, y_pred))
+    test_utils.assert_nested_container_equal(
+        self, expected, topk_retrieval_agg_fn(y_true, y_pred)
+    )
 
   def test_retrieval_metric_add(self):
     y_pred = [["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]]

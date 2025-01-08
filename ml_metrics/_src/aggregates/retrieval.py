@@ -453,7 +453,8 @@ class TopKRetrieval(base.MergeableMetric):
         InputType.MULTICLASS,
     ):
       raise NotImplementedError(f'"{input_type}" is not supported.')
-    metrics = [RetrievalMetric(metric) for metric in self.metrics]
+    metrics = [self.metrics] if isinstance(self.metrics, str) else self.metrics
+    metrics = [RetrievalMetric(metric) for metric in metrics]
     object.__setattr__(self, '_metrics', metrics)
 
   def as_agg_fn(self) -> base.AggregateFn:
@@ -614,7 +615,9 @@ class TopKRetrieval(base.MergeableMetric):
       for i, metric_result in enumerate(result):
         extra_ks = len(self.k_list) - len(metric_result)
         result[i] = list(metric_result) + [metric_result[-1]] * extra_ks
-    return tuple(result)
+    if isinstance(self.metrics, str):
+      return result[0]
+    return dict(zip(self._metrics, result))
 
 
 def TopKRetrievalAggFn(**kwargs) -> base.AggregateFn:  # pylint: disable=invalid-name
