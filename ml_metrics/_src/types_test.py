@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -38,6 +38,20 @@ class BaseTypesTest(absltest.TestCase):
 
     self.assertIsInstance(Foo(), types.Makeable)
     self.assertFalse(types.is_makeable(Foo()))
+
+  def test_is_shardable(self):
+
+    class Foo:
+
+      @classmethod
+      def shard(cls, shard_index):
+        pass
+
+      @property
+      def num_shards(self):
+        pass
+
+    self.assertFalse(types.is_shardable(Foo()))
 
 
 if __name__ == "__main__":
