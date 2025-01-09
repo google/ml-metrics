@@ -23,6 +23,7 @@ from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from ml_metrics._src.aggregates import base as aggretates
+from ml_metrics._src.chainables import io
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
 from ml_metrics._src.chainables import tree
@@ -174,6 +175,24 @@ def multi_slicer(preds, labels, within=()):
       label_mask = get_mask(labels, key)
       masks = (pred_mask, label_mask)
       yield key, masks
+
+
+class TransformDataSourceTest(parameterized.TestCase):
+
+  def test_sharded_data_source(self):
+    ds = io.ShardedSequence(list(range(3)), num_shards=2)
+    p = transform.TreeTransform().data_source(ds).apply(fn=lambda x: x + 1)
+    actual = [list(p.make(shard_index=i)) for i in range(2)]
+    expected = [[1, 2], [3]]
+    self.assertEqual(expected, actual)
+
+  def test_nonshardable_data_source_with_shard_index_raise_error(self):
+    ds = MockGenerator(range(3))
+    p = transform.TreeTransform().data_source(ds).apply(fn=lambda x: x + 1)
+    with self.assertRaisesRegex(
+        TypeError, 'Nonzero shard_index is not supported for non-shardable'
+    ):
+      _ = list(p.make(shard_index=1))
 
 
 class TransformTest(parameterized.TestCase):
