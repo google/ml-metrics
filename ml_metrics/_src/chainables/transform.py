@@ -145,6 +145,7 @@ def _transform_make(
     transform: TreeTransform,
     recursive: bool = True,
     mode: RunnerMode = RunnerMode.DEFAULT,
+    shard_index: int = 0,
 ) -> CombinedTreeFn:
   """Makes a TreeFn from a transform."""
   # Flatten the transform into nodes and find the first aggregation node as
@@ -163,6 +164,14 @@ def _transform_make(
     if node.input_iterator is not None:
       if i == 0:
         input_iterator = node.input_iterator
+        if types.is_shardable(input_iterator):
+          input_iterator = input_iterator.shard(shard_index)
+        elif shard_index:
+          raise TypeError(
+              'Nonzero shard_index is not supported for non-shardable data'
+              f' source, got {shard_index=}, data source type:'
+              f' {type(input_iterator)}.'
+          )
       else:
         raise ValueError(f'data_source has to be the first node, it is at {i}.')
     # Iterator node can also be other types of nodes.
@@ -207,7 +216,9 @@ def _transform_make(
     # The output nodes can be aggregate, uses it as a callable since they are
     # all ran in-process (after the first aggregation node).
     if isinstance(node, AggregateTransform):
-      output_fns.append(_transform_make(node, recursive=False))
+      output_fns.append(
+          _transform_make(node, recursive=False, shard_index=shard_index)
+      )
     else:
       output_fns.extend([tree_fn.maybe_make() for tree_fn in node.fns])
   return CombinedTreeFn(
@@ -265,9 +276,10 @@ class CombinedTreeFn:
       transform: TreeTransform,
       recursive: bool = True,
       mode: RunnerMode = RunnerMode.DEFAULT,
+      shard_index: int = 0,
   ) -> Self:
     """Builds a TreeFn from a transform with caching."""
-    return _transform_make(transform, recursive, mode)
+    return _transform_make(transform, recursive, mode, shard_index)
 
   @property
   def has_agg(self):
@@ -680,9 +692,12 @@ class TreeTransform(Generic[TreeFnT]):
       recursive=True,
       # TODO: b/318463291 - deprecates runner mode in favor named transform.
       mode: RunnerMode = RunnerMode.DEFAULT,
+      shard_index: int = 0,
   ) -> CombinedTreeFn:
     """Makes the concrete function instance from the transform."""
-    return CombinedTreeFn.from_transform(self, recursive=recursive, mode=mode)
+    return CombinedTreeFn.from_transform(
+        self, recursive=recursive, mode=mode, shard_index=shard_index
+    )
 
   def data_source(self, iterator: Any = None) -> TreeTransform:
     return TreeTransform.new(
