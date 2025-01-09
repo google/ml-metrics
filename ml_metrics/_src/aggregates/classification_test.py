@@ -19,7 +19,7 @@ from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import math_utils
-import numpy as np
+from ml_metrics._src.utils import test_utils
 
 
 InputType = types.InputType
@@ -206,7 +206,7 @@ class ClassificationTest(parameterized.TestCase):
         vocab=vocab,
         pos_label=pos_label,
     )
-    self.assertEqual((expected,), confusion_matrix(y_true, y_pred))
+    self.assertEqual(expected, confusion_matrix(y_true, y_pred))
 
   @parameterized.named_parameters([
       dict(
@@ -344,7 +344,7 @@ class ClassificationTest(parameterized.TestCase):
         vocab=vocab,
         pos_label=pos_label,
     )
-    self.assertEqual((expected,), confusion_matrix(y_true, y_pred))
+    self.assertEqual(expected, confusion_matrix(y_true, y_pred))
 
   @parameterized.named_parameters([
       # tp=2, tn=2, fp=1, fn=2, p = 3, t = 4
@@ -355,38 +355,38 @@ class ClassificationTest(parameterized.TestCase):
           input_type="binary",
           average="binary",
           metrics=_ImplementedDerivedConfusionMatrixMetrics,
-          expected=(
-              2 / 3,  # precision
-              2 / 3,  # ppv
-              2 / 4,  # recall
-              4 / 7,  # f1_score
-              1,  # accuracy
-              4 / 7,  # binary_accuracy
-              2 / 4,  # sensitivity
-              2 / 4,  # tpr
-              2 / 3,  # specificity
-              2 / 3,  # tnr
-              1 / 3,  # fall_out
-              1 / 3,  # fpr
-              2 / 4,  # miss_rate
-              2 / 4,  # fnr
-              2 / 4,  # negative_prediction_value
-              2 / 4,  # nvp
-              1 / 3,  # false_discovery_rate
-              2 / 4,  # false_omission_rate
-              2 / 5,  # threat_score
-              3 / 2,  # positive_likelihood_ratio
-              3 / 4,  # negative_likelihood_ratio
-              4 / 2,  # diagnostic_odds_ratio
-              2 / 3,  # positive_predictive_value
-              2 / 5,  # intersection_over_union
-              4 / 7,  # prevalence
-              math_utils.pos_sqrt(6) - 2,  # prevalence_threshold
-              1 / 6,  # matthews_correlation_coefficient
-              1 / 6,  # informedness
-              1 / 6,  # markedness
-              7 / 12,  # balanced_accuracy
-          ),
+          expected={
+              "precision": 2 / 3,
+              "ppv": 2 / 3,
+              "recall": 2 / 4,
+              "f1_score": 4 / 7,
+              "accuracy": 1,
+              "binary_accuracy": 4 / 7,
+              "sensitivity": 2 / 4,
+              "tpr": 2 / 4,
+              "specificity": 2 / 3,
+              "tnr": 2 / 3,
+              "fall_out": 1 / 3,
+              "fpr": 1 / 3,
+              "miss_rate": 2 / 4,
+              "fnr": 2 / 4,
+              "negative_prediction_value": 2 / 4,
+              "nvp": 2 / 4,
+              "false_discovery_rate": 1 / 3,
+              "false_omission_rate": 2 / 4,
+              "threat_score": 2 / 5,
+              "positive_likelihood_ratio": 3 / 2,
+              "negative_likelihood_ratio": 3 / 4,
+              "diagnostic_odds_ratio": 4 / 2,
+              "positive_predictive_value": 2 / 3,
+              "intersection_over_union": 2 / 5,
+              "prevalence": 4 / 7,
+              "prevalence_threshold": math_utils.pos_sqrt(6) - 2,
+              "matthews_correlation_coefficient": 1 / 6,
+              "informedness": 1 / 6,
+              "markedness": 1 / 6,
+              "balanced_accuracy": 7 / 12,
+          },
       ),
       # tp=[2 2], tn=[2 2], fp=[1 2], fn=[2 1], p = [3 4], t = [4 3]
       dict(
@@ -396,39 +396,41 @@ class ClassificationTest(parameterized.TestCase):
           input_type="binary",
           average="macro",
           metrics=_ImplementedDerivedConfusionMatrixMetrics,
-          expected=(
-              (2 / 3 + 2 / 4) / 2,  # precision
-              (2 / 3 + 2 / 4) / 2,  # ppv
-              (2 / 4 + 2 / 3) / 2,  # recall
-              4 / 7,  # f1_score
-              1,  # accuracy
-              (4 / 7 + 4 / 7) / 2,  # binary_accuracy
-              (2 / 4 + 2 / 3) / 2,  # sensitivity
-              (2 / 4 + 2 / 3) / 2,  # tpr
-              (2 / 3 + 2 / 4) / 2,  # specificity
-              (2 / 3 + 2 / 4) / 2,  # tnr
-              (1 / 3 + 2 / 4) / 2,  # fall_out
-              (1 / 3 + 2 / 4) / 2,  # fpr
-              (2 / 4 + 1 / 3) / 2,  # miss_rate
-              (2 / 4 + 1 / 3) / 2,  # fnr
-              (2 / 4 + 2 / 3) / 2,  # negative_prediction_value
-              (2 / 4 + 2 / 3) / 2,  # nvp
-              (1 / 3 + 2 / 4) / 2,  # false_discovery_rate
-              (2 / 4 + 1 / 3) / 2,  # false_omission_rate
-              (2 / 5 + 2 / 5) / 2,  # threat_score
-              (6 / 4 + 4 / 3) / 2,  # positive_likelihood_ratio
-              (3 / 4 + 4 / 6) / 2,  # negative_likelihood_ratio
-              (6 / 3 + 6 / 3) / 2,  # diagnostic_odds_ratio
-              (2 / 3 + 2 / 4) / 2,  # positive_predictive_value
-              (2 / 5 + 2 / 5) / 2,  # intersection_over_union
-              (4 / 7 + 3 / 7) / 2,  # prevalence
-              ((math_utils.pos_sqrt(6) - 2) + (2 * math_utils.pos_sqrt(3) - 3))
-              / 2,  # prevalence_threshold
-              (1 / 6 + 1 / 6) / 2,  # matthews_correlation_coefficient
-              (1 / 6 + 1 / 6) / 2,  # informedness
-              (1 / 6 + 1 / 6) / 2,  # markedness
-              (7 / 12 + 7 / 12) / 2,  # balanced_accuracy
-          ),
+          expected={
+              "precision": (2 / 3 + 2 / 4) / 2,
+              "ppv": (2 / 3 + 2 / 4) / 2,
+              "recall": (2 / 4 + 2 / 3) / 2,
+              "f1_score": 4 / 7,
+              "accuracy": 1,
+              "binary_accuracy": (4 / 7 + 4 / 7) / 2,
+              "sensitivity": (2 / 4 + 2 / 3) / 2,
+              "tpr": (2 / 4 + 2 / 3) / 2,
+              "specificity": (2 / 3 + 2 / 4) / 2,
+              "tnr": (2 / 3 + 2 / 4) / 2,
+              "fall_out": (1 / 3 + 2 / 4) / 2,
+              "fpr": (1 / 3 + 2 / 4) / 2,
+              "miss_rate": (2 / 4 + 1 / 3) / 2,
+              "fnr": (2 / 4 + 1 / 3) / 2,
+              "negative_prediction_value": (2 / 4 + 2 / 3) / 2,
+              "nvp": (2 / 4 + 2 / 3) / 2,
+              "false_discovery_rate": (1 / 3 + 2 / 4) / 2,
+              "false_omission_rate": (2 / 4 + 1 / 3) / 2,
+              "threat_score": (2 / 5 + 2 / 5) / 2,
+              "positive_likelihood_ratio": (6 / 4 + 4 / 3) / 2,
+              "negative_likelihood_ratio": (3 / 4 + 4 / 6) / 2,
+              "diagnostic_odds_ratio": (6 / 3 + 6 / 3) / 2,
+              "positive_predictive_value": (2 / 3 + 2 / 4) / 2,
+              "intersection_over_union": (2 / 5 + 2 / 5) / 2,
+              "prevalence": (4 / 7 + 3 / 7) / 2,
+              "prevalence_threshold": (
+                  (math_utils.pos_sqrt(6) - 2)
+                  + (2 * math_utils.pos_sqrt(3) - 3)
+              ) / 2,
+              "matthews_correlation_coefficient": (1 / 6 + 1 / 6) / 2,
+              "informedness": (1 / 6 + 1 / 6) / 2,
+              "markedness": (1 / 6 + 1 / 6) / 2,
+              "balanced_accuracy": (7 / 12 + 7 / 12) / 2,
+          },
       ),
       # tp=2, tn=2, fp=1, fn=2, p = 3, t = 4
       dict(
@@ -438,38 +440,38 @@ class ClassificationTest(parameterized.TestCase):
           input_type="multiclass-indicator",
           average="binary",
           metrics=_ImplementedDerivedConfusionMatrixMetrics,
-          expected=(
-              2 / 3,  # precision
-              2 / 3,  # ppv
-              2 / 4,  # recall
-              4 / 7,  # f1_score
-              1,  # accuracy
-              4 / 7,  # binary_accuracy
-              2 / 4,  # sensitivity
-              2 / 4,  # tpr
-              2 / 3,  # specificity
-              2 / 3,  # tnr
-              1 / 3,  # fall_out
-              1 / 3,  # fpr
-              2 / 4,  # miss_rate
-              2 / 4,  # fnr
-              2 / 4,  # negative_prediction_value
-              2 / 4,  # nvp
-              1 / 3,  # false_discovery_rate
-              2 / 4,  # false_omission_rate
-              2 / 5,  # threat_score
-              3 / 2,  # positive_likelihood_ratio
-              3 / 4,  # negative_likelihood_ratio
-              4 / 2,  # diagnostic_odds_ratio
-              2 / 3,  # positive_predictive_value
-              2 / 5,  # intersection_over_union
-              4 / 7,  # prevalence
-              math_utils.pos_sqrt(6) - 2,  # prevalence_threshold
-              1 / 6,  # matthews_correlation_coefficient
-              1 / 6,  # informedness
-              1 / 6,  # markedness
-              7 / 12,  # balanced_accuracy
-          ),
+          expected={
+              "precision": 2 / 3,
+              "ppv": 2 / 3,
+              "recall": 2 / 4,
+              "f1_score": 4 / 7,
+              "accuracy": 1,
+              "binary_accuracy": 4 / 7,
+              "sensitivity": 2 / 4,
+              "tpr": 2 / 4,
+              "specificity": 2 / 3,
+              "tnr": 2 / 3,
+              "fall_out": 1 / 3,
+              "fpr": 1 / 3,
+              "miss_rate": 2 / 4,
+              "fnr": 2 / 4,
+              "negative_prediction_value": 2 / 4,
+              "nvp": 2 / 4,
+              "false_discovery_rate": 1 / 3,
+              "false_omission_rate": 2 / 4,
+              "threat_score": 2 / 5,
+              "positive_likelihood_ratio": 3 / 2,
+              "negative_likelihood_ratio": 3 / 4,
+              "diagnostic_odds_ratio": 4 / 2,
+              "positive_predictive_value": 2 / 3,
+              "intersection_over_union": 2 / 5,
+              "prevalence": 4 / 7,
+              "prevalence_threshold": math_utils.pos_sqrt(6) - 2,
+              "matthews_correlation_coefficient": 1 / 6,
+              "informedness": 1 / 6,
+              "markedness": 1 / 6,
+              "balanced_accuracy": 7 / 12,
+          },
       ),
       # tp=2, tn=2, fp=1, fn=2, p = 3, t = 4
       dict(
@@ -480,38 +482,38 @@ class ClassificationTest(parameterized.TestCase):
           pos_label="Y",
           average="binary",
           metrics=_ImplementedDerivedConfusionMatrixMetrics,
-          expected=(
-              2 / 3,  # precision
-              2 / 3,  # ppv
-              2 / 4,  # recall
-              4 / 7,  # f1_score
-              1,  # accuracy
-              4 / 7,  # binary_accuracy
-              2 / 4,  # sensitivity
-              2 / 4,  # tpr
-              2 / 3,  # specificity
-              2 / 3,  # tnr
-              1 / 3,  # fall_out
-              1 / 3,  # fpr
-              2 / 4,  # miss_rate
-              2 / 4,  # fnr
-              2 / 4,  # negative_prediction_value
-              2 / 4,  # nvp
-              1 / 3,  # false_discovery_rate
-              2 / 4,  # false_omission_rate
-              2 / 5,  # threat_score
-              3 / 2,  # positive_likelihood_ratio
-              3 / 4,  # negative_likelihood_ratio
-              4 / 2,  # diagnostic_odds_ratio
-              2 / 3,  # positive_predictive_value
-              2 / 5,  # intersection_over_union
-              4 / 7,  # prevalence
-              math_utils.pos_sqrt(6) - 2,  # prevalence_threshold
-              1 / 6,  # matthews_correlation_coefficient
-              1 / 6,  # informedness
-              1 / 6,  # markedness
-              7 / 12,  # balanced_accuracy
-          ),
+          expected={
+              "precision": 2 / 3,
+              "ppv": 2 / 3,
+              "recall": 2 / 4,
+              "f1_score": 4 / 7,
+              "accuracy": 1,
+              "binary_accuracy": 4 / 7,
+              "sensitivity": 2 / 4,
+              "tpr": 2 / 4,
+              "specificity": 2 / 3,
+              "tnr": 2 / 3,
+              "fall_out": 1 / 3,
+              "fpr": 1 / 3,
+              "miss_rate": 2 / 4,
+              "fnr": 2 / 4,
+              "negative_prediction_value": 2 / 4,
+              "nvp": 2 / 4,
+              "false_discovery_rate": 1 / 3,
+              "false_omission_rate": 2 / 4,
+              "threat_score": 2 / 5,
+              "positive_likelihood_ratio": 3 / 2,
+              "negative_likelihood_ratio": 3 / 4,
+              "diagnostic_odds_ratio": 4 / 2,
+              "positive_predictive_value": 2 / 3,
+              "intersection_over_union": 2 / 5,
+              "prevalence": 4 / 7,
+              "prevalence_threshold": math_utils.pos_sqrt(6) - 2,
+              "matthews_correlation_coefficient": 1 / 6,
+              "informedness": 1 / 6,
+              "markedness": 1 / 6,
+              "balanced_accuracy": 7 / 12,
+          },
       ),
   ])
   def test_confusion_matrix_metric(
@@ -532,19 +534,18 @@ class ClassificationTest(parameterized.TestCase):
         pos_label=pos_label,
         metrics=metrics,
     )
-    np.testing.assert_allclose(
-        expected, confusion_matrix(y_true, y_pred), atol=1e-6
+    test_utils.assert_nested_container_equal(
+        self, expected, confusion_matrix(y_true, y_pred)
     )
 
   def test_confusion_matrix_metric_invalid_average_type(self):
-    confusion_matrix = classification.ConfusionMatrixAggFn(
-        metrics="precision",
-        average="weighted",
-    )
     with self.assertRaisesRegex(
         NotImplementedError, '"weighted" average is not supported'
     ):
-      confusion_matrix([0, 1, 0], [1, 0, 0])
+      _ = classification.ConfusionMatrixAggFn(
+          metrics="precision",
+          average="weighted",
+      )
 
   def test_topk_confusion_matrix_invalidinput_type(self):
     with self.assertRaisesRegex(ValueError, '"binary" input is not supported'):
@@ -568,39 +569,39 @@ class ClassificationTest(parameterized.TestCase):
           # recall = mean([1, 0, 0, 1, 1, 0]) = 3 / 6 = 0.5
           # f1_score = mean(2 * precision * recall / (precision + recall)) = 0.5
           # accuracy = mean([1, 0, 0, 1, 1, 0]) = 0.5
-          expected=(
-              0.5,  # 'precision': MeanState(total=3.0, count=6)
-              0.5,  # 'ppv': MeanState(total=3.0, count=6)
-              0.5,  # 'recall': MeanState(total=3.0, count=6)
-              0.5,  # 'f1_score': MeanState(total=3.0, count=6)
-              0.5,  # 'accuracy': MeanState(total=3, count=6)
-              0.5,  # 'binary_accuracy': MeanState(total=3, count=6)
-              0.5,  # 'sensitivity': MeanState(total=3.0, count=6)
-              0.5,  # 'tpr': MeanState(total=3.0, count=6)
-              0.5,  # 'specificity': MeanState(total=3.0, count=6)
-              0.5,  # 'tnr': MeanState(total=3.0, count=6)
-              0.5,  # 'fall_out': MeanState(total=3.0, count=6)
-              0.5,  # 'fpr': MeanState(total=3.0, count=6)
-              0.5,  # 'miss_rate': MeanState(total=3.0, count=6)
-              0.5,  # 'fnr': MeanState(total=3.0, count=6)
-              0.5,  # 'negative_prediction_value': MeanState(total=3.0, count=6)
-              0.5,  # 'nvp': MeanState(total=3.0, count=6)
-              0.5,  # 'false_discovery_rate': MeanState(total=3.0, count=6)
-              0.5,  # 'false_omission_rate': MeanState(total=3.0, count=6)
-              0.5,  # 'threat_score': MeanState(total=3.0, count=6)
-              0.0,  # 'positive_likelihood_ratio': MeanState(total=0.0, count=6)
-              0.0,  # 'negative_likelihood_ratio': MeanState(total=0.0, count=6)
-              0.0,  # 'diagnostic_odds_ratio': MeanState(total=0.0, count=6)
-              0.5,  # 'positive_predictive_value': MeanState(total=3.0, count=6)
-              0.5,  # 'intersection_over_union': MeanState(total=3.0, count=6)
-              0.5,  # 'prevalence': MeanState(total=3.0, count=6)
-              0.5,  # 'prevalence_threshold': MeanState(total=3.0, count=6)
-              0.0,  # 'matthews_correlation_coefficient':
-              #   MeanState(total=0.0, count=6)
-              0.0,  # 'informedness': MeanState(total=0.0, count=6)
-              0.0,  # 'markedness': MeanState(total=0.0, count=6)
-              0.5,  # 'balanced_accuracy': MeanState(total=3.0, count=6)
-          ),
+          expected={
+              "precision": 0.5,  # MeanState(total=3.0, count=6)
+              "ppv": 0.5,  # MeanState(total=3.0, count=6)
+              "recall": 0.5,  # MeanState(total=3.0, count=6)
+              "f1_score": 0.5,  # MeanState(total=3.0, count=6)
+              "accuracy": 0.5,  # MeanState(total=3, count=6)
+              "binary_accuracy": 0.5,  # MeanState(total=3, count=6)
+              "sensitivity": 0.5,  # MeanState(total=3.0, count=6)
+              "tpr": 0.5,  # MeanState(total=3.0, count=6)
+              "specificity": 0.5,  # MeanState(total=3.0, count=6)
+              "tnr": 0.5,  # MeanState(total=3.0, count=6)
+              "fall_out": 0.5,  # MeanState(total=3.0, count=6)
+              "fpr": 0.5,  # MeanState(total=3.0, count=6)
+              "miss_rate": 0.5,  # MeanState(total=3.0, count=6)
+              "fnr": 0.5,  # MeanState(total=3.0, count=6)
+              "negative_prediction_value": 0.5,  # MeanState(total=3.0, count=6)
+              "nvp": 0.5,  # MeanState(total=3.0, count=6)
+              "false_discovery_rate": 0.5,  # MeanState(total=3.0, count=6)
+              "false_omission_rate": 0.5,  # MeanState(total=3.0, count=6)
+              "threat_score": 0.5,  # MeanState(total=3.0, count=6)
+              "positive_likelihood_ratio": 0.0,  # MeanState(total=0.0, count=6)
+              "negative_likelihood_ratio": 0.0,  # MeanState(total=0.0, count=6)
+              "diagnostic_odds_ratio": 0.0,  # MeanState(total=0.0, count=6)
+              "positive_predictive_value": 0.5,  # MeanState(total=3.0, count=6)
+              "intersection_over_union": 0.5,  # MeanState(total=3.0, count=6)
+              "prevalence": 0.5,  # MeanState(total=3.0, count=6)
+              "prevalence_threshold": 0.5,  # MeanState(total=3.0, count=6)
+              # MeanState(total=0.0, count=6)
+              "matthews_correlation_coefficient": 0.0,
+              "informedness": 0.0,  # MeanState(total=0.0, count=6)
+              "markedness": 0.0,  # MeanState(total=0.0, count=6)
+              "balanced_accuracy": 0.5,  # MeanState(total=3.0, count=6)
+          },
       ),
       dict(
           testcase_name="multiclass_samples",
@@ -612,42 +613,42 @@ class ClassificationTest(parameterized.TestCase):
           # recall = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8 = 0.625
           # f1_score = 2 * precision * recall / (precision + recall) = 0.625
           # accuracy = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8 = 0.625
-          expected=(
-              0.625,  # 'precision': MeanState(total=5.0, count=8)
-              0.625,  # 'ppv': MeanState(total=5.0, count=8)
-              0.625,  # 'recall': MeanState(total=5.0, count=8)
-              0.625,  # 'f1_score': MeanState(total=5.0, count=8)
-              0.625,  # 'accuracy': MeanState(total=5, count=8)
-              0.75,  # 'binary_accuracy': MeanState(total=6, count=8)
-              0.625,  # 'sensitivity': MeanState(total=5.0, count=8)
-              0.625,  #  'tpr': MeanState(total=5.0, count=8)
-              0.8125,  # 'specificity': MeanState(total=6.5, count=8)
-              0.8125,  #  'tnr': MeanState(total=6.5, count=8)
-              0.1875,  #  'fall_out': MeanState(total=1.5, count=8)
-              0.1875,  #  'fpr': MeanState(total=1.5, count=8)
-              0.375,  # 'miss_rate': MeanState(total=3.0, count=8)
-              0.375,  #  'fnr': MeanState(total=3.0, count=8)
-              0.8125,
-              # 'negative_prediction_value': MeanState(total=6.5, count=8)
-              0.8125,  # 'nvp': MeanState(total=6.5, count=8)
-              0.375,  # 'false_discovery_rate': MeanState(total=3.0, count=8)
-              0.1875,  # 'false_omission_rate': MeanState(total=1.5, count=8)
-              0.625,  # 'threat_score': MeanState(total=5.0, count=8)
-              0.0,  # 'positive_likelihood_ratio': MeanState(total=0.0, count=8)
-              0.75,
-              # 'negative_likelihood_ratio': MeanState(total=6.0, count=8)
-              0.0,  # 'diagnostic_odds_ratio': MeanState(total=0.0, count=8)
-              0.625,
-              # 'positive_predictive_value': MeanState(total=5.0, count=8)
-              0.625,  # 'intersection_over_union': MeanState(total=5.0, count=8)
-              1 / 3,  # 'prevalence': MeanState(total=8/3, count=8)
-              3 / 8,  # 'prevalence_threshold': MeanState(total=3.0, count=8)
-              3.5 / 8,  # 'matthews_correlation_coefficient':
-              #   MeanState(total=3.5, count=8)
-              3.5 / 8,  # 'informedness': MeanState(total=3.5, count=8)
-              3.5 / 8,  # 'markedness': MeanState(total=3.5, count=8)
-              5.75 / 8,  # 'balanced_accuracy': MeanState(total=5.75, count=8)
-          ),
+          expected={
+              "precision": 0.625,  # MeanState(total=5.0, count=8)
+              "ppv": 0.625,  # MeanState(total=5.0, count=8)
+              "recall": 0.625,  # MeanState(total=5.0, count=8)
+              "f1_score": 0.625,  # MeanState(total=5.0, count=8)
+              "accuracy": 0.625,  # MeanState(total=5, count=8)
+              "binary_accuracy": 0.75,  # MeanState(total=6, count=8)
+              "sensitivity": 0.625,  # MeanState(total=5.0, count=8)
+              "tpr": 0.625,  # MeanState(total=5.0, count=8)
+              "specificity": 0.8125,  # MeanState(total=6.5, count=8)
+              "tnr": 0.8125,  # MeanState(total=6.5, count=8)
+              "fall_out": 0.1875,  # MeanState(total=1.5, count=8)
+              "fpr": 0.1875,  # MeanState(total=6.5, count=8)
+              "miss_rate": 0.375,  # MeanState(total=3.0, count=8)
+              "fnr": 0.375,  # MeanState(total=3.0, count=8)
+              # MeanState(total=6.5, count=8)
+              "negative_prediction_value": 0.8125,
+              "nvp": 0.8125,  # MeanState(total=6.5, count=8)
+              "false_discovery_rate": 0.375,  # MeanState(total=3.0, count=8)
+              "false_omission_rate": 0.1875,  # MeanState(total=1.5, count=8)
+              "threat_score": 0.625,  # MeanState(total=5.0, count=8)
+              "positive_likelihood_ratio": 0.0,  # MeanState(total=0.0, count=8)
+              # MeanState(total=6.0, count=8)
+              "negative_likelihood_ratio": 0.75,
+              "diagnostic_odds_ratio": 0.0,  # MeanState(total=0.0, count=8)
+              # MeanState(total=5.0, count=8)
+              "positive_predictive_value": 0.625,
+              "intersection_over_union": 0.625,  # MeanState(total=5.0, count=8)
+              "prevalence": 1 / 3,  # MeanState(total=8/3, count=8)
+              "prevalence_threshold": 3 / 8,  # MeanState(total=3.0, count=8)
+              # MeanState(total=3.5, count=8)
+              "matthews_correlation_coefficient": 3.5 / 8,
+              "informedness": 3.5 / 8,  # MeanState(total=3.5, count=8)
+              "markedness": 3.5 / 8,  # MeanState(total=3.5, count=8)
+              "balanced_accuracy": 5.75 / 8,  # MeanState(total=5.75, count=8)
+          },
       ),
       dict(
           testcase_name="multiclass_multioutput",
@@ -661,47 +662,43 @@ class ClassificationTest(parameterized.TestCase):
           # recall = mean([1, 1, 0, 1, 0.5, 1, 0, 1]) = 5.5 / 8 = 0.6875
           # f1_score = mean(preceision * recall / (precision + recall) )= 0.6667
           # accuracy = mean([1, 1, 0, 1, 1, 1, 0, 1]) = 6 / 8 = 0.75
-          expected=(
-              0.6875,  # 'precision': MeanState(total=5.5, count=8)
-              0.6875,  # , 'ppv': MeanState(total=5.5, count=8)
-              0.6875,  # 'recall': MeanState(total=5.5, count=8)
-              0.6666666666666666,
-              # 'f1_score': MeanState(total=5.333333333333333, count=8)
-              0.75,  # 'accuracy': MeanState(total=6, count=8)
-              0.75,  # 'binary_accuracy': MeanState(total=6, count=8)
-              0.6875,  # 'sensitivity': MeanState(total=5.5, count=8)
-              0.6875,  # 'tpr': MeanState(total=5.5, count=8)
-              0.8125,  # 'specificity': MeanState(total=6.5, count=8)
-              0.8125,  # 'tnr': MeanState(total=6.5, count=8)
-              0.1875,  # 'fall_out': MeanState(total=1.5, count=8)
-              0.1875,  # 'fpr': MeanState(total=1.5, count=8)
-              0.3125,  # 'miss_rate': MeanState(total=2.5, count=8)
-              0.3125,  # 'fnr': MeanState(total=2.5, count=8)
-              0.8125,
-              # 'negative_prediction_value': MeanState(total=6.5, count=8)
-              0.8125,  # 'nvp': MeanState(total=6.5, count=8)
-              0.3125,  # 'false_discovery_rate': MeanState(total=2.5, count=8)
-              0.1875,  # 'false_omission_rate': MeanState(total=1.5, count=8)
-              0.625,  # 'threat_score': MeanState(total=5.0, count=8)
-              0.25,
-              # 'positive_likelihood_ratio': MeanState(total=2.0, count=8)
-              0.5625,
-              # 'negative_likelihood_ratio': MeanState(total=4.5, count=8)
-              0.0,  # 'diagnostic_odds_ratio': MeanState(total=0.0, count=8)
-              0.6875,
-              # 'positive_predictive_value': MeanState(total=5.5, count=8)
-              0.625,  # 'intersection_over_union': MeanState(total=5.0, count=8)
-              3 / 8,  # 'prevalence': MeanState(total=3, count=8)
-              # prevalence_threshold =
-              #               mean([0, (sqrt(0.5) - 0.5)/0.5, 1, 0, 0, 0, 1, 0])
-              (1 / math_utils.pos_sqrt(0.5) + 1) / 8,  # 'prevalence_threshold':
-              #                        MeanState(total=1.5 + sqrt(0.5), count=8)
-              0.5,  # 'matthews_correlation_coefficient':
-              #         MeanState(total=4, count=8)
-              0.5,  # 'informedness': MeanState(total=4, count=8)
-              0.5,  # 'markedness': MeanState(total=4, count=8)
-              0.75,  # 'balanced_accuracy': MeanState(total=6, count=8)
-          ),
+          expected={
+              "precision": 0.6875,  # MeanState(total=5.5, count=8)
+              "ppv": 0.6875,  # MeanState(total=5.5, count=8)
+              "recall": 0.6875,  # MeanState(total=5.5, count=8)
+              "f1_score": 2 / 3,  # MeanState(total=5.33333333333333, count=8)
+              "accuracy": 0.75,  # MeanState(total=6, count=8)
+              "binary_accuracy": 0.75,  # MeanState(total=6, count=8)
+              "sensitivity": 0.6875,  # MeanState(total=5.5, count=8)
+              "tpr": 0.6875,  # MeanState(total=5.5, count=8)
+              "specificity": 0.8125,  # MeanState(total=6.5, count=8)
+              "tnr": 0.8125,  # MeanState(total=6.5, count=8)
+              "fall_out": 0.1875,  # MeanState(total=1.5, count=8)
+              "fpr": 0.1875,  # MeanState(total=1.5, count=8)
+              "miss_rate": 0.3125,  # MeanState(total=2.5, count=8)
+              "fnr": 0.3125,  # MeanState(total=2.5, count=8)
+              # MeanState(total=6.5, count=8)
+              "negative_prediction_value": 0.8125,
+              "nvp": 0.8125,  # MeanState(total=6.5, count=8)
+              "false_discovery_rate": 0.3125,  # MeanState(total=2.5, count=8)
+              "false_omission_rate": 0.1875,  # MeanState(total=1.5, count=8)
+              "threat_score": 0.625,  # MeanState(total=5.0, count=8)
+              "positive_likelihood_ratio": 0.25,  # MeanState(total=2, count=8)
+              # MeanState(total=4.5, count=8)
+              "negative_likelihood_ratio": 0.5625,
+              "diagnostic_odds_ratio": 0.0,  # MeanState(total=0.0, count=8)
+              # MeanState(total=5.5, count=8)
+              "positive_predictive_value": 0.6875,
+              "intersection_over_union": 0.625,  # MeanState(total=5.0, count=8)
+              "prevalence": 3 / 8,  # MeanState(total=3, count=8)
+              # MeanState(total=1.5 + sqrt(0.5), count=8)
+              "prevalence_threshold": (1 / math_utils.pos_sqrt(0.5) + 1) / 8,
+              # MeanState(total=4, count=8)
+              "matthews_correlation_coefficient": 0.5,
+              "informedness": 0.5,  # MeanState(total=4, count=8)
+              "markedness": 0.5,  # MeanState(total=4, count=8)
+              "balanced_accuracy": 0.75,  # MeanState(total=6, count=8)
+          },
       ),
   ])
   def test_samplewise_confusion_matrix_metric(
@@ -729,7 +726,11 @@ class ClassificationTest(parameterized.TestCase):
         input_type=input_type,
         vocab=vocab,
     ).as_agg_fn()
-    np.testing.assert_allclose(expected, confusion_matrix(y_true, y_pred))
+    test_utils.assert_nested_container_equal(
+        self,
+        expected,
+        confusion_matrix(y_true, y_pred),
+    )
 
   def test_confusion_matrix_merge(self):
     y_pred = [1, 0, 1, 0, 1, 0, 0]
@@ -770,18 +771,13 @@ class ClassificationTest(parameterized.TestCase):
     y_pred = [1, 0, 1, 0, 1, 0, 0]
     y_true = [1, 1, 0, 0, 1, 0, 1]
     confusion_matrix = classification.ConfusionMatrixAggFn()
-    cm = confusion_matrix(y_true, y_pred)[0]
+    cm = confusion_matrix(y_true, y_pred)
     self.assertEqual(3, cm.p)
     self.assertEqual(4, cm.t)
 
   def test_confusion_matrix_invalidinput_type(self):
-    y_pred = [1, 0, 1, 0, 1, 0, 0]
-    y_true = [1, 1, 0, 0, 1, 0, 1]
-    confusion_matrix = classification.ConfusionMatrixAggFn(
-        input_type=InputType.CONTINUOUS
-    )
     with self.assertRaisesRegex(NotImplementedError, "is not supported"):
-      confusion_matrix(y_true, y_pred)
+      _ = classification.ConfusionMatrixAggFn(input_type=InputType.CONTINUOUS)
 
   def test_samplewise_confusion_matrix_invalidinput_type(self):
     y_pred = [1, 0, 1, 0, 1, 0, 0]
@@ -793,13 +789,8 @@ class ClassificationTest(parameterized.TestCase):
       confusion_matrix(y_true, y_pred)
 
   def test_confusion_matrix_invalid_average_type(self):
-    y_pred = [1, 0, 1, 0, 1, 0, 0]
-    y_true = [1, 1, 0, 0, 1, 0, 1]
-    confusion_matrix = classification.ConfusionMatrixAggFn(
-        average=AverageType.WEIGHTED
-    )
     with self.assertRaisesRegex(NotImplementedError, " is not supported"):
-      confusion_matrix(y_true, y_pred)
+      _ = classification.ConfusionMatrixAggFn(average=AverageType.WEIGHTED)
 
   def test_confusion_matrix_binary_average_invalid_input(self):
     y_pred = ["dog", "cat", "cat", "bird", "tiger"]

@@ -32,6 +32,7 @@ ConfusionMatrixAggFn = classification.ConfusionMatrixAggFn
 TopKConfusionMatrixAggFn = classification.TopKConfusionMatrixAggFn
 SamplewiseClassification = classification.SamplewiseClassification
 SamplewiseConfusionMatrixAggFn = classification.SamplewiseConfusionMatrixAggFn
+_StrOrMetric = ConfusionMatrixMetric | str
 
 _METRIC_PYDOC_POSTFIX = """
 
@@ -185,7 +186,7 @@ class ClassificationAggFn(base.AggregateFn):
 
   def __init__(
       self,
-      metrics: Sequence[ConfusionMatrixMetric],
+      metrics: Sequence[_StrOrMetric] | _StrOrMetric,
       *,
       pos_label: bool | int | str | bytes = 1,
       input_type: InputType = InputType.BINARY,
@@ -243,7 +244,7 @@ class ClassificationAggFn(base.AggregateFn):
 
 
 def classification_metrics(
-    metrics: Sequence[ConfusionMatrixMetric],
+    metrics: Sequence[_StrOrMetric] | _StrOrMetric,
     *,
     y_true,
     y_pred,
@@ -306,14 +307,14 @@ def precision(
   """Compute Precision classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.PRECISION,),
+      metrics=ConfusionMatrixMetric.PRECISION,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 precision.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -330,14 +331,14 @@ def ppv(
   """Compute PPV classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.PPV,),
+      metrics=ConfusionMatrixMetric.PPV,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 ppv.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -354,14 +355,14 @@ def recall(
   """Compute Recall classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.RECALL,),
+      metrics=ConfusionMatrixMetric.RECALL,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 recall.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -378,14 +379,14 @@ def f1_score(
   """Compute F1 Score classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.F1_SCORE,),
+      metrics=ConfusionMatrixMetric.F1_SCORE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 f1_score.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -402,14 +403,14 @@ def accuracy(
   """Compute Accuracy classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.ACCURACY,),
+      metrics=ConfusionMatrixMetric.ACCURACY,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 accuracy.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -426,14 +427,14 @@ def binary_accuracy(
   """Compute Binary Accuracy classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.BINARY_ACCURACY,),
+      metrics=ConfusionMatrixMetric.BINARY_ACCURACY,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 binary_accuracy.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -450,14 +451,14 @@ def sensitivity(
   """Compute Sensitivity classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.SENSITIVITY,),
+      metrics=ConfusionMatrixMetric.SENSITIVITY,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 sensitivity.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -474,14 +475,14 @@ def tpr(
   """Compute TPR (True Positive rate/sensitivity) classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.TPR,),
+      metrics=ConfusionMatrixMetric.TPR,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 tpr.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -498,14 +499,14 @@ def specificity(
   """Compute Specificity classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.SPECIFICITY,),
+      metrics=ConfusionMatrixMetric.SPECIFICITY,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 specificity.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -522,14 +523,14 @@ def tnr(
   """Compute TNR (True negative rate) classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.TNR,),
+      metrics=ConfusionMatrixMetric.TNR,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 tnr.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -546,14 +547,14 @@ def fall_out(
   """Compute Fall-out classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.FALL_OUT,),
+      metrics=ConfusionMatrixMetric.FALL_OUT,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 fall_out.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -570,14 +571,14 @@ def fpr(
   """Compute FPR (False Positive rate) classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.FPR,),
+      metrics=ConfusionMatrixMetric.FPR,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 fpr.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -594,14 +595,14 @@ def miss_rate(
   """Compute Miss Rate classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.MISS_RATE,),
+      metrics=ConfusionMatrixMetric.MISS_RATE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 miss_rate.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -618,14 +619,14 @@ def fnr(
   """Compute FNR (False Negative Rate) classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.FNR,),
+      metrics=ConfusionMatrixMetric.FNR,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 fnr.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -642,14 +643,14 @@ def negative_prediction_value(
   """Compute Negative Prediction Value classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.NEGATIVE_PREDICTION_VALUE,),
+      metrics=ConfusionMatrixMetric.NEGATIVE_PREDICTION_VALUE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 negative_prediction_value.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -666,14 +667,14 @@ def nvp(
   """Compute alias of Negative Prediction Value classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.NVP,),
+      metrics=ConfusionMatrixMetric.NVP,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 nvp.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -690,14 +691,14 @@ def false_discovery_rate(
   """Compute False Discovery Rate classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.FALSE_DISCOVERY_RATE,),
+      metrics=ConfusionMatrixMetric.FALSE_DISCOVERY_RATE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 false_discovery_rate.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -714,14 +715,14 @@ def false_omission_rate(
   """Compute False Omission Rate classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.FALSE_OMISSION_RATE,),
+      metrics=ConfusionMatrixMetric.FALSE_OMISSION_RATE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 false_omission_rate.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -738,14 +739,14 @@ def threat_score(
   """Compute Threat Score classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.THREAT_SCORE,),
+      metrics=ConfusionMatrixMetric.THREAT_SCORE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 threat_score.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -762,14 +763,14 @@ def positive_likelihood_ratio(
   """Compute Positive Likelihood Ratio classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.POSITIVE_LIKELIHOOD_RATIO,),
+      metrics=ConfusionMatrixMetric.POSITIVE_LIKELIHOOD_RATIO,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 positive_likelihood_ratio.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -786,14 +787,14 @@ def negative_likelihood_ratio(
   """Compute Negative Likelihood Ratio classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.NEGATIVE_LIKELIHOOD_RATIO,),
+      metrics=ConfusionMatrixMetric.NEGATIVE_LIKELIHOOD_RATIO,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 negative_likelihood_ratio.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -810,14 +811,14 @@ def diagnostic_odds_ratio(
   """Compute Diagnostic Odds Ratio classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.DIAGNOSTIC_ODDS_RATIO,),
+      metrics=ConfusionMatrixMetric.DIAGNOSTIC_ODDS_RATIO,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 diagnostic_odds_ratio.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -834,14 +835,14 @@ def positive_predictive_value(
   """Compute Positive Predictive Value classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.POSITIVE_PREDICTIVE_VALUE,),
+      metrics=ConfusionMatrixMetric.POSITIVE_PREDICTIVE_VALUE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 positive_predictive_value.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -858,14 +859,14 @@ def intersection_over_union(
   """Compute Intersection over Union classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.INTERSECTION_OVER_UNION,),
+      metrics=ConfusionMatrixMetric.INTERSECTION_OVER_UNION,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 intersection_over_union.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -882,14 +883,14 @@ def prevalence(
   """Compute Prevalence classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.PREVALENCE,),
+      metrics=ConfusionMatrixMetric.PREVALENCE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 prevalence.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -906,14 +907,14 @@ def prevalence_threshold(
   """Compute Prevalence Threshold classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.PREVALENCE_THRESHOLD,),
+      metrics=ConfusionMatrixMetric.PREVALENCE_THRESHOLD,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 prevalence_threshold.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -930,14 +931,14 @@ def matthews_correlation_coefficient(
   """Compute Matthews Correlation Coefficient classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.MATTHEWS_CORRELATION_COEFFICIENT,),
+      metrics=ConfusionMatrixMetric.MATTHEWS_CORRELATION_COEFFICIENT,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 matthews_correlation_coefficient.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -954,14 +955,14 @@ def informedness(
   """Compute Informedness classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.INFORMEDNESS,),
+      metrics=ConfusionMatrixMetric.INFORMEDNESS,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 informedness.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -978,14 +979,14 @@ def markedness(
   """Compute Markedness classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.MARKEDNESS,),
+      metrics=ConfusionMatrixMetric.MARKEDNESS,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 markedness.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -1002,12 +1003,12 @@ def balanced_accuracy(
   """Compute Balanced Accuracy classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=(ConfusionMatrixMetric.BALANCED_ACCURACY,),
+      metrics=ConfusionMatrixMetric.BALANCED_ACCURACY,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
       vocab=vocab,
       dtype=dtype,
       k_list=k_list,
-  )(y_true, y_pred)[0]
+  )(y_true, y_pred)
 balanced_accuracy.__doc__ += _METRIC_PYDOC_POSTFIX

@@ -18,9 +18,8 @@ from absl.testing import parameterized
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.metrics import classification
 from ml_metrics._src.utils import math_utils
+from ml_metrics._src.utils import test_utils
 import numpy as np
-
-from absl.testing import absltest
 
 
 InputType = classification.InputType
@@ -179,8 +178,9 @@ class ClassificationTest(parameterized.TestCase):
   def test_average_type_sample(self):
     y_pred = [["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]]
     y_true = [["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]]
-    np.testing.assert_allclose(
-        (11 / 16,),
+    test_utils.assert_nested_container_equal(
+        self,
+        {"precision": 11 / 16},
         classification.ClassificationAggFn(
             (classification.ConfusionMatrixMetric.PRECISION,),
             input_type=InputType.MULTICLASS_MULTIOUTPUT,
@@ -201,24 +201,23 @@ class ClassificationTest(parameterized.TestCase):
     y_true = [1, 0, 1, 1]
     y_pred = [1, 1, 0, 1]
     np.testing.assert_allclose(
-        (2 / 3,),
-        classification.ClassificationAggFn(
-            (classification.ConfusionMatrixMetric.PRECISION,),
-        )(y_true, y_pred),
+        2 / 3,
+        classification.ClassificationAggFn(metrics="precision")(y_true, y_pred),
     )
 
   def test_multiple_metrics(self):
     y_pred = [["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]]
     y_true = [["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]]
     # expected=classification._ConfusionMatrix(tp=6, tn=12, fp=3, fn=3),
-    np.testing.assert_allclose(
-        (
-            2 / 3,
-            2 / 3,
-            2 / 3,
-            1 / 3,
-            1 / 2,
-        ),
+    test_utils.assert_nested_container_equal(
+        self,
+        {
+            "precision": 2 / 3,
+            "recall": 2 / 3,
+            "f1_score": 2 / 3,
+            "miss_rate": 1 / 3,
+            "threat_score": 1 / 2,
+        },
         classification.ClassificationAggFn(
             (
                 classification.ConfusionMatrixMetric.PRECISION,

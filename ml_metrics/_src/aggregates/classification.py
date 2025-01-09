@@ -70,6 +70,15 @@ class ConfusionMatrixMetric(enum.StrEnum):
 _CFMMetric = ConfusionMatrixMetric | str
 
 
+def _normalize_metrics(
+    metrics: Iterable[_CFMMetric] | _CFMMetric,
+) -> Sequence[ConfusionMatrixMetric]:
+  """Normalizes the metrics to ConfusionMatrixMetric."""
+  if isinstance(metrics, (str, ConfusionMatrixMetric)):
+    metrics = (metrics,)
+  return [ConfusionMatrixMetric(metric) for metric in metrics]
+
+
 class _ConfusionMatrix:
   """Confusion Matrix accumulator with kwargs used to compute it.
 
@@ -142,6 +151,8 @@ class _ConfusionMatrix:
   ) -> types.NumbersT:
     """Helper to call the right metric function given a Metric Enum."""
     match metric:
+      case ConfusionMatrixMetric.CONFUSION_MATRIX:
+        return self
       case ConfusionMatrixMetric.PRECISION:
         result = _precision(self)
       case ConfusionMatrixMetric.PPV:
@@ -558,6 +569,9 @@ class ConfusionMatrixAggFn(base.AggregateFn):
       as it is inferred.
   """
 
+  metrics: Sequence[_CFMMetric] | _CFMMetric = (
+      ConfusionMatrixMetric.CONFUSION_MATRIX
+  )
   pos_label: bool | int | str | bytes = 1
   input_type: InputType | str = InputType.BINARY
   _input_type: InputType = dataclasses.field(init=False)
@@ -565,7 +579,6 @@ class ConfusionMatrixAggFn(base.AggregateFn):
   average: AverageType | str = AverageType.BINARY
   _average: AverageType = dataclasses.field(init=False)
   vocab: dict[str, int] | None = None
-  metrics: Sequence[_CFMMetric] | _CFMMetric = ()
   _metrics: Sequence[ConfusionMatrixMetric] = dataclasses.field(init=False)
   dtype: type[Any] | None = None
 
@@ -574,12 +587,20 @@ class ConfusionMatrixAggFn(base.AggregateFn):
       raise ValueError(
           '"samples" average is unsupported, use the Samplewise version.'
       )
-    # Normalizes the metrics to ConfusionMatrixMetric.
-    metrics = [self.metrics] if isinstance(self.metrics, str) else self.metrics
-    metrics = [ConfusionMatrixMetric(metric) for metric in metrics]
     object.__setattr__(self, '_input_type', InputType(self.input_type))
     object.__setattr__(self, '_average', AverageType(self.average))
-    object.__setattr__(self, '_metrics', metrics)
+    object.__setattr__(self, '_metrics', _normalize_metrics(self.metrics))
+    if self._input_type not in (
+        InputType.MULTICLASS,
+        InputType.MULTICLASS_MULTIOUTPUT,
+        InputType.MULTICLASS_INDICATOR,
+        InputType.BINARY,
+    ):
+      raise NotImplementedError(
+          f'"{self._input_type}" input is not supported for Confusion Matrix.'
+      )
+    if self._average == AverageType.WEIGHTED:
+      raise NotImplementedError(f'"{self._average}" average is not supported.')
 
   def _calculate_confusion_matrix(
       self,
@@ -629,12 +650,13 @@ class ConfusionMatrixAggFn(base.AggregateFn):
     return result
 
   def get_result(self, state: ConfusionMatrixAggState) -> Any:
-    if self._metrics:
-      return tuple(
-          state.derive_metric(metric, average=self._average)
-          for metric in self._metrics
-      )
-    return (state,)
+    result = {
+        metric: state.derive_metric(metric, average=self._average)
+        for metric in self._metrics
+    }
+    if isinstance(self.metrics, (str, ConfusionMatrixMetric)):
+      return result[self.metrics]
+    return result
 
 
 def _apply_vocab_at_k(
@@ -764,7 +786,7 @@ class SamplewiseClassification(base.MergeableMetric):
       as it is inferred.
   """
 
-  metrics: Sequence[ConfusionMatrixMetric]
+  metrics: Sequence[_CFMMetric] | _CFMMetric
   pos_label: bool | int | str | bytes = 1
   input_type: InputType = InputType.BINARY
   average: AverageType = dataclasses.field(
@@ -772,6 +794,7 @@ class SamplewiseClassification(base.MergeableMetric):
   )
   vocab: dict[str, int] | None = None
   dtype: type[Any] | None = None
+  _metrics: Sequence[ConfusionMatrixMetric] = dataclasses.field(init=False)
   _state: dict[str, utils.MeanState] = dataclasses.field(
       default_factory=lambda: collections.defaultdict(utils.MeanState),
       init=False,
@@ -787,6 +810,7 @@ class SamplewiseClassification(base.MergeableMetric):
           'Samplewise Confusion Matrix aggreation only accepts Samples Average'
           f' type, got {self.average} from {self}.'
       )
+    object.__setattr__(self, '_metrics', _normalize_metrics(self.metrics))
 
   def as_agg_fn(self) -> base.AggregateFn:
     return base.as_agg_fn(
@@ -800,7 +824,7 @@ class SamplewiseClassification(base.MergeableMetric):
 
   def _metric_states(self, cm: _ConfusionMatrix) -> dict[str, utils.MeanState]:
     result = {}
-    for metric in self.metrics:
+    for metric in self._metrics:
       if (score := cm.derive_metric(metric)) is not None:
         result[metric] = utils.MeanState(np.sum(score), len(score))
     return result
@@ -840,7 +864,7 @@ class SamplewiseClassification(base.MergeableMetric):
     """Batch updates the states of the aggregate."""
     cm = self._calculate_confusion_matrix(y_true, y_pred)
     result = {}
-    for metric in self.metrics:
+    for metric in self._metrics:
       if (score := cm.derive_metric(metric)) is not None:
         result[metric] = score
         self._state[metric].add(score)
@@ -856,7 +880,10 @@ class SamplewiseClassification(base.MergeableMetric):
 
   def result(self):
     """Extracts the outputs from the aggregate states."""
-    return tuple(self._state[metric].result() for metric in self.metrics)
+    result = {metric: self._state[metric].result() for metric in self._metrics}
+    if isinstance(self.metrics, (str, ConfusionMatrixMetric)):
+      return result[self.metrics]
+    return result
 
 
 def SamplewiseConfusionMatrixAggFn(**kwargs) -> base.AggregateFn:  # pylint: disable=invalid-name
