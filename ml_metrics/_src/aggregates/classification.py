@@ -24,9 +24,9 @@ from typing import Any
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
+from ml_metrics._src.utils import iter_utils
 from ml_metrics._src.utils import math_utils
 import numpy as np
-
 
 AverageType = types.AverageType
 InputType = types.InputType
@@ -492,12 +492,15 @@ def _indicator_confusion_matrix(
 
 def get_vocab(rows: Iterable[Any], multioutput: bool) -> dict[str, int]:
   """Constructs a vocabulary that maps hashables to an integer."""
-  if multioutput:
-    return {
-        k: i for i, k in enumerate(set(itertools.chain.from_iterable(rows)))
-    }
-  else:
-    return {k: i for i, k in enumerate(set(rows))}
+  rows = itertools.chain.from_iterable(rows) if multioutput else rows
+  it_rows = iter_utils.iter_with_latest(rows)
+  try:
+    return {k: i for i, k in enumerate(set(it_rows))}
+  except TypeError as e:
+    latest = it_rows.latest()
+    raise TypeError(
+        f'Unhashable elements in the input, got a {type(latest)}: {latest}'
+    ) from e
 
 
 def _apply_vocab(rows: Sequence[Any], vocab: dict[str, int], multioutput: bool):

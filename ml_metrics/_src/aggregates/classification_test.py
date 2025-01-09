@@ -20,7 +20,7 @@ from ml_metrics._src.aggregates import utils
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import math_utils
 from ml_metrics._src.utils import test_utils
-
+import numpy as np
 
 InputType = types.InputType
 AverageType = types.AverageType
@@ -207,6 +207,16 @@ class ClassificationTest(parameterized.TestCase):
         pos_label=pos_label,
     )
     self.assertEqual(expected, confusion_matrix(y_true, y_pred))
+
+  def test_unhashable_inputs(self):
+    agg_fn = classification.ConfusionMatrixAggFn(
+        input_type=InputType.MULTICLASS
+    )
+    y_pred = np.array([1, 0, 1, 0, 1, 0, 0])
+    y_pred = np.expand_dims(y_pred, axis=1)
+    y_true = [1, 1, 0, 0, 1, 0, 1]
+    with self.assertRaisesRegex(TypeError, "Unhashable elements in the input"):
+      agg_fn(y_true, y_pred)
 
   @parameterized.named_parameters([
       dict(
