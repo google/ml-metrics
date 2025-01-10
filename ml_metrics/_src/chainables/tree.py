@@ -481,9 +481,10 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
           raise ValueError(
               f'Unsupported key "{key_path}" for input of {repr(tree)}.'
           )
-    except (ValueError, KeyError, IndexError) as e:
-      raise ValueError(
-          f'Failed to insert {key_path}:{value} to \n{tree_shape(result)}'
+    except (ValueError, KeyError, IndexError, TypeError) as e:
+      raise KeyError(
+          f'Failed to insert {key_path}:{value} to input with a shape of'
+          f' {tree_shape(result)}'
       ) from e
 
     # Recovers the container type when applicable.

@@ -107,8 +107,8 @@ class TreeMapViewTest(parameterized.TestCase):
     self.assertEqual(TreeMapView({}).get('a', 1), 1)
 
   def test_get_by_skip_raise_error(self):
-    with self.assertRaises(KeyError):
-      TreeMapView({'a': 1})[Key.SKIP, 'a']  # pylint: disable=expression-not-assigned
+    with self.assertRaisesRegex(KeyError, 'SKIP'):
+      _ = TreeMapView({'a': 1})[Key.SKIP, 'a']
 
   def test_key_path(self):
     view = TreeMapView({'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}]})
@@ -125,6 +125,14 @@ class TreeMapViewTest(parameterized.TestCase):
       _ = TreeMapView({'a': 1})['b']
     with self.assertRaises(TypeError):
       _ = TreeMapView({'a': 1})[set('a')]
+
+  def test_set_by_invalid_key_raises_error(self):
+    with self.assertRaisesRegex(KeyError, 'Failed to insert'):
+      TreeMapView({'a': 1}).set((['a'],), 2)
+    with self.assertRaisesRegex(KeyError, 'Failed to insert'):
+      TreeMapView({'a': 1}).set(({'a'},), 2)
+    with self.assertRaisesRegex(KeyError, 'Failed to insert'):
+      TreeMapView({'a': 1}).set(Key.new('a', ['b']), 2)
 
   def test_iter(self):
     data = {'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}], 'c': {}, 'e': []}
