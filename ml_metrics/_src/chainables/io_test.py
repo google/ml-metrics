@@ -19,11 +19,6 @@ from ml_metrics._src.chainables import io
 
 class ShardedDataSourceTest(parameterized.TestCase):
 
-  def test_sharded_sequence_iter(self):
-    self.assertEqual(
-        [0, 1, 2], list(io.ShardedSequence(range(3), num_shards=2))
-    )
-
   @parameterized.named_parameters([
       dict(
           testcase_name='with_default_num_shards',
@@ -47,8 +42,8 @@ class ShardedDataSourceTest(parameterized.TestCase):
       ),
   ])
   def test_sharded_sequence(self, num_shards, expected):
-    ds = io.ShardedSequence(list(range(3)), num_shards=num_shards)
-    actual = [list(ds.shard(i)) for i in range(ds.num_shards)]
+    ds = io.ShardedSequence(list(range(3)))
+    actual = [list(ds.get_shard(i, num_shards)) for i in range(num_shards)]
     self.assertEqual(expected, actual)
 
   def test_sharded_sequence_with_non_indexable_data(self):

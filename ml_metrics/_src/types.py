@@ -41,10 +41,8 @@ class Resolvable(Protocol[_T]):
 class Shardable(Protocol[_T]):
   """A sharded data source for chainables."""
 
-  num_shards: int
-
   @abc.abstractmethod
-  def shard(self, shard_index: int) -> Iterable[_T]:
+  def get_shard(self, shard_index: int, num_shards: int) -> Iterable[_T]:
     """Iterates the data source given a shard index and number of shards."""
 
 
@@ -67,12 +65,8 @@ def is_makeable(obj: Makeable[_T] | Any) -> TypeGuard[Makeable[_T]]:
 
 def is_shardable(obj: Shardable[_T] | Any) -> TypeGuard[Shardable[_T]]:
   """Checks if the object is a Shardable."""
-  shard = getattr(obj, 'shard', None)
-  return (
-      shard
-      and getattr(shard, '__self__', None) is obj
-      and hasattr(obj, 'num_shards')
-  )
+  get_shard = getattr(obj, 'get_shard', None)
+  return get_shard and getattr(get_shard, '__self__', None) is obj
 
 
 def is_array_like(obj: list[Any] | tuple[Any, ...] | npt.ArrayLike) -> bool:
