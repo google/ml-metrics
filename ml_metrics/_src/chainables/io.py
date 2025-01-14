@@ -14,7 +14,7 @@
 """I/O utilities for chainables."""
 
 from collections.abc import Iterable, Iterator, Sequence
-from typing import TypeVar
+from typing import Self, TypeVar
 from ml_metrics._src import types
 
 _T = TypeVar('_T')
@@ -56,3 +56,37 @@ class ShardedSequence(types.Shardable, Iterable[_T]):
       start += adjusted_interval if i < self._shard_index else 0
     for value in self._data[start : start + adjusted_interval]:
       yield value
+
+
+class ShardedIterable(types.Shardable, Iterable[_T]):
+  """A sharded data source for chainables."""
+
+  def __init__(
+      self, data: Iterable[_T], *, shard_index: int = 0, num_shards: int = 1
+  ):
+    if not (isinstance(data, Iterable) and not isinstance(data, Iterator)):
+      raise TypeError(
+          f'input has to be an iterable but not an iterator, got {type(data)=}'
+      )
+    if num_shards < 1:
+      raise ValueError(f'num_shards must be positive, got {num_shards=}')
+    self._data = data
+    self._shard_index = shard_index
+    self._num_shards = num_shards
+
+  @property
+  def num_shards(self) -> int:
+    return self._num_shards
+
+  def __iter__(self) -> Iterator[_T]:
+    """Iterates the data source given a shard index."""
+    for i, value in enumerate(self._data):
+      if i % self._num_shards == self._shard_index:
+        yield value
+
+  def get_shard(self, shard_index: int, num_shards: int = 0) -> Self:
+    return ShardedIterable(
+        self._data,
+        shard_index=shard_index,
+        num_shards=num_shards or self._num_shards,
+    )

@@ -50,6 +50,34 @@ class ShardedDataSourceTest(parameterized.TestCase):
     with self.assertRaises(TypeError):
       io.ShardedSequence(0)  # pytype: disable=wrong-arg-types
 
+  def test_sharded_iterable(self):
+    ds = io.ShardedIterable(range(3), num_shards=2)
+    actual = [list(ds.get_shard(i)) for i in range(ds.num_shards)]
+    expected = [[0, 2], [1]]
+    self.assertEqual(expected, actual)
+
+  def test_sharded_iterable_num_shards_more_than_data(self):
+    ds = io.ShardedIterable(range(2), num_shards=3)
+    actual = [list(ds.get_shard(i)) for i in range(ds.num_shards)]
+    expected = [[0], [1], []]
+    self.assertEqual(expected, actual)
+
+  def test_sharded_iterator_with_iterator_raises_error(self):
+    with self.assertRaisesRegex(
+        TypeError, 'input has to be an iterable but not an iterator'
+    ):
+      _ = list(io.ShardedIterable(iter(range(3)), num_shards=2))
+
+  def test_sharded_iterator_with_non_iteratable_raises_error(self):
+    with self.assertRaisesRegex(
+        TypeError, 'input has to be an iterable but not an iterator'
+    ):
+      _ = io.ShardedIterable(3, num_shards=2)  # pytype: disable=wrong-arg-types
+
+  def test_sharded_iterator_with_invalid_num_shards_raises_error(self):
+    with self.assertRaisesRegex(ValueError, 'num_shards must be positive'):
+      _ = list(io.ShardedIterable(range(3), num_shards=0))
+
 
 if __name__ == '__main__':
   absltest.main()
