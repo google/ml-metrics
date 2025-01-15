@@ -14,7 +14,8 @@
 """Base types used throughout the library."""
 
 import abc
-from typing import Any, Iterable, Protocol, TypeGuard, TypeVar, runtime_checkable
+from collections.abc import Iterable
+from typing import Any, Protocol, Self, TypeGuard, TypeVar, runtime_checkable
 from numpy import typing as npt
 
 _T = TypeVar('_T')
@@ -44,6 +45,19 @@ class Shardable(Protocol[_T]):
   @abc.abstractmethod
   def get_shard(self, shard_index: int, num_shards: int) -> Iterable[_T]:
     """Iterates the data source given a shard index and number of shards."""
+
+
+class Serializable(Protocol):
+  """An object that can be both serialized and deserialized."""
+
+  @classmethod
+  @abc.abstractmethod
+  def from_state(cls: type[Self], state) -> Self:
+    """Creates an object from a state."""
+
+  @abc.abstractmethod
+  def get_state(self):
+    """Gets the state of the object that can be used to recover the object."""
 
 
 MaybeResolvable = Resolvable[_T] | _T

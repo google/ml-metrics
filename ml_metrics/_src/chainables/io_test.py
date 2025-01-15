@@ -46,6 +46,21 @@ class ShardedDataSourceTest(parameterized.TestCase):
     actual = [list(ds.get_shard(i, num_shards)) for i in range(num_shards)]
     self.assertEqual(expected, actual)
 
+  def test_sharded_sequence_serialization(self):
+    it = io.ShardedSequence(range(3))
+    self.assertEqual(0, next(it))
+    state = it.get_state()
+    self.assertEqual([1, 2], list(it))
+    it = io.ShardedSequence.from_state(state)
+    self.assertEqual([1, 2], list(it))
+
+  def test_sharded_sequence_shard_after_partial_iteration(self):
+    ds = io.ShardedSequence(range(4))
+    self.assertEqual(0, next(ds))
+    it1, it2 = ds.get_shard(0, 2), ds.get_shard(1, 2)
+    self.assertEqual([1, 2], list(it1))
+    self.assertEqual([3], list(it2))
+
   def test_sharded_sequence_with_non_indexable_data(self):
     with self.assertRaises(TypeError):
       io.ShardedSequence(0)  # pytype: disable=wrong-arg-types

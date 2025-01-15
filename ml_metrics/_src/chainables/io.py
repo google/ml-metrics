@@ -20,42 +20,47 @@ from ml_metrics._src import types
 _T = TypeVar('_T')
 
 
-class ShardedSequence(types.Shardable, Iterable[_T]):
+class ShardedSequence(types.Shardable, types.Serializable, Iterable[_T]):
   """A sharded data source for chainables."""
 
-  def __init__(
-      self, data: Sequence[_T], *, shard_index: int = 0, num_shards: int = 1
-  ):
+  def __init__(self, data: Sequence[_T]):
     if not hasattr(data, '__getitem__') or not hasattr(data, '__len__'):
       raise TypeError(f'data is not indexable, got {type(data)=}')
-    if num_shards < 1:
-      raise ValueError(f'num_shards must be positive, got {num_shards=}')
     self._data_len = len(data)
     self._data = data
-    self._shard_index = shard_index
-    self._num_shards = num_shards
+    self._start_index = 0
 
-  @property
-  def num_shards(self) -> int:
-    return self._num_shards
+  @classmethod
+  def from_state(cls, state: Sequence[_T]) -> Self:
+    return cls(state)
+
+  def get_state(self) -> Sequence[_T]:
+    return self._data[self._start_index :]
 
   def get_shard(self, shard_index: int, num_shards: int = 0) -> Iterable[_T]:
     """Iterates the data source given a shard index."""
-    return self.__class__(
-        self._data,
-        shard_index=shard_index,
-        num_shards=num_shards or self._num_shards,
-    )
+    if num_shards < 1:
+      raise ValueError(f'num_shards must be positive, got {num_shards=}')
+    interval, remainder = divmod(self._data_len - self._start_index, num_shards)
+    start, adjusted_interval = self._start_index, 0
+    for i in range(shard_index + 1):
+      adjusted_interval = interval + 1 if i < remainder else interval
+      start += adjusted_interval if i < shard_index else 0
+    end = start + adjusted_interval
+    print('sharding: ', start, end)
+    return self.__class__(self._data[start: end])
+
+  def __next__(self) -> _T:
+    """Iterates the data source given a shard index."""
+    if self._start_index >= self._data_len:
+      raise StopIteration
+    result = self._data[self._start_index]
+    self._start_index += 1
+    return result
 
   def __iter__(self) -> Iterator[_T]:
     """Iterates the data source given a shard index."""
-    interval, remainder = divmod(self._data_len, self._num_shards)
-    start, adjusted_interval = 0, 0
-    for i in range(self._shard_index + 1):
-      adjusted_interval = interval + 1 if i < remainder else interval
-      start += adjusted_interval if i < self._shard_index else 0
-    for value in self._data[start : start + adjusted_interval]:
-      yield value
+    return self
 
 
 class ShardedIterable(types.Shardable, Iterable[_T]):
@@ -73,6 +78,7 @@ class ShardedIterable(types.Shardable, Iterable[_T]):
     self._data = data
     self._shard_index = shard_index
     self._num_shards = num_shards
+    self._index = -1
 
   @property
   def num_shards(self) -> int:
@@ -82,6 +88,7 @@ class ShardedIterable(types.Shardable, Iterable[_T]):
     """Iterates the data source given a shard index."""
     for i, value in enumerate(self._data):
       if i % self._num_shards == self._shard_index:
+        self._index += 1
         yield value
 
   def get_shard(self, shard_index: int, num_shards: int = 0) -> Self:
