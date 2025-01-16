@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
-from ml_metrics._src.chainables.lazy_fns import cache_info
+# from ml_metrics._src.chainables.lazy_fns import cache_info
 from ml_metrics._src.chainables.lazy_fns import clear_cache
 from ml_metrics._src.chainables.lazy_fns import LazyFn
 from ml_metrics._src.chainables.lazy_fns import LazyObject
@@ -34,5 +34,4 @@ from ml_metrics._src.chainables.tree import tree_shape
 from ml_metrics._src.chainables.tree import TreeMapView
 from ml_metrics._src.utils import test_utils
 from ml_metrics._src.utils.iter_utils import iterate_fn
-# pylint: enable=g-importing-member
-# pylint: enable=unused-import
+from ml_metrics.chainable import distributed
