@@ -25,14 +25,13 @@ from ml_metrics._src.metrics import utils
 import numpy as np
 
 
-InputType = types.InputType
-AverageType = types.AverageType
-ConfusionMatrixMetric = classification.ConfusionMatrixMetric
-ConfusionMatrixAggFn = classification.ConfusionMatrixAggFn
-TopKConfusionMatrixAggFn = classification.TopKConfusionMatrixAggFn
-SamplewiseClassification = classification.SamplewiseClassification
-SamplewiseConfusionMatrixAggFn = classification.SamplewiseConfusionMatrixAggFn
-_StrOrMetric = ConfusionMatrixMetric | str
+_InputType = types.InputType
+_AverageType = types.AverageType
+_ConfusionMatrixMetric = classification.ConfusionMatrixMetric
+_ConfusionMatrixAggFn = classification.ConfusionMatrixAggFn
+_TopKConfusionMatrixAggFn = classification.TopKConfusionMatrixAggFn
+_SamplewiseConfusionMatrixAggFn = classification.SamplewiseConfusionMatrixAggFn
+_StrOrMetric = _ConfusionMatrixMetric | str
 
 _METRIC_PYDOC_POSTFIX = """
 
@@ -189,16 +188,16 @@ class ClassificationAggFn(base.AggregateFn):
       metrics: Sequence[_StrOrMetric] | _StrOrMetric,
       *,
       pos_label: bool | int | str | bytes = 1,
-      input_type: InputType = InputType.BINARY,
-      average: AverageType = AverageType.BINARY,
+      input_type: _InputType = _InputType.BINARY,
+      average: _AverageType = _AverageType.BINARY,
       vocab: dict[str, int] | None = None,
       dtype: type[Any] | None = None,
       k_list: Sequence[int] | None = None,
   ):
-    if average == AverageType.SAMPLES:
+    if average == _AverageType.SAMPLES:
       if k_list:
         raise ValueError('k_list is not supported for average=SAMPLES')
-      self.agg_fn = SamplewiseConfusionMatrixAggFn(
+      self.agg_fn = _SamplewiseConfusionMatrixAggFn(
           vocab=vocab,
           dtype=dtype,
           metrics=metrics,
@@ -207,7 +206,7 @@ class ClassificationAggFn(base.AggregateFn):
       )
     else:
       if k_list:
-        self.agg_fn = TopKConfusionMatrixAggFn(
+        self.agg_fn = _TopKConfusionMatrixAggFn(
             vocab=vocab,
             average=average,
             dtype=dtype,
@@ -217,7 +216,7 @@ class ClassificationAggFn(base.AggregateFn):
             k_list=k_list,
         )
       else:
-        self.agg_fn = ConfusionMatrixAggFn(
+        self.agg_fn = _ConfusionMatrixAggFn(
             vocab=vocab,
             average=average,
             dtype=dtype,
@@ -249,8 +248,8 @@ def classification_metrics(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -298,8 +297,8 @@ def precision(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -307,7 +306,7 @@ def precision(
   """Compute Precision classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.PRECISION,
+      metrics=_ConfusionMatrixMetric.PRECISION,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -322,8 +321,8 @@ def ppv(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -331,7 +330,7 @@ def ppv(
   """Compute PPV classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.PPV,
+      metrics=_ConfusionMatrixMetric.PPV,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -346,8 +345,8 @@ def recall(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -355,7 +354,7 @@ def recall(
   """Compute Recall classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.RECALL,
+      metrics=_ConfusionMatrixMetric.RECALL,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -370,8 +369,8 @@ def f1_score(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -379,7 +378,7 @@ def f1_score(
   """Compute F1 Score classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.F1_SCORE,
+      metrics=_ConfusionMatrixMetric.F1_SCORE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -394,8 +393,8 @@ def accuracy(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -403,7 +402,7 @@ def accuracy(
   """Compute Accuracy classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.ACCURACY,
+      metrics=_ConfusionMatrixMetric.ACCURACY,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -418,8 +417,8 @@ def binary_accuracy(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -427,7 +426,7 @@ def binary_accuracy(
   """Compute Binary Accuracy classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.BINARY_ACCURACY,
+      metrics=_ConfusionMatrixMetric.BINARY_ACCURACY,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -442,8 +441,8 @@ def sensitivity(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -451,7 +450,7 @@ def sensitivity(
   """Compute Sensitivity classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.SENSITIVITY,
+      metrics=_ConfusionMatrixMetric.SENSITIVITY,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -466,8 +465,8 @@ def tpr(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -475,7 +474,7 @@ def tpr(
   """Compute TPR (True Positive rate/sensitivity) classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.TPR,
+      metrics=_ConfusionMatrixMetric.TPR,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -490,8 +489,8 @@ def specificity(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -499,7 +498,7 @@ def specificity(
   """Compute Specificity classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.SPECIFICITY,
+      metrics=_ConfusionMatrixMetric.SPECIFICITY,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -514,8 +513,8 @@ def tnr(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -523,7 +522,7 @@ def tnr(
   """Compute TNR (True negative rate) classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.TNR,
+      metrics=_ConfusionMatrixMetric.TNR,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -538,8 +537,8 @@ def fall_out(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -547,7 +546,7 @@ def fall_out(
   """Compute Fall-out classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.FALL_OUT,
+      metrics=_ConfusionMatrixMetric.FALL_OUT,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -562,8 +561,8 @@ def fpr(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -571,7 +570,7 @@ def fpr(
   """Compute FPR (False Positive rate) classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.FPR,
+      metrics=_ConfusionMatrixMetric.FPR,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -586,8 +585,8 @@ def miss_rate(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -595,7 +594,7 @@ def miss_rate(
   """Compute Miss Rate classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.MISS_RATE,
+      metrics=_ConfusionMatrixMetric.MISS_RATE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -610,8 +609,8 @@ def fnr(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -619,7 +618,7 @@ def fnr(
   """Compute FNR (False Negative Rate) classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.FNR,
+      metrics=_ConfusionMatrixMetric.FNR,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -634,8 +633,8 @@ def negative_prediction_value(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -643,7 +642,7 @@ def negative_prediction_value(
   """Compute Negative Prediction Value classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.NEGATIVE_PREDICTION_VALUE,
+      metrics=_ConfusionMatrixMetric.NEGATIVE_PREDICTION_VALUE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -658,8 +657,8 @@ def nvp(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -667,7 +666,7 @@ def nvp(
   """Compute alias of Negative Prediction Value classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.NVP,
+      metrics=_ConfusionMatrixMetric.NVP,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -682,8 +681,8 @@ def false_discovery_rate(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -691,7 +690,7 @@ def false_discovery_rate(
   """Compute False Discovery Rate classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.FALSE_DISCOVERY_RATE,
+      metrics=_ConfusionMatrixMetric.FALSE_DISCOVERY_RATE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -706,8 +705,8 @@ def false_omission_rate(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -715,7 +714,7 @@ def false_omission_rate(
   """Compute False Omission Rate classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.FALSE_OMISSION_RATE,
+      metrics=_ConfusionMatrixMetric.FALSE_OMISSION_RATE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -730,8 +729,8 @@ def threat_score(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -739,7 +738,7 @@ def threat_score(
   """Compute Threat Score classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.THREAT_SCORE,
+      metrics=_ConfusionMatrixMetric.THREAT_SCORE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -754,8 +753,8 @@ def positive_likelihood_ratio(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -763,7 +762,7 @@ def positive_likelihood_ratio(
   """Compute Positive Likelihood Ratio classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.POSITIVE_LIKELIHOOD_RATIO,
+      metrics=_ConfusionMatrixMetric.POSITIVE_LIKELIHOOD_RATIO,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -778,8 +777,8 @@ def negative_likelihood_ratio(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -787,7 +786,7 @@ def negative_likelihood_ratio(
   """Compute Negative Likelihood Ratio classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.NEGATIVE_LIKELIHOOD_RATIO,
+      metrics=_ConfusionMatrixMetric.NEGATIVE_LIKELIHOOD_RATIO,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -802,8 +801,8 @@ def diagnostic_odds_ratio(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -811,7 +810,7 @@ def diagnostic_odds_ratio(
   """Compute Diagnostic Odds Ratio classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.DIAGNOSTIC_ODDS_RATIO,
+      metrics=_ConfusionMatrixMetric.DIAGNOSTIC_ODDS_RATIO,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -826,8 +825,8 @@ def positive_predictive_value(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -835,7 +834,7 @@ def positive_predictive_value(
   """Compute Positive Predictive Value classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.POSITIVE_PREDICTIVE_VALUE,
+      metrics=_ConfusionMatrixMetric.POSITIVE_PREDICTIVE_VALUE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -850,8 +849,8 @@ def intersection_over_union(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -859,7 +858,7 @@ def intersection_over_union(
   """Compute Intersection over Union classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.INTERSECTION_OVER_UNION,
+      metrics=_ConfusionMatrixMetric.INTERSECTION_OVER_UNION,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -874,8 +873,8 @@ def prevalence(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -883,7 +882,7 @@ def prevalence(
   """Compute Prevalence classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.PREVALENCE,
+      metrics=_ConfusionMatrixMetric.PREVALENCE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -898,8 +897,8 @@ def prevalence_threshold(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -907,7 +906,7 @@ def prevalence_threshold(
   """Compute Prevalence Threshold classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.PREVALENCE_THRESHOLD,
+      metrics=_ConfusionMatrixMetric.PREVALENCE_THRESHOLD,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -922,8 +921,8 @@ def matthews_correlation_coefficient(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -931,7 +930,7 @@ def matthews_correlation_coefficient(
   """Compute Matthews Correlation Coefficient classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.MATTHEWS_CORRELATION_COEFFICIENT,
+      metrics=_ConfusionMatrixMetric.MATTHEWS_CORRELATION_COEFFICIENT,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -946,8 +945,8 @@ def informedness(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -955,7 +954,7 @@ def informedness(
   """Compute Informedness classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.INFORMEDNESS,
+      metrics=_ConfusionMatrixMetric.INFORMEDNESS,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -970,8 +969,8 @@ def markedness(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -979,7 +978,7 @@ def markedness(
   """Compute Markedness classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.MARKEDNESS,
+      metrics=_ConfusionMatrixMetric.MARKEDNESS,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -994,8 +993,8 @@ def balanced_accuracy(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
-    input_type: InputType = InputType.BINARY,
-    average: AverageType = AverageType.BINARY,
+    input_type: _InputType = _InputType.BINARY,
+    average: _AverageType = _AverageType.BINARY,
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
@@ -1003,7 +1002,7 @@ def balanced_accuracy(
   """Compute Balanced Accuracy classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=ConfusionMatrixMetric.BALANCED_ACCURACY,
+      metrics=_ConfusionMatrixMetric.BALANCED_ACCURACY,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
