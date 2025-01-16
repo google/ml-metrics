@@ -18,8 +18,8 @@ from absl.testing import parameterized
 from ml_metrics._src.metrics import retrieval
 import numpy as np
 
-InputType = retrieval.InputType
-RetrievalMetric = retrieval.RetrievalMetric
+InputType = retrieval._InputType
+RetrievalMetric = retrieval._RetrievalMetric
 
 
 class RetrievalTest(parameterized.TestCase):

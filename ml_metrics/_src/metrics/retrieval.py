@@ -17,10 +17,9 @@ from collections.abc import Sequence
 from ml_metrics._src.aggregates import retrieval
 from ml_metrics._src.aggregates import types
 
-InputType = types.InputType
-RetrievalMetric = retrieval.RetrievalMetric
-TopKRetrieval = retrieval.TopKRetrieval
-TopKRetrievalAggFn = retrieval.TopKRetrievalAggFn
+_InputType = types.InputType
+_RetrievalMetric = retrieval.RetrievalMetric
+_TopKRetrievalAggFn = retrieval.TopKRetrievalAggFn
 
 _METRIC_PYDOC_POSTFIX = """
 
@@ -40,12 +39,12 @@ _METRIC_PYDOC_POSTFIX = """
 
 
 def topk_retrieval_metrics(
-    metrics: Sequence[RetrievalMetric],
+    metrics: Sequence[_RetrievalMetric],
     *,
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[tuple[float, ...], ...]:
   """Compute multiple metrics together for better efficiency.
 
@@ -64,7 +63,7 @@ def topk_retrieval_metrics(
     Tuple containing the evaluation metric values. in the corresponding order of
       given metric names in metrics list.
   """
-  return TopKRetrievalAggFn(
+  return _TopKRetrievalAggFn(
       metrics=metrics, k_list=k_list, input_type=input_type
   )(y_true, y_pred)
 
@@ -73,11 +72,11 @@ def precision(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute Precision Retrieval metric."""
   return retrieval.TopKRetrieval(
-      metrics=RetrievalMetric.PRECISION, k_list=k_list, input_type=input_type
+      metrics=_RetrievalMetric.PRECISION, k_list=k_list, input_type=input_type
   ).as_agg_fn()(y_true, y_pred)
 precision.__doc__ += _METRIC_PYDOC_POSTFIX
 
@@ -86,11 +85,11 @@ def ppv(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute PPV Retrieval metric."""
-  return TopKRetrievalAggFn(
-      metrics=RetrievalMetric.PPV, k_list=k_list, input_type=input_type
+  return _TopKRetrievalAggFn(
+      metrics=_RetrievalMetric.PPV, k_list=k_list, input_type=input_type
   )(y_true, y_pred)
 ppv.__doc__ += _METRIC_PYDOC_POSTFIX
 
@@ -99,11 +98,11 @@ def recall(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute Recall Retrieval metric."""
-  return TopKRetrievalAggFn(
-      metrics=RetrievalMetric.RECALL, k_list=k_list, input_type=input_type
+  return _TopKRetrievalAggFn(
+      metrics=_RetrievalMetric.RECALL, k_list=k_list, input_type=input_type
   )(y_true, y_pred)
 recall.__doc__ += _METRIC_PYDOC_POSTFIX
 
@@ -112,11 +111,11 @@ def sensitivity(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute Sensitivity Retrieval metric."""
-  return TopKRetrievalAggFn(
-      metrics=RetrievalMetric.SENSITIVITY,
+  return _TopKRetrievalAggFn(
+      metrics=_RetrievalMetric.SENSITIVITY,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
@@ -127,11 +126,11 @@ def tpr(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute TPR Retrieval metric."""
-  return TopKRetrievalAggFn(
-      metrics=RetrievalMetric.TPR, k_list=k_list, input_type=input_type
+  return _TopKRetrievalAggFn(
+      metrics=_RetrievalMetric.TPR, k_list=k_list, input_type=input_type
   )(y_true, y_pred)
 tpr.__doc__ += _METRIC_PYDOC_POSTFIX
 
@@ -140,11 +139,11 @@ def intersection_over_union(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute Intersection Over Union Retrieval metric."""
-  return TopKRetrievalAggFn(
-      metrics=RetrievalMetric.INTERSECTION_OVER_UNION,
+  return _TopKRetrievalAggFn(
+      metrics=_RetrievalMetric.INTERSECTION_OVER_UNION,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
@@ -155,11 +154,11 @@ def positive_predictive_value(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute Positive Predictive Value Retrieval metric."""
-  return TopKRetrievalAggFn(
-      metrics=RetrievalMetric.POSITIVE_PREDICTIVE_VALUE,
+  return _TopKRetrievalAggFn(
+      metrics=_RetrievalMetric.POSITIVE_PREDICTIVE_VALUE,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
@@ -170,11 +169,11 @@ def f1_score(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute F1 Score Retrieval metric."""
-  return TopKRetrievalAggFn(
-      metrics=RetrievalMetric.F1_SCORE, k_list=k_list, input_type=input_type
+  return _TopKRetrievalAggFn(
+      metrics=_RetrievalMetric.F1_SCORE, k_list=k_list, input_type=input_type
   )(y_true, y_pred)
 f1_score.__doc__ += _METRIC_PYDOC_POSTFIX
 
@@ -183,11 +182,11 @@ def miss_rate(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute Miss Rate Retrieval metric."""
-  return TopKRetrievalAggFn(
-      metrics=RetrievalMetric.MISS_RATE, k_list=k_list, input_type=input_type
+  return _TopKRetrievalAggFn(
+      metrics=_RetrievalMetric.MISS_RATE, k_list=k_list, input_type=input_type
   )(y_true, y_pred)
 miss_rate.__doc__ += _METRIC_PYDOC_POSTFIX
 
@@ -196,11 +195,11 @@ def mean_average_precision(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute Mean Average Precision Retrieval metric."""
-  return TopKRetrievalAggFn(
-      metrics=RetrievalMetric.MEAN_AVERAGE_PRECISION,
+  return _TopKRetrievalAggFn(
+      metrics=_RetrievalMetric.MEAN_AVERAGE_PRECISION,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
@@ -211,11 +210,11 @@ def mean_reciprocal_rank(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute Mean Reciprocal Rank Retrieval metric."""
-  return TopKRetrievalAggFn(
-      metrics=RetrievalMetric.MEAN_RECIPROCAL_RANK,
+  return _TopKRetrievalAggFn(
+      metrics=_RetrievalMetric.MEAN_RECIPROCAL_RANK,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
@@ -226,11 +225,11 @@ def accuracy(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute Accuracy Retrieval metric."""
-  return TopKRetrievalAggFn(
-      metrics=RetrievalMetric.ACCURACY,
+  return _TopKRetrievalAggFn(
+      metrics=_RetrievalMetric.ACCURACY,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
@@ -241,11 +240,11 @@ def dcg_score(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute DCG Score Retrieval metric."""
-  return TopKRetrievalAggFn(
-      metrics=RetrievalMetric.DCG_SCORE,
+  return _TopKRetrievalAggFn(
+      metrics=_RetrievalMetric.DCG_SCORE,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
@@ -256,11 +255,11 @@ def ndcg_score(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute NDCG Score Retrieval metric."""
-  return TopKRetrievalAggFn(
-      metrics=RetrievalMetric.NDCG_SCORE,
+  return _TopKRetrievalAggFn(
+      metrics=_RetrievalMetric.NDCG_SCORE,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
@@ -271,11 +270,11 @@ def fowlkes_mallows_index(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute Fowlkes Mallows Index Retrieval metric."""
-  return TopKRetrievalAggFn(
-      metrics=RetrievalMetric.FOWLKES_MALLOWS_INDEX,
+  return _TopKRetrievalAggFn(
+      metrics=_RetrievalMetric.FOWLKES_MALLOWS_INDEX,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
@@ -286,11 +285,11 @@ def false_discovery_rate(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute False Discovery Rate Retrieval metric."""
-  return TopKRetrievalAggFn(
-      metrics=RetrievalMetric.FALSE_DISCOVERY_RATE,
+  return _TopKRetrievalAggFn(
+      metrics=_RetrievalMetric.FALSE_DISCOVERY_RATE,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
@@ -301,11 +300,11 @@ def threat_score(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
-    input_type: InputType = InputType.MULTICLASS_MULTIOUTPUT,
+    input_type: _InputType = _InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
   """Compute Threat Score Retrieval metric."""
-  return TopKRetrievalAggFn(
-      metrics=RetrievalMetric.THREAT_SCORE,
+  return _TopKRetrievalAggFn(
+      metrics=_RetrievalMetric.THREAT_SCORE,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)

@@ -11,17 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-"""Classification metrics."""
+"""Courier server interfaces."""
 
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
-# Eventually move things under /aggregates/text.py to metrics/text.py. Making
-# the classes callable and replace the functions in metrics/text.py
-from ml_metrics._src.aggregates.text import PatternFrequency
-from ml_metrics._src.aggregates.text import TopKWordNGrams
-from ml_metrics._src.metrics.text import avg_alphabetical_char_count
-from ml_metrics._src.metrics.text import pattern_frequency
-from ml_metrics._src.metrics.text import topk_word_ngrams
+from ml_metrics._src.chainables.courier_server import client_heartbeat
+from ml_metrics._src.chainables.courier_server import CourierServer
+from ml_metrics._src.chainables.courier_server import CourierServerWrapper
+from ml_metrics._src.chainables.courier_server import HeartbeatRegistry
+from ml_metrics._src.chainables.courier_server import pickler
+from ml_metrics._src.chainables.courier_server import PrefetchedCourierServer
+from ml_metrics._src.chainables.courier_server import shutdown_all
 # pylint: enable=g-importing-member
 # pylint: enable=unused-import
