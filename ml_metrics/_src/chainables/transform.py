@@ -198,9 +198,13 @@ def _transform_make(
     slice_fns = [slice_fn.maybe_make() for slice_fn in agg_node.slicers]
     for agg_fn in agg_node.fns:
       actual_agg_fn = agg_fn.maybe_make()
-      agg_fns[agg_fn.output_keys] = actual_agg_fn
       if not isinstance(actual_agg_fn, aggregates.Aggregatable):
         raise ValueError(f'Not an aggregatable: {agg_fn}: {actual_agg_fn}')
+      # The output_keys can be a single key or a dict.
+      flattened_output_keys = itertools.chain.from_iterable(
+          k if isinstance(k, dict) else (k,) for k in agg_fn.output_keys
+      )
+      agg_fns[tuple(flattened_output_keys)] = actual_agg_fn
   # Collect all the output functions from the output nodes.
   output_fns = []
   for node in output_nodes:
@@ -285,17 +289,17 @@ class CombinedTreeFn:
     """Updates the state by inputs."""
 
     # All aggregates operate on the same inputs.
-    for metric_name, tree_agg_fn in self.agg_fns.items():
+    for output_key, tree_agg_fn in self.agg_fns.items():
       try:
-        state[MetricKey(metric_name)] = tree_agg_fn.update_state(
-            state[MetricKey(metric_name)], inputs
+        state[MetricKey(output_key)] = tree_agg_fn.update_state(
+            state[MetricKey(output_key)], inputs
         )
         if tree_agg_fn.disable_slicing:
           continue
         # state with slicing:
         for slicer in self.slicers:
           for slice_key, masks in slicer.iterate_and_slice(inputs):
-            metric_key = MetricKey(metric_name, slice_key)
+            metric_key = MetricKey(output_key, slice_key)
             if metric_key not in state:
               state[metric_key] = tree_agg_fn.create_state()
             tree_agg_fn = tree_agg_fn.with_masks(
@@ -307,7 +311,7 @@ class CombinedTreeFn:
             )
       except KeyError as e:
         raise KeyError(
-            f'{metric_name=} not found from: {list(state.keys())=}'
+            f'{output_key=} not found from: {list(state.keys())=}'
         ) from e
       except Exception as e:
         raise ValueError(
@@ -354,13 +358,15 @@ class CombinedTreeFn:
     """Gets the result from the aggregation state."""
     result = tree.TreeMapView()
     for key, fn_state in state.items():
-      outputs = self.agg_fns[key.metrics].actual_fn.get_result(fn_state)
+      outputs = self.agg_fns[key.metrics].get_result(fn_state)
       flattened_keys = key.metrics
+      # Only convert str key to MetricKey format when there is slices.
       if key.slice != tree_fns.SliceKey():
         assert isinstance(key.metrics, tuple), f'{key.metrics}'
         flattened_keys = tuple(
             MetricKey(metric, key.slice) for metric in key.metrics
         )
+      outputs = tree.TreeMapView(outputs)[key.metrics]
       result = result.copy_and_set(flattened_keys, outputs)
     return functools.reduce(
         lambda inputs, fn: fn(inputs), self.output_fns, result.data

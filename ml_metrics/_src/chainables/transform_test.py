@@ -87,9 +87,16 @@ def _reduce_size(inputs):
 # TODO: b/318463291 - Improves test coverage.
 class MockAverageFn:
 
-  def __init__(self, batch_output=True, return_tuple=False, input_key=None):
+  def __init__(
+      self,
+      batch_output=True,
+      return_tuple=False,
+      input_key=None,
+      return_dict_key='',
+  ):
     self.batch_output = batch_output
     self.return_tuple = return_tuple
+    self.return_dict = return_dict_key
     self.input_key = input_key
 
   def create_state(self):
@@ -111,6 +118,8 @@ class MockAverageFn:
   def get_result(self, state):
     result = state[0] / state[1]
     result = [result] if self.batch_output else result
+    if self.return_dict:
+      return {self.return_dict: result}
     return (result, 0) if self.return_tuple else result
 
 
@@ -743,6 +752,14 @@ class TransformTest(parameterized.TestCase):
           fn=MockAverageFn(),
           expected={'a': [2]},
       ),
+      dict(
+          testcase_name='agg_with_dict_output_keys',
+          inputs={'a': [0, 1, 2], 'b': [1, 2, 3]},
+          input_keys='b',
+          output_keys=dict(c='avg'),
+          fn=MockAverageFn(return_dict_key='avg'),
+          expected={'c': [2]},
+      ),
   ])
   def test_aggregate_transform(
       self,
@@ -850,8 +867,8 @@ class TransformTest(parameterized.TestCase):
         )
         .add_aggregate(
             input_keys='b',
-            fn=MockAverageFn(),
-            output_keys='avg_b',
+            fn=MockAverageFn(return_dict_key='avg_result'),
+            output_keys=dict(avg_b='avg_result'),
         )
         .add_slice('a')
         .add_slice('b', replace_mask_false_with=0)
