@@ -22,8 +22,8 @@ from ml_metrics._src.utils import test_utils
 import numpy as np
 
 
-InputType = classification.InputType
-ConfusionMatrixMetric = classification.ConfusionMatrixMetric
+InputType = classification._InputType
+ConfusionMatrixMetric = classification._ConfusionMatrixMetric
 
 
 class CalibrationHistogramTest(absltest.TestCase):
@@ -182,7 +182,7 @@ class ClassificationTest(parameterized.TestCase):
         self,
         {"precision": 11 / 16},
         classification.ClassificationAggFn(
-            (classification.ConfusionMatrixMetric.PRECISION,),
+            (classification._ConfusionMatrixMetric.PRECISION,),
             input_type=InputType.MULTICLASS_MULTIOUTPUT,
             average=types.AverageType.SAMPLES,
         )(y_true, y_pred),
@@ -191,7 +191,7 @@ class ClassificationTest(parameterized.TestCase):
         ValueError, "k_list is not supported for average=SAMPLES"
     ):
       _ = classification.ClassificationAggFn(
-          (classification.ConfusionMatrixMetric.PRECISION,),
+          (classification._ConfusionMatrixMetric.PRECISION,),
           input_type=InputType.MULTICLASS_MULTIOUTPUT,
           average=types.AverageType.SAMPLES,
           k_list=[1],
@@ -220,11 +220,11 @@ class ClassificationTest(parameterized.TestCase):
         },
         classification.ClassificationAggFn(
             (
-                classification.ConfusionMatrixMetric.PRECISION,
-                classification.ConfusionMatrixMetric.RECALL,
-                classification.ConfusionMatrixMetric.F1_SCORE,
-                classification.ConfusionMatrixMetric.MISS_RATE,
-                classification.ConfusionMatrixMetric.THREAT_SCORE,
+                classification._ConfusionMatrixMetric.PRECISION,
+                classification._ConfusionMatrixMetric.RECALL,
+                classification._ConfusionMatrixMetric.F1_SCORE,
+                classification._ConfusionMatrixMetric.MISS_RATE,
+                classification._ConfusionMatrixMetric.THREAT_SCORE,
             ),
             input_type=InputType.MULTICLASS_MULTIOUTPUT,
             average=types.AverageType.MICRO,

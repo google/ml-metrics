@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,14 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""ml_metrics interfaces."""
+"""Distributed chainable APIs."""
 
-# pylint: disable=g-importing-member
-# pylint: disable=unused-import
-from ml_metrics import aggregates
-from ml_metrics import chainable
-from ml_metrics import utils
-from ml_metrics.metrics import metrics
-from ml_metrics.signals import signals
-# pylint: enable=g-importing-member
-# pylint: enable=unused-import
+from ml_metrics.chainable.distributed import courier_server
+from ml_metrics.chainable.distributed import courier_worker
+from ml_metrics.chainable.distributed import orchestrate
