@@ -14,8 +14,7 @@
 """Base types used throughout the library."""
 
 import abc
-from collections.abc import Iterable
-from typing import Any, Protocol, Self, TypeGuard, TypeVar, runtime_checkable
+from typing import Any, Protocol, TypeGuard, TypeVar, runtime_checkable
 from numpy import typing as npt
 
 _T = TypeVar('_T')
@@ -43,20 +42,23 @@ class Shardable(Protocol[_T]):
   """A sharded data source for chainables."""
 
   @abc.abstractmethod
-  def get_shard(self, shard_index: int, num_shards: int) -> Iterable[_T]:
+  def shard(self, *args, **kwargs):
+    """Iterates the data source given a shard index and number of shards."""
+
+
+class Configurable(Protocol[_T]):
+  """A sharded data source for chainables."""
+
+  @abc.abstractmethod
+  def from_config(self, *args, **kwargs):
     """Iterates the data source given a shard index and number of shards."""
 
 
 class Serializable(Protocol):
   """An object that can be both serialized and deserialized."""
 
-  @classmethod
   @abc.abstractmethod
-  def from_state(cls: type[Self], state) -> Self:
-    """Creates an object from a state."""
-
-  @abc.abstractmethod
-  def get_state(self):
+  def get_config(self):
     """Gets the state of the object that can be used to recover the object."""
 
 
@@ -81,6 +83,12 @@ def is_shardable(obj: Shardable[_T] | Any) -> TypeGuard[Shardable[_T]]:
   """Checks if the object is a Shardable."""
   get_shard = getattr(obj, 'get_shard', None)
   return get_shard and getattr(get_shard, '__self__', None) is obj
+
+
+def is_configurable(obj: Shardable[_T] | Any) -> TypeGuard[Configurable[_T]]:
+  """Checks if the object is a Shardable."""
+  from_config = getattr(obj, 'from_config', None)
+  return from_config and getattr(from_config, '__self__', None) is obj
 
 
 def is_array_like(obj: list[Any] | tuple[Any, ...] | npt.ArrayLike) -> bool:

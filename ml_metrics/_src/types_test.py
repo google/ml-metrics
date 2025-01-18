@@ -47,11 +47,26 @@ class BaseTypesTest(absltest.TestCase):
       def shard(cls, shard_index):
         pass
 
-      @property
-      def num_shards(self):
+    self.assertFalse(types.is_shardable(Foo()))
+
+  def test_is_not_configurable(self):
+
+    class Foo:
+
+      @classmethod
+      def from_config(cls, shard_index):
         pass
 
-    self.assertFalse(types.is_shardable(Foo()))
+    self.assertFalse(types.is_configurable(Foo()))
+
+  def test_is_configurable(self):
+
+    class Foo:
+
+      def from_config(self, config):
+        pass
+
+    self.assertTrue(types.is_configurable(Foo()))
 
 
 if __name__ == "__main__":
