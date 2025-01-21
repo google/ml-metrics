@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the 'License');
 # you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ from unittest import mock
 from absl.testing import absltest
 from absl.testing import parameterized
 from ml_metrics._src.aggregates import base as aggretates
+from ml_metrics._src.chainables import io
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
 from ml_metrics._src.chainables import tree
@@ -183,6 +184,35 @@ def multi_slicer(preds, labels, within=()):
       label_mask = get_mask(labels, key)
       masks = (pred_mask, label_mask)
       yield key, masks
+
+
+class TransformDataSourceTest(parameterized.TestCase):
+
+  def test_sharded_sequence_data_source(self):
+    ds = io.ShardedSequence(range(3))
+    p = transform.TreeTransform().data_source(ds).apply(fn=lambda x: x + 1)
+    num_shards = 2
+    shards = (io.ShardConfig(i, num_shards) for i in range(num_shards))
+    actual = [list(p.make(shard=shard)) for shard in shards]
+    expected = [[1, 2], [3]]
+    self.assertEqual(expected, actual)
+
+  def test_sharded_iterable_data_source(self):
+    ds = io.ShardedIterable(range(3))
+    p = transform.TreeTransform().data_source(ds).apply(fn=lambda x: x + 1)
+    num_shards = 2
+    shards = (io.ShardConfig(i, num_shards) for i in range(num_shards))
+    actual = [list(p.make(shard=shard)) for shard in shards]
+    expected = [[1, 3], [2]]
+    self.assertEqual(expected, actual)
+
+  def test_nonshardable_data_source_with_shard_index_raise_error(self):
+    ds = MockGenerator(range(3))
+    p = transform.TreeTransform().data_source(ds).apply(fn=lambda x: x + 1)
+    with self.assertRaisesRegex(
+        TypeError, 'Data source is not configurable but .+ is provided.'
+    ):
+      _ = list(p.make(shard=io.ShardConfig(shard_index=1)))
 
 
 class TransformTest(parameterized.TestCase):
