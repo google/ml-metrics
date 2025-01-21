@@ -15,11 +15,9 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from ml_metrics._src.aggregates import types
 from ml_metrics._src.metrics import retrieval
 import numpy as np
-
-InputType = retrieval.InputType
-RetrievalMetric = retrieval.RetrievalMetric
 
 
 class RetrievalTest(parameterized.TestCase):
@@ -171,7 +169,7 @@ class RetrievalTest(parameterized.TestCase):
             y_true,
             y_pred,
             k_list=k_list,
-            input_type=InputType.MULTICLASS_MULTIOUTPUT,
+            input_type=types.InputType.MULTICLASS_MULTIOUTPUT,
         ),
     )
 
