@@ -15,15 +15,12 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from ml_metrics._src.aggregates import classification as agg_classification
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.metrics import classification
 from ml_metrics._src.utils import math_utils
 from ml_metrics._src.utils import test_utils
 import numpy as np
-
-
-InputType = classification.InputType
-ConfusionMatrixMetric = classification.ConfusionMatrixMetric
 
 
 class CalibrationHistogramTest(absltest.TestCase):
@@ -182,8 +179,8 @@ class ClassificationTest(parameterized.TestCase):
         self,
         {"precision": 11 / 16},
         classification.ClassificationAggFn(
-            (classification.ConfusionMatrixMetric.PRECISION,),
-            input_type=InputType.MULTICLASS_MULTIOUTPUT,
+            (agg_classification.ConfusionMatrixMetric.PRECISION,),
+            input_type=types.InputType.MULTICLASS_MULTIOUTPUT,
             average=types.AverageType.SAMPLES,
         )(y_true, y_pred),
     )
@@ -191,8 +188,8 @@ class ClassificationTest(parameterized.TestCase):
         ValueError, "k_list is not supported for average=SAMPLES"
     ):
       _ = classification.ClassificationAggFn(
-          (classification.ConfusionMatrixMetric.PRECISION,),
-          input_type=InputType.MULTICLASS_MULTIOUTPUT,
+          (agg_classification.ConfusionMatrixMetric.PRECISION,),
+          input_type=types.InputType.MULTICLASS_MULTIOUTPUT,
           average=types.AverageType.SAMPLES,
           k_list=[1],
       )(y_true, y_pred)
@@ -220,13 +217,13 @@ class ClassificationTest(parameterized.TestCase):
         },
         classification.ClassificationAggFn(
             (
-                classification.ConfusionMatrixMetric.PRECISION,
-                classification.ConfusionMatrixMetric.RECALL,
-                classification.ConfusionMatrixMetric.F1_SCORE,
-                classification.ConfusionMatrixMetric.MISS_RATE,
-                classification.ConfusionMatrixMetric.THREAT_SCORE,
+                agg_classification.ConfusionMatrixMetric.PRECISION,
+                agg_classification.ConfusionMatrixMetric.RECALL,
+                agg_classification.ConfusionMatrixMetric.F1_SCORE,
+                agg_classification.ConfusionMatrixMetric.MISS_RATE,
+                agg_classification.ConfusionMatrixMetric.THREAT_SCORE,
             ),
-            input_type=InputType.MULTICLASS_MULTIOUTPUT,
+            input_type=types.InputType.MULTICLASS_MULTIOUTPUT,
             average=types.AverageType.MICRO,
         )(y_true, y_pred),
     )
@@ -421,7 +418,7 @@ class ClassificationTest(parameterized.TestCase):
     actual_no_k_list = metric_fn(
         y_true,
         y_pred,
-        input_type=InputType.MULTICLASS_MULTIOUTPUT,
+        input_type=types.InputType.MULTICLASS_MULTIOUTPUT,
         average=types.AverageType.MICRO,
     )
     metric_doc_details = "\n".join(
@@ -436,7 +433,7 @@ class ClassificationTest(parameterized.TestCase):
     actual_with_k_list = metric_fn(
         y_true,
         y_pred,
-        input_type=InputType.MULTICLASS_MULTIOUTPUT,
+        input_type=types.InputType.MULTICLASS_MULTIOUTPUT,
         average=types.AverageType.MICRO,
         k_list=k_list,
     )

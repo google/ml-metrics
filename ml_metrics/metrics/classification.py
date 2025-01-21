@@ -15,12 +15,16 @@
 """Classification metrics."""
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
+from ml_metrics._src.aggregates.classification import ConfusionMatrixAggFn
+from ml_metrics._src.aggregates.classification import ConfusionMatrixMetric
+from ml_metrics._src.aggregates.classification import SamplewiseClassification
+from ml_metrics._src.aggregates.classification import TopKConfusionMatrixAggFn
 from ml_metrics._src.metrics.classification import accuracy
 from ml_metrics._src.metrics.classification import balanced_accuracy
 from ml_metrics._src.metrics.classification import binary_accuracy
+from ml_metrics._src.metrics.classification import CalibrationHistogram
 from ml_metrics._src.metrics.classification import classification_metrics
 from ml_metrics._src.metrics.classification import ClassificationAggFn
-from ml_metrics._src.metrics.classification import ConfusionMatrixMetric
 from ml_metrics._src.metrics.classification import diagnostic_odds_ratio
 from ml_metrics._src.metrics.classification import f1_score
 from ml_metrics._src.metrics.classification import fall_out
@@ -43,7 +47,6 @@ from ml_metrics._src.metrics.classification import precision
 from ml_metrics._src.metrics.classification import prevalence
 from ml_metrics._src.metrics.classification import prevalence_threshold
 from ml_metrics._src.metrics.classification import recall
-from ml_metrics._src.metrics.classification import SamplewiseClassification
 from ml_metrics._src.metrics.classification import sensitivity
 from ml_metrics._src.metrics.classification import specificity
 from ml_metrics._src.metrics.classification import threat_score
