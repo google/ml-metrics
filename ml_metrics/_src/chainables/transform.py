@@ -96,30 +96,97 @@ class RunnerMode(enum.StrEnum):
   AGGREGATE = 'aggregate'
 
 
-@dataclasses.dataclass(kw_only=True, frozen=True)
+@dataclasses.dataclass(frozen=True)
 class AggregateResult:
-  agg_state: Any = None
   agg_result: Any = None
+  agg_state: Any = dataclasses.field(kw_only=True, default=None)
 
 
 class IteratorWithAggResult(Iterable[_ValueT]):
   """An iterator that returns the last value."""
+  agg_state: dict[MetricKey, Any] | None
 
-  def __init__(self, iterator: Iterable[_ValueT]):
+  def __init__(
+      self,
+      tree_fn: CombinedTreeFn,
+      *,
+      input_iterator: Iterable[tree.MapLikeTree | None] = (),
+      with_result: bool = True,
+      with_agg_state: bool = True,
+      with_agg_result: bool = True,
+      state: Any = None,
+  ):
     super().__init__()
+    self._tree_fn = tree_fn
+    self._with_result = with_result
+    state = state or tree_fn.create_state()
+    self.agg_state = state
+    self._with_agg_state = state and (with_agg_state or with_agg_result)
+    self._with_agg_result = with_agg_result
+
+    def iterate_fn(
+        input_iterator: Iterable[tree.MapLikeTree | None] = (),
+    ) -> Iterator[tree.MapLikeTree | None]:
+      """Call a chain of functions in sequence."""
+      result = input_iterator
+      for fn in self._tree_fn.input_fns:
+        result = fn.iterate(result)
+      yield from result
+
+    if not tree_fn.num_threads:
+      iterator = iterate_fn(input_iterator)
+    else:
+      iterator = iter_utils.piter(
+          iterate_fn,
+          input_iterator=input_iterator,
+          thread_pool=_get_thread_pool(),
+          max_parallism=tree_fn.num_threads,
+      )
     self._iterator = iter(iterator)
-    self.agg_result = None
-    self.agg_state = None
+    self._prev_ticker = time.time()
+    self.batch_index = -1
+
+  @property
+  def name(self) -> str:
+    return self._tree_fn.name
+
+  @property
+  def agg_result(self) -> tree.MapLikeTree[Any] | None:
+    if self.agg_state:
+      return self._tree_fn.get_result(self.agg_state)
+    return None
 
   def __next__(self) -> _ValueT:
+    if (ticker := time.time()) - self._prev_ticker > _LOGGING_INTERVAL_SECS:
+      logging.info(
+          'chainable: "%s" processed %d batch.', self.name, self.batch_index
+      )
+      self._prev_ticker = ticker
     try:
-      return next(self._iterator)
+      batch_output = next(self._iterator)
+      self.batch_index += 1
+      if self._with_agg_state:
+        self.agg_state = self._tree_fn.update_state(
+            self.agg_state, batch_output
+        )
+      logging.debug(
+          'chainable: "%s" batch cnt %d.', self.name, self.batch_index
+      )
+      return batch_output if self._with_result else None
     except StopIteration as e:
-      if e.value is not None:
-        assert isinstance(e.value, AggregateResult)
-        self.agg_result = e.value.agg_result
-        self.agg_state = e.value.agg_state
-      raise e
+      returned = None
+      if self._with_agg_state:
+        # This can collect the agg_state and the agg_result at the end of
+        # the iteration and return them as the generator return value.
+        agg_result = self.agg_result if self._with_agg_result else None
+        returned = AggregateResult(agg_result, agg_state=self.agg_state)
+      logging.info(
+          'chainable: %s',
+          f'"{self.name}" iterator exhausted after'
+          f' {self.batch_index} batches, returned a type of'
+          f' {type(returned)}.',
+      )
+      raise StopIteration(returned) if returned else e
 
   def __iter__(self):
     return self
@@ -271,7 +338,7 @@ class CombinedTreeFn:
         for key, tree_fn in self.agg_fns.items()
     }
 
-  def _update_state(
+  def update_state(
       self, state: dict[MetricKey, Any], inputs: tree.MapLikeTree[Any]
   ) -> dict[MetricKey, Any]:
     """Updates the state by inputs."""
@@ -375,65 +442,8 @@ class CombinedTreeFn:
       return input_iterator
     return self.input_iterator
 
-  def _iterate(
-      self,
-      input_iterator: Iterable[tree.MapLikeTree | None] = (),
-      *,
-      with_result: bool = True,
-      with_agg_state: bool = True,
-      with_agg_result: bool = True,
-      state: Any = None,
-  ) -> Iterator[tree.MapLikeTree | None]:
-    """Call a chain of functions in sequence."""
-
-    state = state or self.create_state()
-    with_agg_state = state and (with_agg_state or with_agg_result)
-
-    def iterate_fn(
-        input_iterator: Iterable[tree.MapLikeTree | None] = (),
-    ) -> Iterator[tree.MapLikeTree | None]:
-      """Call a chain of functions in sequence."""
-      result = input_iterator
-      for fn in self.input_fns:
-        result = fn.iterate(result)
-      yield from result
-
-    if not self.num_threads:
-      iterator = iterate_fn(input_iterator)
-    else:
-      iterator = iter_utils.piter(
-          iterate_fn,
-          input_iterator=input_iterator,
-          thread_pool=_get_thread_pool(),
-          max_parallism=self.num_threads,
-      )
-    prev_ticker = time.time()
-    batch_index = -1
-    for batch_index, batch_output in enumerate(iterator):
-      if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SECS:
-        logging.info(
-            'chainable: "%s" processed %d batch.', self.name, batch_index
-        )
-        prev_ticker = ticker
-      yield batch_output if with_result else None
-      if with_agg_state:
-        state = self._update_state(state, batch_output)
-      logging.debug('chainable: "%s" batch cnt %d.', self.name, batch_index + 1)
-    result = None
-    if with_agg_state:
-      # This can collect the agg_state and the agg_result at the end of
-      # the iteration and return them as the generator return value.
-      agg_result = self.get_result(state) if state and with_agg_result else None
-      result = AggregateResult(agg_state=state, agg_result=agg_result)
-    logging.info(
-        'chainable: %s',
-        f'"{self.name}" iterator exhausted after {batch_index + 1} batches,'
-        f' returnes a type of {type(result)}.',
-    )
-    return result
-
   def __iter__(self):
-    return self._iterate(self.input_iterator)
+    return IteratorWithAggResult(self, input_iterator=self.input_iterator)
 
   def iterate(
       self,
@@ -464,27 +474,13 @@ class CombinedTreeFn:
       An iterator that also optionally keeps the aggregation result and state.
     """
     return IteratorWithAggResult(
-        self._iterate(
-            self._actual_inputs(None, input_iterator),
-            with_result=with_result,
-            with_agg_state=with_agg_state,
-            with_agg_result=with_agg_result,
-            state=state,
-        )
+        self,
+        input_iterator=self._actual_inputs(None, input_iterator),
+        with_result=with_result,
+        with_agg_state=with_agg_state,
+        with_agg_result=with_agg_result,
+        state=state,
     )
-
-  def update_state(
-      self,
-      state: Any = None,
-      inputs=None,
-      *,
-      input_iterator: Iterable[Any] | None = None,
-  ) -> dict[MetricKey, Any]:
-    """Updates the state by either the inputs or an iterator of the inputs."""
-    input_iterator = self._actual_inputs(inputs, input_iterator)
-    iter_result = self.iterate(input_iterator, with_agg_state=True, state=state)
-    mit.last(iter_result)
-    return iter_result.agg_state or {}
 
   def __call__(self, inputs=None, *, input_iterator=None):
     if (

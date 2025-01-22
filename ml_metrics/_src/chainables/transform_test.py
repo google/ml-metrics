@@ -115,7 +115,7 @@ class MockAverageFn:
     return result
 
   def get_result(self, state):
-    result = state[0] / state[1]
+    result = state[0] / state[1] if state[1] else np.nan
     result = [result] if self.batch_output else result
     if self.return_dict:
       return {self.return_dict: result}
@@ -825,8 +825,8 @@ class TransformTest(parameterized.TestCase):
         output_keys=output_keys,
     )
     agg1, agg2 = t1.make(), t2.make()
-    state1 = agg1._update_state(agg1.create_state(), inputs)
-    state2 = agg2._update_state(agg2.create_state(), inputs)
+    state1 = agg1.update_state(agg1.create_state(), inputs)
+    state2 = agg2.update_state(agg2.create_state(), inputs)
     # LazyFn of the fn enables across workers merge since these are consistent
     # after reinstantion of the actual function instance.
     merged_t1 = agg1.merge_states([state1, state2])
@@ -1229,9 +1229,19 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual(
         [13.5], actual_fn(input_iterator=MockGenerator(input_iterator))
     )
+    it = actual_fn.iterate()
+    # Aggregation state is accumulated when iterating.
+    self.assertIsNotNone(it.agg_state)
+    np.testing.assert_array_equal([np.nan], it.agg_result)
+    _ = next(it)
+    assert it.agg_state is not None
+    # First batch is [1, 2, 3] + 1 = [2, 3, 4], mean state is (sum=9, count=3).
+    self.assertEqual((9, 3), next(iter(it.agg_state.values())))
+    np.testing.assert_array_equal([3.0 + 10], it.agg_result)
     # Exhausting the iterator is necessary to get the aggregate result.
-    mit.last(result := actual_fn.iterate())
-    self.assertEqual([13.5], result.agg_result)
+    mit.last(it)
+    self.assertEqual((21, 6), next(iter(it.agg_state.values())))
+    self.assertEqual([13.5], it.agg_result)
 
     mit.last(result := actual_fn.iterate(MockGenerator(input_iterator)))
     self.assertEqual([13.5], result.agg_result)
