@@ -18,7 +18,6 @@ import dataclasses
 import functools
 import itertools
 from typing import Any
-from unittest import mock
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -222,25 +221,6 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual(list(t.make()), [1, 2, 3])
     self.assertEqual([2, 3, 4], list(t.make().iterate(range(1, 4))))
     self.assertEqual(2, t.make()(1))
-
-  def test_cached_make(self):
-    t = (
-        transform.TreeTransform.new()
-        .data_source(MockGenerator(range(3)))
-        .apply(fn=lambda x: x + 1)
-        .aggregate(fn=lazy_fns.trace(MockAverageFn)())
-        .apply(fn=lambda x: x + 1)
-    )
-    pickled_t = lazy_fns.pickler.dumps(lazy_fns.trace(t).make())
-    self.assertIsInstance(
-        lazy_fns.maybe_make(pickled_t), transform.CombinedTreeFn
-    )
-    lazy_fns.maybe_make(pickled_t)
-    with mock.patch.object(
-        transform, '_transform_make', autospec=True
-    ) as mock_make_transform:
-      lazy_fns.maybe_make(pickled_t)
-      mock_make_transform.assert_called_once()
 
   def test_output_keys(self):
     p = (

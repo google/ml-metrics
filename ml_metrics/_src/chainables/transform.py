@@ -94,8 +94,6 @@ def iterate_with_returned(
 class RunnerMode(enum.StrEnum):
   DEFAULT = 'default'
   AGGREGATE = 'aggregate'
-  SAMPLE = 'sample'
-  SEPARATE = 'separate'
 
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
@@ -139,90 +137,6 @@ class MetricKey:
 
   metrics: TreeMapKey | TreeMapKeys = ()
   slice: tree_fns.SliceKey = tree_fns.SliceKey()
-
-
-def _transform_make(
-    transform: TreeTransform,
-    recursive: bool = True,
-    mode: RunnerMode = RunnerMode.DEFAULT,
-) -> CombinedTreeFn:
-  """Makes a TreeFn from a transform."""
-  # Flatten the transform into nodes and find the first aggregation node as
-  # the aggregation node for the concrete function. Any node before it is
-  # input nodes, any node after it regardless of its type (aggregation or not)
-  # is output_node.
-  if recursive:
-    transforms = transform.flatten_transform(remove_input_transform=True)
-  else:
-    transforms = [transform]
-  input_nodes, output_nodes = [], []
-  input_iterator, agg_node = None, None
-  name = ''
-  for i, node in enumerate(transforms):
-    name = node.name or name
-    if node.input_iterator is not None:
-      if i == 0:
-        input_iterator = node.input_iterator
-      else:
-        raise ValueError(f'data_source has to be the first node, it is at {i}.')
-    # Iterator node can also be other types of nodes.
-    if agg_node is None:
-      if isinstance(node, AggregateTransform):
-        if node.is_noop:
-          raise ValueError('Empty aggregation, forgot to add aggregation?')
-        agg_node = node
-      else:
-        input_nodes.append(node)
-    else:
-      output_nodes.append(node)
-
-  # Reset the iterator_node and input_nodes if this is an aggregator.
-  if mode == RunnerMode.AGGREGATE:
-    input_iterator = None
-    input_nodes = []
-    assert agg_node, 'Aggregation fn is required for "Aggregate" mode.'
-  elif mode == RunnerMode.SAMPLE:
-    agg_node = None
-    output_nodes = []
-
-  # Collect input_iterator.
-  input_iterator = lazy_fns.maybe_make(input_iterator)
-  # Collect all the input functions from the input nodes.
-  input_fns = list(
-      itertools.chain.from_iterable(node.fns for node in input_nodes)
-  )
-  input_fns = [tree_fn.maybe_make() for tree_fn in input_fns]
-  # Collect all the aggregation functions from the aggregation node.
-  agg_fns, slice_fns = {}, []
-  if agg_node:
-    slice_fns = [slice_fn.maybe_make() for slice_fn in agg_node.slicers]
-    for agg_fn in agg_node.fns:
-      actual_agg_fn = agg_fn.maybe_make()
-      if not isinstance(actual_agg_fn, aggregates.Aggregatable):
-        raise ValueError(f'Not an aggregatable: {agg_fn}: {actual_agg_fn}')
-      # The output_keys can be a single key or a dict.
-      flattened_output_keys = itertools.chain.from_iterable(
-          k if isinstance(k, dict) else (k,) for k in agg_fn.output_keys
-      )
-      agg_fns[tuple(flattened_output_keys)] = actual_agg_fn
-  # Collect all the output functions from the output nodes.
-  output_fns = []
-  for node in output_nodes:
-    # The output nodes can be aggregate, uses it as a callable since they are
-    # all ran in-process (after the first aggregation node).
-    if isinstance(node, AggregateTransform):
-      output_fns.append(_transform_make(node, recursive=False))
-    else:
-      output_fns.extend([tree_fn.maybe_make() for tree_fn in node.fns])
-  return CombinedTreeFn(
-      name=name,
-      input_fns=input_fns,
-      agg_fns=agg_fns,
-      slicers=slice_fns,
-      output_fns=output_fns,
-      input_iterator=input_iterator,
-      num_threads=transform.num_threads,
-  )
 
 
 def clear_cache():
@@ -270,8 +184,82 @@ class CombinedTreeFn:
       recursive: bool = True,
       mode: RunnerMode = RunnerMode.DEFAULT,
   ) -> Self:
-    """Builds a TreeFn from a transform with caching."""
-    return _transform_make(transform, recursive, mode)
+    """Makes a TreeFn from a transform."""
+    # Flatten the transform into nodes and find the first aggregation node as
+    # the aggregation node for the concrete function. Any node before it is
+    # input nodes, any node after it regardless of its type (aggregation or not)
+    # is output_node.
+    if recursive:
+      transforms = transform.flatten_transform(remove_input_transform=True)
+    else:
+      transforms = [transform]
+    input_nodes, output_nodes = [], []
+    input_iterator, agg_node = None, None
+    name = ''
+    for i, node in enumerate(transforms):
+      name = node.name or name
+      if node.input_iterator is not None:
+        if i == 0:
+          input_iterator = node.input_iterator
+        else:
+          raise ValueError(
+              f'data_source has to be the first node, it is at {i}th position.'
+          )
+      # Iterator node can also be other types of nodes.
+      if agg_node is None:
+        if isinstance(node, AggregateTransform):
+          if node.is_noop:
+            raise ValueError('Empty aggregation, forgot to add aggregation?')
+          agg_node = node
+        else:
+          input_nodes.append(node)
+      else:
+        output_nodes.append(node)
+
+    # Reset the iterator_node and input_nodes if this is an aggregator.
+    if mode == RunnerMode.AGGREGATE:
+      input_iterator = None
+      input_nodes = []
+      assert agg_node, 'Aggregation fn is required for "Aggregate" mode.'
+
+    # Collect input_iterator.
+    input_iterator = lazy_fns.maybe_make(input_iterator)
+    # Collect all the input functions from the input nodes.
+    input_fns = list(
+        itertools.chain.from_iterable(node.fns for node in input_nodes)
+    )
+    input_fns = [tree_fn.maybe_make() for tree_fn in input_fns]
+    # Collect all the aggregation functions from the aggregation node.
+    agg_fns, slice_fns = {}, []
+    if agg_node:
+      slice_fns = [slice_fn.maybe_make() for slice_fn in agg_node.slicers]
+      for agg_fn in agg_node.fns:
+        actual_agg_fn = agg_fn.maybe_make()
+        if not isinstance(actual_agg_fn, aggregates.Aggregatable):
+          raise ValueError(f'Not an aggregatable: {agg_fn}: {actual_agg_fn}')
+        # The output_keys can be a single key or a dict.
+        flattened_output_keys = itertools.chain.from_iterable(
+            k if isinstance(k, dict) else (k,) for k in agg_fn.output_keys
+        )
+        agg_fns[tuple(flattened_output_keys)] = actual_agg_fn
+    # Collect all the output functions from the output nodes.
+    output_fns = []
+    for node in output_nodes:
+      # The output nodes can be aggregate, uses it as a callable since they are
+      # all ran in-process (after the first aggregation node).
+      if isinstance(node, AggregateTransform):
+        output_fns.append(cls.from_transform(node, recursive=False))
+      else:
+        output_fns.extend([tree_fn.maybe_make() for tree_fn in node.fns])
+    return CombinedTreeFn(
+        name=name,
+        input_fns=input_fns,
+        agg_fns=agg_fns,
+        slicers=slice_fns,
+        output_fns=output_fns,
+        input_iterator=input_iterator,
+        num_threads=transform.num_threads,
+    )
 
   @property
   def has_agg(self):
