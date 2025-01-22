@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -58,6 +58,7 @@ import uuid
 from absl import logging
 from ml_metrics._src import types
 from ml_metrics._src.aggregates import base as aggregates
+from ml_metrics._src.chainables import io
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
 from ml_metrics._src.chainables import tree_fns
@@ -250,6 +251,7 @@ class CombinedTreeFn:
       transform: TreeTransform,
       recursive: bool = True,
       mode: RunnerMode = RunnerMode.DEFAULT,
+      input_state: io.ShardConfig | None = None,
   ) -> Self:
     """Makes a TreeFn from a transform."""
     # Flatten the transform into nodes and find the first aggregation node as
@@ -291,6 +293,14 @@ class CombinedTreeFn:
 
     # Collect input_iterator.
     input_iterator = lazy_fns.maybe_make(input_iterator)
+    if input_state is not None:
+      if types.is_configurable(input_iterator):
+        input_iterator = input_iterator.from_config(input_state)
+      else:
+        raise TypeError(
+            f'Data source is not configurable but {input_state=} is provided.'
+            f' data source type: {type(input_iterator)}.'
+        )
     # Collect all the input functions from the input nodes.
     input_fns = list(
         itertools.chain.from_iterable(node.fns for node in input_nodes)
@@ -315,7 +325,9 @@ class CombinedTreeFn:
       # The output nodes can be aggregate, uses it as a callable since they are
       # all ran in-process (after the first aggregation node).
       if isinstance(node, AggregateTransform):
-        output_fns.append(cls.from_transform(node, recursive=False))
+        output_fns.append(
+            cls.from_transform(node, recursive=False, input_state=input_state)
+        )
       else:
         output_fns.extend([tree_fn.maybe_make() for tree_fn in node.fns])
     return CombinedTreeFn(
@@ -670,9 +682,15 @@ class TreeTransform(Generic[TreeFnT]):
       recursive=True,
       # TODO: b/318463291 - deprecates runner mode in favor named transform.
       mode: RunnerMode = RunnerMode.DEFAULT,
+      shard: io.ShardConfig | None = None,
   ) -> CombinedTreeFn:
     """Makes the concrete function instance from the transform."""
-    return CombinedTreeFn.from_transform(self, recursive=recursive, mode=mode)
+    return CombinedTreeFn.from_transform(
+        self,
+        recursive=recursive,
+        mode=mode,
+        input_state=shard,
+    )
 
   def data_source(self, iterator: Any = None) -> TreeTransform:
     return TreeTransform.new(

@@ -31,7 +31,7 @@ class ShardConfig:
 
 
 @dc.dataclass(frozen=True)
-class ShardedSequence(types.Shardable, Iterable[_T]):
+class ShardedSequence(types.Shardable, types.Configurable, Iterable[_T]):
   """A sharded data source for chainables."""
   data: Sequence[_T]
   shard_state: ShardConfig = dc.field(default_factory=ShardConfig)
@@ -96,7 +96,7 @@ class _SequenceIterator(types.Serializable, Iterator[_T]):
 
 
 @dc.dataclass(frozen=True)
-class ShardedIterable(types.Shardable, Iterable[_T]):
+class ShardedIterable(types.Shardable, types.Configurable, Iterable[_T]):
   """A sharded data source for any iterable."""
   data: Iterable[_T]
   shard_state: ShardConfig = dc.field(default_factory=ShardConfig)
