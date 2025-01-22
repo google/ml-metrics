@@ -49,24 +49,17 @@ class BaseTypesTest(absltest.TestCase):
 
     self.assertFalse(types.is_shardable(Foo()))
 
-  def test_is_not_configurable(self):
+  def test_is_serializable(self):
 
     class Foo:
 
-      @classmethod
-      def from_config(cls, shard_index):
+      def get_config(self):
         pass
-
-    self.assertFalse(types.is_configurable(Foo()))
-
-  def test_is_configurable(self):
-
-    class Foo:
 
       def from_config(self, config):
         pass
 
-    self.assertTrue(types.is_configurable(Foo()))
+    self.assertTrue(types.is_serializable(Foo()))
 
 
 if __name__ == "__main__":

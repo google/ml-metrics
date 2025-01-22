@@ -294,7 +294,7 @@ class CombinedTreeFn:
     # Collect input_iterator.
     input_iterator = lazy_fns.maybe_make(input_iterator)
     if input_state is not None:
-      if types.is_configurable(input_iterator):
+      if types.is_serializable(input_iterator):
         input_iterator = input_iterator.from_config(input_state)
       else:
         raise TypeError(

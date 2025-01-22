@@ -31,7 +31,7 @@ class ShardConfig:
 
 
 @dc.dataclass(frozen=True)
-class ShardedSequence(types.Shardable, types.Configurable, Iterable[_T]):
+class ShardedSequence(types.Serializable, Iterable[_T]):
   """A sharded data source for chainables."""
   data: Sequence[_T]
   shard_state: ShardConfig = dc.field(default_factory=ShardConfig)
@@ -45,6 +45,9 @@ class ShardedSequence(types.Shardable, types.Configurable, Iterable[_T]):
 
   def shard(self, shard_index: int, num_shards: int) -> Self:
     return dc.replace(self, shard_state=ShardConfig(shard_index, num_shards))
+
+  def get_config(self) -> ShardConfig:
+    return self.shard_state
 
   def from_config(self, shard_state: ShardConfig) -> Self:
     """Iterates the data source given a shard index."""
@@ -78,6 +81,9 @@ class _SequenceIterator(types.Serializable, Iterator[_T]):
     self._end_index = start + adjusted_interval
     self.shard_state = shard_state
 
+  def from_config(self, shard_state: ShardConfig) -> Self:
+    return ShardedSequence(self.data, shard_state).iter()
+
   def get_config(self) -> ShardConfig:
     start_index = self._index - self._start_index
     return dc.replace(self.shard_state, start_index=start_index)
@@ -96,7 +102,7 @@ class _SequenceIterator(types.Serializable, Iterator[_T]):
 
 
 @dc.dataclass(frozen=True)
-class ShardedIterable(types.Shardable, types.Configurable, Iterable[_T]):
+class ShardedIterable(types.Serializable, Iterable[_T]):
   """A sharded data source for any iterable."""
   data: Iterable[_T]
   shard_state: ShardConfig = dc.field(default_factory=ShardConfig)
@@ -112,6 +118,9 @@ class ShardedIterable(types.Shardable, types.Configurable, Iterable[_T]):
 
   def shard(self, shard_index: int, num_shards: int) -> Self:
     return dc.replace(self, shard_state=ShardConfig(shard_index, num_shards))
+
+  def get_config(self) -> ShardConfig:
+    return self.shard_state
 
   def from_config(self, shard_state: ShardConfig) -> Self:
     return dc.replace(self, shard_state=shard_state)
@@ -135,6 +144,9 @@ class _ResumableIterator(types.Serializable, Iterator[_T]):
     self.shard_state = shard_state
     self._index = 0
     self._it = iter(data)
+
+  def from_config(self, shard_state: ShardConfig) -> Self:
+    return ShardedIterable(self.data, shard_state).iter()
 
   def get_config(self) -> ShardConfig:
     return dc.replace(self.shard_state, start_index=self._index)

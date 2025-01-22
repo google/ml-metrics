@@ -14,7 +14,7 @@
 """Base types used throughout the library."""
 
 import abc
-from typing import Any, Protocol, TypeGuard, TypeVar, runtime_checkable
+from typing import Any, Protocol, Self, TypeGuard, TypeVar, runtime_checkable
 from numpy import typing as npt
 
 _T = TypeVar('_T')
@@ -38,19 +38,11 @@ class Resolvable(Protocol[_T]):
     """Interface to get the result of the underlying value."""
 
 
-class Shardable(Protocol[_T]):
+class Shardable(Protocol):
   """A sharded data source for chainables."""
 
   @abc.abstractmethod
   def shard(self, *args, **kwargs):
-    """Iterates the data source given a shard index and number of shards."""
-
-
-class Configurable(Protocol[_T]):
-  """A sharded data source for chainables."""
-
-  @abc.abstractmethod
-  def from_config(self, *args, **kwargs):
     """Iterates the data source given a shard index and number of shards."""
 
 
@@ -61,34 +53,40 @@ class Serializable(Protocol):
   def get_config(self):
     """Gets the state of the object that can be used to recover the object."""
 
+  @abc.abstractmethod
+  def from_config(self, *args, **kwargs) -> Self:
+    """Iterates the data source given a shard index and number of shards."""
+
 
 MaybeResolvable = Resolvable[_T] | _T
 
 
+def _obj_has_method(obj: Any, method_name: str) -> bool:
+  """Checks if the object has a method."""
+  method = getattr(obj, method_name, False)
+  return method and getattr(method, '__self__', None) is obj
+
+
 def is_resolvable(obj: Resolvable[_T] | Any) -> TypeGuard[Resolvable[_T]]:
   """Checks if the object is a Resolvable."""
-  result_ = getattr(obj, 'result_', None)
-  # Also distinguish between classmethod or instance method.
-  return result_ and getattr(result_, '__self__', None) is obj
+  return _obj_has_method(obj, 'result_')
 
 
 def is_makeable(obj: Makeable[_T] | Any) -> TypeGuard[Makeable[_T]]:
   """Checks if the object is a Makeable."""
-  make = getattr(obj, 'make', None)
-  # Also distinguish between classmethod or instance method.
-  return make and getattr(make, '__self__', None) is obj
+  return _obj_has_method(obj, 'make')
 
 
-def is_shardable(obj: Shardable[_T] | Any) -> TypeGuard[Shardable[_T]]:
+def is_shardable(obj: Shardable | Any) -> TypeGuard[Shardable]:
   """Checks if the object is a Shardable."""
-  get_shard = getattr(obj, 'get_shard', None)
-  return get_shard and getattr(get_shard, '__self__', None) is obj
+  return _obj_has_method(obj, 'shard')
 
 
-def is_configurable(obj: Shardable[_T] | Any) -> TypeGuard[Configurable[_T]]:
+def is_serializable(obj: Serializable | Any) -> TypeGuard[Serializable]:
   """Checks if the object is a Shardable."""
-  from_config = getattr(obj, 'from_config', None)
-  return from_config and getattr(from_config, '__self__', None) is obj
+  return _obj_has_method(obj, 'get_config') and _obj_has_method(
+      obj, 'from_config'
+  )
 
 
 def is_array_like(obj: list[Any] | tuple[Any, ...] | npt.ArrayLike) -> bool:
