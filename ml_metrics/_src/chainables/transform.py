@@ -47,6 +47,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
 from concurrent import futures
+import copy
 import dataclasses
 import enum
 import functools
@@ -103,8 +104,15 @@ class AggregateResult:
   agg_state: Any = dataclasses.field(kw_only=True, default=None)
 
 
-class IteratorWithAggResult(Iterable[_ValueT]):
+@dataclasses.dataclass(frozen=True)
+class _IteratorState:
+  input_state: io.ShardConfig
+  agg_state: dict[MetricKey, Any] | None
+
+
+class _IteratorWithAggResult(Iterable[_ValueT]):
   """An iterator that returns the last value."""
+  input_iterator: Iterable[_ValueT]
   agg_state: dict[MetricKey, Any] | None
 
   def __init__(
@@ -119,8 +127,8 @@ class IteratorWithAggResult(Iterable[_ValueT]):
   ):
     super().__init__()
     self._tree_fn = tree_fn
+    self.input_iterator = iter(input_iterator)
     self._with_result = with_result
-    state = state or tree_fn.create_state()
     self.agg_state = state
     self._with_agg_state = state and (with_agg_state or with_agg_result)
     self._with_agg_result = with_agg_result
@@ -135,17 +143,17 @@ class IteratorWithAggResult(Iterable[_ValueT]):
       yield from result
 
     if not tree_fn.num_threads:
-      iterator = iterate_fn(input_iterator)
+      iterator = iterate_fn(self.input_iterator)
     else:
       iterator = iter_utils.piter(
           iterate_fn,
-          input_iterator=input_iterator,
+          input_iterator=self.input_iterator,
           thread_pool=_get_thread_pool(),
           max_parallism=tree_fn.num_threads,
       )
     self._iterator = iter(iterator)
     self._prev_ticker = time.time()
-    self.batch_index = -1
+    self.batch_index = 0
 
   @property
   def name(self) -> str:
@@ -156,6 +164,32 @@ class IteratorWithAggResult(Iterable[_ValueT]):
     if self.agg_state:
       return self._tree_fn.get_result(self.agg_state)
     return None
+
+  def from_state(self, state: _IteratorState) -> _IteratorWithAggResult:
+    input_iterator = self.input_iterator
+    if not types.is_serializable(input_iterator):
+      raise TypeError(
+          f'Data source is not serializable, got {type(input_iterator)}.'
+      )
+    input_iterator = input_iterator.from_config(state.input_state)
+    return _IteratorWithAggResult(
+        self._tree_fn,
+        input_iterator=input_iterator,
+        with_result=self._with_result,
+        with_agg_state=self._with_agg_state,
+        with_agg_result=self._with_agg_result,
+        state=state.agg_state,
+    )
+
+  @property
+  def state(self) -> _IteratorState:
+    input_iterator = self.input_iterator
+    if types.is_serializable(input_iterator):
+      agg_state = copy.deepcopy(self.agg_state)
+      return _IteratorState(input_iterator.get_config(), agg_state=agg_state)
+    raise TypeError(
+        f'Data source is not serializable, got {type(input_iterator)=}.'
+    )
 
   def __next__(self) -> _ValueT:
     if (ticker := time.time()) - self._prev_ticker > _LOGGING_INTERVAL_SECS:
@@ -235,23 +269,22 @@ class CombinedTreeFn:
       converted to a callable and translated as `output_fns`.
   """
 
-  name: str = ''
-  input_fns: Sequence[tree_fns.TreeFn] = ()
-  agg_fns: dict[TreeMapKeys | TreeMapKey, tree_fns.TreeAggregateFn] = (
-      dataclasses.field(default_factory=dict)
-  )
-  slicers: list[tree_fns.Slicer] = dataclasses.field(default_factory=list)
-  output_fns: Sequence[tree_fns.TreeFn] = ()
-  input_iterator: Iterable[Any] | None = None
-  num_threads: int = _DEFAULT_NUM_THREADS
+  name: str
+  input_fns: Sequence[tree_fns.TreeFn]
+  agg_fns: dict[TreeMapKeys | TreeMapKey, tree_fns.TreeAggregateFn]
+  slicers: list[tree_fns.Slicer]
+  output_fns: Sequence[tree_fns.TreeFn]
+  input_iterator: Iterable[Any] | None
+  num_threads: int
 
   @classmethod
   def from_transform(
       cls,
       transform: TreeTransform,
-      recursive: bool = True,
+      *,
+      recursive: bool,
+      input_state: io.ShardConfig | None,
       mode: RunnerMode = RunnerMode.DEFAULT,
-      input_state: io.ShardConfig | None = None,
   ) -> Self:
     """Makes a TreeFn from a transform."""
     # Flatten the transform into nodes and find the first aggregation node as
@@ -326,7 +359,7 @@ class CombinedTreeFn:
       # all ran in-process (after the first aggregation node).
       if isinstance(node, AggregateTransform):
         output_fns.append(
-            cls.from_transform(node, recursive=False, input_state=input_state)
+            cls.from_transform(node, recursive=False, input_state=None)
         )
       else:
         output_fns.extend([tree_fn.maybe_make() for tree_fn in node.fns])
@@ -455,7 +488,9 @@ class CombinedTreeFn:
     return self.input_iterator
 
   def __iter__(self):
-    return IteratorWithAggResult(self, input_iterator=self.input_iterator)
+    return _IteratorWithAggResult(
+        self, input_iterator=self.input_iterator, state=self.create_state()
+    )
 
   def iterate(
       self,
@@ -465,7 +500,7 @@ class CombinedTreeFn:
       with_agg_state: bool = True,
       with_agg_result: bool = True,
       state: Any = None,
-  ) -> IteratorWithAggResult[Any]:
+  ) -> _IteratorWithAggResult[Any]:
     """An iterator runner that takes an input_iterator runs the transform.
 
     The iterator by default yields the output of all the input_functions before
@@ -485,13 +520,13 @@ class CombinedTreeFn:
     Returns:
       An iterator that also optionally keeps the aggregation result and state.
     """
-    return IteratorWithAggResult(
+    return _IteratorWithAggResult(
         self,
         input_iterator=self._actual_inputs(None, input_iterator),
         with_result=with_result,
         with_agg_state=with_agg_state,
         with_agg_result=with_agg_result,
-        state=state,
+        state=state or self.create_state(),
     )
 
   def __call__(self, inputs=None, *, input_iterator=None):

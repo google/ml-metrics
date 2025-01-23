@@ -196,6 +196,40 @@ class TransformDataSourceTest(parameterized.TestCase):
     expected = [[1, 2], [3]]
     self.assertEqual(expected, actual)
 
+  def test_sharded_sequence_data_source_resume(self):
+    ds = io.ShardedSequence(range(3))
+    p = (
+        transform.TreeTransform()
+        .data_source(ds)
+        .apply(fn=lambda x: x + 1)
+        .aggregate(fn=MockAverageFn())
+    )
+    num_shards = 2
+    it = p.make(shard=io.ShardConfig(0, num_shards)).iterate()
+    self.assertEqual(1, next(it))
+    self.assertEqual([1], it.agg_result)
+    # Recover from the iterator state, the results of the original and the new
+    # iterator should be the same.
+    it_new = p.make().iterate().from_state(it.state)
+    self.assertEqual([2], list(it))
+    self.assertEqual([2], list(it_new))
+    self.assertEqual([(1 + 2) / 2], it.agg_result)
+    self.assertEqual([(1 + 2) / 2], it_new.agg_result)
+
+  def test_data_source_not_recoverable_raise_error(self):
+    ds = range(3)
+    p = transform.TreeTransform().data_source(ds).apply(fn=lambda x: x + 1)
+    with self.assertRaisesRegex(
+        TypeError, 'Data source is not serializable, got .+'
+    ):
+      _ = p.make().iterate().state
+    with self.assertRaisesRegex(
+        TypeError, 'Data source is not serializable, got .+'
+    ):
+      p.make().iterate().from_state(
+          transform._IteratorState(io.ShardConfig(), agg_state=None)
+      )
+
   def test_sharded_iterable_data_source(self):
     ds = io.ShardedIterable(range(3))
     p = transform.TreeTransform().data_source(ds).apply(fn=lambda x: x + 1)

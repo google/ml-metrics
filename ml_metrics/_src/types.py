@@ -14,7 +14,7 @@
 """Base types used throughout the library."""
 
 import abc
-from typing import Any, Protocol, Self, TypeGuard, TypeVar, runtime_checkable
+from typing import Any, Protocol, TypeGuard, TypeVar, runtime_checkable
 from numpy import typing as npt
 
 _T = TypeVar('_T')
@@ -54,7 +54,7 @@ class Serializable(Protocol):
     """Gets the state of the object that can be used to recover the object."""
 
   @abc.abstractmethod
-  def from_config(self, *args, **kwargs) -> Self:
+  def from_config(self, *args, **kwargs):
     """Iterates the data source given a shard index and number of shards."""
 
 
