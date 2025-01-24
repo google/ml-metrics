@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Sequence
-import copy
 import dataclasses as dc
 from typing import Self, TypeVar
 
@@ -55,14 +54,14 @@ class ShardedSequence(types.Recoverable, Iterable[_T]):
     """Iterates the data source given a shard index."""
     return dc.replace(self, _shard_state=shard_state)
 
-  def iterate(self) -> _SequenceIterator[_T]:
-    return _SequenceIterator(self)
+  def iterate(self) -> SequenceIterator[_T]:
+    return SequenceIterator(self)
 
-  def __iter__(self) -> _SequenceIterator[_T]:
+  def __iter__(self) -> Iterator[_T]:
     return self.iterate()
 
 
-class _SequenceIterator(types.Recoverable, Iterator[_T]):
+class SequenceIterator(types.Recoverable, Iterator[_T]):
   """A sharded data source for chainables."""
 
   config: ShardedSequence
@@ -73,7 +72,7 @@ class _SequenceIterator(types.Recoverable, Iterator[_T]):
 
   def __init__(self, config: ShardedSequence):
     self.config = config
-    self._data = copy.deepcopy(config.data)
+    self._data = config.data
     shard_state = config.state
     shard_index, num_shards = shard_state.shard_index, shard_state.num_shards
     interval, remainder = divmod(len(self._data), num_shards)
@@ -84,6 +83,7 @@ class _SequenceIterator(types.Recoverable, Iterator[_T]):
     self._index = self._start_index = start + shard_state.start_index
     self._end_index = start + adjusted_interval
     self.shard_state = shard_state
+    self._it = iter(self._data[self._start_index : self._end_index])
 
   def from_state(self, shard_state: ShardConfig) -> Self:
     return self.__class__(self.config.from_state(shard_state))
@@ -95,9 +95,7 @@ class _SequenceIterator(types.Recoverable, Iterator[_T]):
 
   def __next__(self) -> _T:
     """Iterates the data source given a shard index."""
-    if self._index >= self._end_index:
-      raise StopIteration
-    result = self._data[self._index]
+    result = next(self._it)
     self._index += 1
     return result
 
@@ -131,14 +129,14 @@ class ShardedIterable(types.Recoverable, Iterable[_T]):
   def from_state(self, shard_state: ShardConfig) -> Self:
     return dc.replace(self, _shard_state=shard_state)
 
-  def iterate(self) -> _ResumableIterator[_T]:
-    return _ResumableIterator(self)
+  def iterate(self) -> DataIterator[_T]:
+    return DataIterator(self)
 
-  def __iter__(self) -> _ResumableIterator[_T]:
+  def __iter__(self) -> Iterator[_T]:
     return self.iterate()
 
 
-class _ResumableIterator(types.Recoverable, Iterator[_T]):
+class DataIterator(types.Recoverable, Iterator[_T]):
   """An sharded iterator for an iterable."""
 
   def __init__(self, config: ShardedIterable):
