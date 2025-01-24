@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Sequence
+import copy
 import dataclasses as dc
 from typing import Self, TypeVar
 
@@ -31,48 +32,51 @@ class ShardConfig:
 
 
 @dc.dataclass(frozen=True)
-class ShardedSequence(types.Serializable, Iterable[_T]):
+class ShardedSequence(types.Recoverable, Iterable[_T]):
   """A sharded data source for chainables."""
   data: Sequence[_T]
-  shard_state: ShardConfig = dc.field(default_factory=ShardConfig)
+  _shard_state: ShardConfig = dc.field(default_factory=ShardConfig)
 
   def __post_init__(self):
     data = self.data
     if not hasattr(data, '__getitem__') or not hasattr(data, '__len__'):
       raise TypeError(f'data is not indexable, got {type(data)=}')
-    if self.shard_state.num_shards < 1:
-      raise ValueError(f'num_shards must be positive, got {self.shard_state=}')
+    if self._shard_state.num_shards < 1:
+      raise ValueError(f'num_shards must be positive, got {self._shard_state=}')
 
   def shard(self, shard_index: int, num_shards: int) -> Self:
-    return dc.replace(self, shard_state=ShardConfig(shard_index, num_shards))
+    return dc.replace(self, _shard_state=ShardConfig(shard_index, num_shards))
 
-  def get_config(self) -> ShardConfig:
-    return self.shard_state
+  @property
+  def state(self) -> ShardConfig:
+    return self._shard_state
 
-  def from_config(self, shard_state: ShardConfig) -> Self:
+  def from_state(self, shard_state: ShardConfig) -> Self:
     """Iterates the data source given a shard index."""
-    return dc.replace(self, shard_state=shard_state)
+    return dc.replace(self, _shard_state=shard_state)
 
-  def iter(self) -> _SequenceIterator[_T]:
-    return _SequenceIterator(self.data, self.shard_state)
+  def iterate(self) -> _SequenceIterator[_T]:
+    return _SequenceIterator(self)
 
-  def __iter__(self) -> Iterator[_T]:
-    return self.iter()
+  def __iter__(self) -> _SequenceIterator[_T]:
+    return self.iterate()
 
 
-class _SequenceIterator(types.Serializable, Iterator[_T]):
+class _SequenceIterator(types.Recoverable, Iterator[_T]):
   """A sharded data source for chainables."""
 
-  data: Sequence[_T]
-  shard_state: ShardConfig
+  config: ShardedSequence
+  _data: Sequence[_T]
   _start_index: int
   _index: int
   _end_index: int
 
-  def __init__(self, data: Sequence[_T], shard_state: ShardConfig):
-    self.data = data
+  def __init__(self, config: ShardedSequence):
+    self.config = config
+    self._data = copy.deepcopy(config.data)
+    shard_state = config.state
     shard_index, num_shards = shard_state.shard_index, shard_state.num_shards
-    interval, remainder = divmod(len(self.data), num_shards)
+    interval, remainder = divmod(len(self._data), num_shards)
     start, adjusted_interval = 0, 0
     for i in range(shard_index + 1):
       adjusted_interval = interval + 1 if i < remainder else interval
@@ -81,10 +85,11 @@ class _SequenceIterator(types.Serializable, Iterator[_T]):
     self._end_index = start + adjusted_interval
     self.shard_state = shard_state
 
-  def from_config(self, shard_state: ShardConfig) -> Self:
-    return ShardedSequence(self.data, shard_state).iter()
+  def from_state(self, shard_state: ShardConfig) -> Self:
+    return self.__class__(self.config.from_state(shard_state))
 
-  def get_config(self) -> ShardConfig:
+  @property
+  def state(self) -> ShardConfig:
     start_index = self._index - self._start_index
     return dc.replace(self.shard_state, start_index=start_index)
 
@@ -92,20 +97,20 @@ class _SequenceIterator(types.Serializable, Iterator[_T]):
     """Iterates the data source given a shard index."""
     if self._index >= self._end_index:
       raise StopIteration
-    result = self.data[self._index]
+    result = self._data[self._index]
     self._index += 1
     return result
 
-  def __iter__(self) -> Iterator[_T]:
+  def __iter__(self) -> Self:
     """Iterates the data source given a shard index."""
     return self
 
 
 @dc.dataclass(frozen=True)
-class ShardedIterable(types.Serializable, Iterable[_T]):
+class ShardedIterable(types.Recoverable, Iterable[_T]):
   """A sharded data source for any iterable."""
   data: Iterable[_T]
-  shard_state: ShardConfig = dc.field(default_factory=ShardConfig)
+  _shard_state: ShardConfig = dc.field(default_factory=ShardConfig)
 
   def __post_init__(self):
     data = self.data
@@ -113,51 +118,48 @@ class ShardedIterable(types.Serializable, Iterable[_T]):
       raise TypeError(
           f'input has to be an iterable but not an iterator, got {type(data)=}'
       )
-    if self.shard_state.num_shards < 1:
-      raise ValueError(f'num_shards must be positive, got {self.shard_state=}')
+    if self._shard_state.num_shards < 1:
+      raise ValueError(f'num_shards must be positive, got {self._shard_state=}')
 
   def shard(self, shard_index: int, num_shards: int) -> Self:
-    return dc.replace(self, shard_state=ShardConfig(shard_index, num_shards))
+    return dc.replace(self, _shard_state=ShardConfig(shard_index, num_shards))
 
-  def get_config(self) -> ShardConfig:
-    return self.shard_state
+  @property
+  def state(self) -> ShardConfig:
+    return self._shard_state
 
-  def from_config(self, shard_state: ShardConfig) -> Self:
-    return dc.replace(self, shard_state=shard_state)
+  def from_state(self, shard_state: ShardConfig) -> Self:
+    return dc.replace(self, _shard_state=shard_state)
 
-  def iter(self) -> _ResumableIterator[_T]:
-    return _ResumableIterator(self.data, self.shard_state)
+  def iterate(self) -> _ResumableIterator[_T]:
+    return _ResumableIterator(self)
 
-  def __iter__(self) -> Iterator[_T]:
-    return self.iter()
+  def __iter__(self) -> _ResumableIterator[_T]:
+    return self.iterate()
 
 
-class _ResumableIterator(types.Serializable, Iterator[_T]):
+class _ResumableIterator(types.Recoverable, Iterator[_T]):
   """An sharded iterator for an iterable."""
 
-  def __init__(
-      self,
-      data: Iterable[_T],
-      shard_state: ShardConfig,
-  ):
-    self.data = data
-    self.shard_state = shard_state
+  def __init__(self, config: ShardedIterable):
+    self.config = config
     self._index = 0
-    self._it = iter(data)
+    self._it = iter(config.data)
 
-  def from_config(self, shard_state: ShardConfig) -> Self:
-    return ShardedIterable(self.data, shard_state).iter()
+  def from_state(self, shard_state: ShardConfig) -> Self:
+    return self.__class__(self.config.from_state(shard_state))
 
-  def get_config(self) -> ShardConfig:
-    return dc.replace(self.shard_state, start_index=self._index)
+  @property
+  def state(self) -> ShardConfig:
+    return dc.replace(self.config.state, start_index=self._index)
 
   def __next__(self) -> _T:
     """Iterates the data source given a shard index."""
-    while self._index < self.shard_state.start_index:
+    while self._index < self.config.state.start_index:
       _ = next(self._it)
       self._index += 1
-    shard_index = self.shard_state.shard_index
-    num_shards = self.shard_state.num_shards
+    shard_index = self.config.state.shard_index
+    num_shards = self.config.state.num_shards
     while self._index % num_shards != shard_index:
       _ = next(self._it)
       self._index += 1

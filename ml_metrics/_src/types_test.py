@@ -61,6 +61,36 @@ class BaseTypesTest(absltest.TestCase):
 
     self.assertTrue(types.is_serializable(Foo()))
 
+  def test_is_recoverable(self):
+
+    class Foo:
+
+      @property
+      def state(self):
+        pass
+
+      def from_state(self, state):
+        pass
+
+    self.assertTrue(types.is_recoverable(Foo()))
+
+  def test_is_not_recoverable(self):
+
+    class Foo1:
+
+      @property
+      def state(self):
+        pass
+
+    self.assertFalse(types.is_recoverable(Foo1()))
+
+    class Foo2:
+
+      def from_state(self, state):
+        pass
+
+    self.assertFalse(types.is_recoverable(Foo2()))
+
 
 if __name__ == "__main__":
   absltest.main()

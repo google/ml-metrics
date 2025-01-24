@@ -58,6 +58,16 @@ class Serializable(Protocol):
     """Iterates the data source given a shard index and number of shards."""
 
 
+class Recoverable(Protocol):
+  """An object that can be both serialized and deserialized."""
+
+  state: Any
+
+  @abc.abstractmethod
+  def from_state(self, *args, **kwargs):
+    """Recover from the state."""
+
+
 MaybeResolvable = Resolvable[_T] | _T
 
 
@@ -87,6 +97,11 @@ def is_serializable(obj: Serializable | Any) -> TypeGuard[Serializable]:
   return _obj_has_method(obj, 'get_config') and _obj_has_method(
       obj, 'from_config'
   )
+
+
+def is_recoverable(obj: Recoverable | Any) -> TypeGuard[Recoverable]:
+  """Checks if the object is a Shardable."""
+  return _obj_has_method(obj, 'from_state') and hasattr(obj, 'state')
 
 
 def is_array_like(obj: list[Any] | tuple[Any, ...] | npt.ArrayLike) -> bool:

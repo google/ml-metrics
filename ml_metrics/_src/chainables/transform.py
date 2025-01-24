@@ -110,7 +110,7 @@ class _IteratorState:
   agg_state: dict[MetricKey, Any] | None
 
 
-class _IteratorWithAggResult(Iterable[_ValueT]):
+class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
   """An iterator that returns the last value."""
   input_iterator: Iterable[_ValueT]
   agg_state: dict[MetricKey, Any] | None
@@ -167,11 +167,11 @@ class _IteratorWithAggResult(Iterable[_ValueT]):
 
   def from_state(self, state: _IteratorState) -> _IteratorWithAggResult:
     input_iterator = self.input_iterator
-    if not types.is_serializable(input_iterator):
+    if not types.is_recoverable(input_iterator):
       raise TypeError(
           f'Data source is not serializable, got {type(input_iterator)}.'
       )
-    input_iterator = input_iterator.from_config(state.input_state)
+    input_iterator = input_iterator.from_state(state.input_state)
     return _IteratorWithAggResult(
         self._tree_fn,
         input_iterator=input_iterator,
@@ -184,9 +184,9 @@ class _IteratorWithAggResult(Iterable[_ValueT]):
   @property
   def state(self) -> _IteratorState:
     input_iterator = self.input_iterator
-    if types.is_serializable(input_iterator):
+    if types.is_recoverable(input_iterator):
       agg_state = copy.deepcopy(self.agg_state)
-      return _IteratorState(input_iterator.get_config(), agg_state=agg_state)
+      return _IteratorState(input_iterator.state, agg_state=agg_state)
     raise TypeError(
         f'Data source is not serializable, got {type(input_iterator)=}.'
     )
@@ -327,8 +327,8 @@ class CombinedTreeFn:
     # Collect input_iterator.
     input_iterator = lazy_fns.maybe_make(input_iterator)
     if input_state is not None:
-      if types.is_serializable(input_iterator):
-        input_iterator = input_iterator.from_config(input_state)
+      if types.is_recoverable(input_iterator):
+        input_iterator = input_iterator.from_state(input_state)
       else:
         raise TypeError(
             f'Data source is not configurable but {input_state=} is provided.'

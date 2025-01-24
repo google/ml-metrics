@@ -48,17 +48,17 @@ class ShardedDataSourceTest(parameterized.TestCase):
 
   def test_sharded_sequence_serialization(self):
     ds = io.ShardedSequence(range(3))
-    it = ds.iter()
+    it = ds.iterate()
     self.assertEqual(0, next(it))
-    ds = ds.from_config(it.get_config())
+    ds = ds.from_state(it.state)
     self.assertEqual([1, 2], list(it))
     self.assertEqual([1, 2], list(ds))
 
   def test_sharded_sequence_serialization_after_shard(self):
     ds = io.ShardedSequence(range(4))
-    it = ds.shard(1, num_shards=2).iter()
+    it = ds.shard(1, num_shards=2).iterate()
     self.assertEqual(2, next(it))
-    ds = ds.from_config(it.get_config())
+    ds = ds.iterate().from_state(it.state)
     self.assertEqual([3], list(it))
     self.assertEqual([3], list(ds))
 
@@ -90,17 +90,17 @@ class ShardedDataSourceTest(parameterized.TestCase):
 
   def test_sharded_iterable_serialization(self):
     ds = io.ShardedIterable(range(3))
-    it = ds.iter()
+    it = ds.iterate()
     self.assertEqual(0, next(it))
-    ds = ds.from_config(it.get_config())
+    ds = ds.iterate().from_state(it.state)
     self.assertEqual([1, 2], list(it))
     self.assertEqual([1, 2], list(ds))
 
   def test_sharded_iterable_shard_serialization(self):
     ds = io.ShardedIterable(range(6))
-    it = ds.shard(1, num_shards=2).iter()
+    it = ds.shard(1, num_shards=2).iterate()
     self.assertEqual(1, next(it))
-    ds = ds.from_config(it.get_config())
+    ds = ds.from_state(it.state)
     self.assertEqual([3, 5], list(it))
     self.assertEqual([3, 5], list(ds))
 
