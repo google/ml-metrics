@@ -17,7 +17,7 @@ from absl.testing import parameterized
 from ml_metrics._src.chainables import io
 
 
-class ShardedDataSourceTest(parameterized.TestCase):
+class SequenceDataSourceTest(parameterized.TestCase):
 
   @parameterized.named_parameters([
       dict(
@@ -70,6 +70,12 @@ class ShardedDataSourceTest(parameterized.TestCase):
     self.assertEqual([3], list(it))
     self.assertEqual([3], list(ds))
 
+  def test_merged_sequences(self):
+    ds = io.SequenceDataSource.from_sequences([range(2), range(2, 6)])
+    self.assertEqual([0, 1, 2, 3, 4, 5], list(ds.shard(0, 1)))
+    self.assertEqual([0, 1, 2], list(ds.shard(0, 2)))
+    self.assertEqual([3, 4, 5], list(ds.shard(1, 2)))
+
   def test_sharded_sequence_with_non_indexable_data(self):
     with self.assertRaisesRegex(TypeError, 'data is not indexable'):
       io.SequenceDataSource(0)  # pytype: disable=wrong-arg-types
@@ -77,6 +83,9 @@ class ShardedDataSourceTest(parameterized.TestCase):
   def test_sharded_sequence_with_invalid_num_shards_raises_error(self):
     with self.assertRaisesRegex(ValueError, 'num_shards must be positive'):
       _ = list(io.SequenceDataSource(range(3), io.ShardConfig(num_shards=0)))
+
+
+class IterableDataSourceTest(parameterized.TestCase):
 
   def test_sharded_iterable(self):
     ds = io.ShardedIterable(range(3))

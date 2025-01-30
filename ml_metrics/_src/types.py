@@ -71,6 +71,15 @@ class Recoverable(Protocol):
 MaybeResolvable = Resolvable[_T] | _T
 
 
+class RandomAccessible(Protocol[_T]):
+
+  def __getitem__(self, idx: int | slice) -> _T:
+    """Same as Sequence.__getitem__."""
+
+  def __len__(self) -> int:
+    """Same as Sequence.__len__."""
+
+
 def _obj_has_method(obj: Any, method_name: str) -> bool:
   """Checks if the object has a method."""
   method = getattr(obj, method_name, False)

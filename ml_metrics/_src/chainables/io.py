@@ -14,11 +14,12 @@
 """I/O utilities for chainables."""
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator
 import dataclasses as dc
 from typing import Self, TypeVar
 
 from ml_metrics._src import types
+from ml_metrics._src.utils import iter_utils
 
 _T = TypeVar('_T')
 
@@ -33,7 +34,7 @@ class ShardConfig:
 @dc.dataclass(frozen=True)
 class SequenceDataSource(types.Recoverable, Iterable[_T]):
   """A shardable sequence data source."""
-  data: Sequence[_T]
+  data: types.RandomAccessible[_T]
   _shard_state: ShardConfig = dc.field(default_factory=ShardConfig)
   _start: int = 0
   _end: int | None = None
@@ -44,6 +45,12 @@ class SequenceDataSource(types.Recoverable, Iterable[_T]):
       raise TypeError(f'data is not indexable, got {type(data)=}')
     if self._shard_state.num_shards < 1:
       raise ValueError(f'num_shards must be positive, got {self._shard_state=}')
+
+  @classmethod
+  def from_sequences(
+      cls, sequences: Iterable[types.RandomAccessible[_T]]
+  ) -> Self:
+    return cls(iter_utils.MergedSequences(sequences))
 
   def shard(self, shard_index: int, num_shards: int, offset: int = 0) -> Self:
     interval, remainder = divmod(len(self.data), num_shards)

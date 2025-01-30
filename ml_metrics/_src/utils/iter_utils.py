@@ -17,16 +17,20 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import bisect
 import collections
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable, Iterator, Sequence
 from concurrent import futures
 import dataclasses as dc
 import functools
+import itertools as itt
+import operator as op
 import queue
 import threading
 from typing import Any, Generic, Protocol, Self, TypeVar
 
 from absl import logging
+from ml_metrics._src import types
 from ml_metrics._src.utils import func_utils
 import more_itertools as mit
 import numpy as np
@@ -115,6 +119,55 @@ class SequenceArray(Sequence):
     if (result := mit.first(ixs, None)) is None:
       raise ValueError(f'{value} is not in array')
     return result
+
+
+@dc.dataclass(frozen=True, slots=True)
+class _MergedSequenceIndex:
+  seq_idx: int
+  idx: int | None = None
+
+
+class MergedSequences(Generic[_ValueT]):
+  """Merges multiple sequences into a single sequence."""
+
+  def __init__(self, sequences: Iterable[types.RandomAccessible[_ValueT]]):
+    self._sequences = list(sequences)
+    self._seq_idxs = [0]
+    self._seq_idxs.extend(itt.accumulate(map(len, self._sequences), op.add))
+
+  def __len__(self) -> int:
+    return self._seq_idxs[-1]
+
+  def _index(self, idx) -> _MergedSequenceIndex:
+    indices = self._seq_idxs
+    idx_seq = bisect.bisect_left(indices, idx)
+    if idx_seq == len(indices) and idx > indices[-1]:
+      return _MergedSequenceIndex(idx_seq - 1)
+    if idx == indices[idx_seq]:
+      return _MergedSequenceIndex(idx_seq, 0)
+    return _MergedSequenceIndex(idx_seq - 1, idx - indices[idx_seq - 1])
+
+  def slice(self, slice_: slice) -> Iterator[_ValueT]:
+    """Slices the merged sequences."""
+    if slice_.step is not None:
+      raise NotImplementedError(f'step is not supported, got {slice_}')
+    start = self._index(slice_.start)
+    stop = self._index(slice_.stop)
+    if start.seq_idx == stop.seq_idx:
+      return itt.islice(self._sequences[start.seq_idx], start.idx, stop.idx)
+    # Chain multiple sequences together with correct slices.
+    sequences = [self._sequences[start.seq_idx][start.idx :]]
+    for i_seq in range(start.seq_idx + 1, stop.seq_idx):
+      sequences.append(self._sequences[i_seq])
+    if stop.idx:
+      sequences.append(self._sequences[stop.seq_idx][: stop.idx])
+    return itt.chain.from_iterable(sequences)
+
+  def __getitem__(self, idx) -> _ValueT | Iterator[_ValueT]:
+    if isinstance(idx, slice):
+      return self.slice(idx)
+    multi_idx = self._index(idx)
+    return self._sequences[multi_idx.seq_idx][multi_idx.idx]
 
 
 @dc.dataclass(slots=True, eq=False)
