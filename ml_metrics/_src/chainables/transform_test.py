@@ -188,7 +188,7 @@ def multi_slicer(preds, labels, within=()):
 class TransformDataSourceTest(parameterized.TestCase):
 
   def test_sharded_sequence_data_source(self):
-    ds = io.ShardedSequence(range(3))
+    ds = io.SequenceDataSource(range(3))
     p = transform.TreeTransform().data_source(ds).apply(fn=lambda x: x + 1)
     num_shards = 2
     shards = (io.ShardConfig(i, num_shards) for i in range(num_shards))
@@ -197,7 +197,7 @@ class TransformDataSourceTest(parameterized.TestCase):
     self.assertEqual(expected, actual)
 
   def test_sharded_sequence_data_source_resume(self):
-    ds = io.ShardedSequence(range(3))
+    ds = io.SequenceDataSource(range(3))
     p = (
         transform.TreeTransform()
         .data_source(ds)

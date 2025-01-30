@@ -42,12 +42,20 @@ class ShardedDataSourceTest(parameterized.TestCase):
       ),
   ])
   def test_sharded_sequence(self, num_shards, expected):
-    ds = io.ShardedSequence(list(range(3)))
+    ds = io.SequenceDataSource(list(range(3)))
     actual = [list(ds.shard(i, num_shards)) for i in range(num_shards)]
     self.assertEqual(expected, actual)
 
+  def test_sharded_sequence_len(self):
+    ds = io.SequenceDataSource(list(range(3)))
+    self.assertLen(ds, 3)
+    self.assertLen(ds.shard(0, 1, offset=1), 2)
+    self.assertLen(ds.shard(0, 2), 2)
+    self.assertLen(ds.shard(0, 2, offset=1), 1)
+    self.assertLen(ds.shard(1, 2), 1)
+
   def test_sharded_sequence_serialization(self):
-    ds = io.ShardedSequence(range(3))
+    ds = io.SequenceDataSource(range(3))
     it = ds.iterate()
     self.assertEqual(0, next(it))
     ds = ds.from_state(it.state)
@@ -55,7 +63,7 @@ class ShardedDataSourceTest(parameterized.TestCase):
     self.assertEqual([1, 2], list(ds))
 
   def test_sharded_sequence_serialization_after_shard(self):
-    ds = io.ShardedSequence(range(4))
+    ds = io.SequenceDataSource(range(4))
     it = ds.shard(1, num_shards=2).iterate()
     self.assertEqual(2, next(it))
     ds = ds.iterate().from_state(it.state)
@@ -64,11 +72,11 @@ class ShardedDataSourceTest(parameterized.TestCase):
 
   def test_sharded_sequence_with_non_indexable_data(self):
     with self.assertRaisesRegex(TypeError, 'data is not indexable'):
-      io.ShardedSequence(0)  # pytype: disable=wrong-arg-types
+      io.SequenceDataSource(0)  # pytype: disable=wrong-arg-types
 
   def test_sharded_sequence_with_invalid_num_shards_raises_error(self):
     with self.assertRaisesRegex(ValueError, 'num_shards must be positive'):
-      _ = list(io.ShardedSequence(range(3), io.ShardConfig(num_shards=0)))
+      _ = list(io.SequenceDataSource(range(3), io.ShardConfig(num_shards=0)))
 
   def test_sharded_iterable(self):
     ds = io.ShardedIterable(range(3))
