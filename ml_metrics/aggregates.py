@@ -15,7 +15,17 @@
 
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
+from ml_metrics._src.aggregates import utils
+from ml_metrics._src.aggregates.base import AggFnNested
 from ml_metrics._src.aggregates.base import Aggregatable
+from ml_metrics._src.aggregates.base import AggregateFn
 from ml_metrics._src.aggregates.base import as_agg_fn
-# pylint: enable=g-importing-member
-# pylint: enable=unused-import
+from ml_metrics._src.aggregates.base import CallableMetric
+from ml_metrics._src.aggregates.base import MergeableMetric
+from ml_metrics._src.aggregates.base import MergeableMetricAggFn
+from ml_metrics._src.aggregates.base import Metric
+from ml_metrics._src.aggregates.base import UserAggregateFn
+from ml_metrics._src.aggregates.keras_metric_wrapper import is_keras_metric
+from ml_metrics._src.aggregates.keras_metric_wrapper import KerasAggregateFn
+from ml_metrics._src.aggregates.types import AverageType
+from ml_metrics._src.aggregates.types import InputType

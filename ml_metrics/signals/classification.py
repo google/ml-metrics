@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,13 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+"""Classification signals."""
 
-"""All signals."""
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
-from ml_metrics._src.signals import cg_score
-from ml_metrics._src.signals import cross_entropy
-from ml_metrics._src.signals import flip_masks
-from ml_metrics._src.signals import image
-from ml_metrics._src.signals import text
-from ml_metrics._src.signals import topk_accuracy
+from ml_metrics._src.signals.cg_score import complexity_gap_score
+from ml_metrics._src.signals.cross_entropy import binary_cross_entropy
+from ml_metrics._src.signals.cross_entropy import categorical_cross_entropy
+from ml_metrics._src.signals.flip_masks import binary_flip_mask
+from ml_metrics._src.signals.flip_masks import neg_to_pos_flip_mask
+from ml_metrics._src.signals.flip_masks import pos_to_neg_flip_mask
+from ml_metrics._src.signals.topk_accuracy import topk_accurate

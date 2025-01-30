@@ -11,8 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Classification metrics."""
+
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
 from ml_metrics._src.aggregates.classification import ConfusionMatrixAggFn
@@ -52,5 +52,3 @@ from ml_metrics._src.metrics.classification import specificity
 from ml_metrics._src.metrics.classification import threat_score
 from ml_metrics._src.metrics.classification import tnr
 from ml_metrics._src.metrics.classification import tpr
-# pylint: enable=g-importing-member
-# pylint: enable=unused-import

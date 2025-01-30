@@ -19,14 +19,18 @@ import time
 from absl.testing import absltest
 from absl.testing import parameterized
 from courier.python import testutil
-from ml_metrics import chainable
 from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
+from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import orchestrate
+from ml_metrics._src.chainables import transform
 from ml_metrics._src.utils import test_utils
 import more_itertools as mit
 import portpicker
+
+
+_PIPELINE = transform.TreeTransform
 
 
 class TimeoutServer(courier_server.CourierServer):
@@ -37,8 +41,8 @@ class TimeoutServer(courier_server.CourierServer):
 
     def timeout(x):
       time.sleep(10)
-      result = chainable.maybe_make(x)
-      return chainable.pickler.dumps(result)
+      result = lazy_fns.maybe_make(x)
+      return lazy_fns.pickler.dumps(result)
 
     def timeout_init_iterator(x):
       del x
@@ -78,14 +82,14 @@ class RunAsCompletedTest(absltest.TestCase):
     courier_worker.wait_until_alive(self.always_timeout_server.address)
 
   def test_run_multi_tasks(self):
-    tasks = (chainable.trace(len)([1, 2]) for _ in range(3))
+    tasks = (lazy_fns.trace(len)([1, 2]) for _ in range(3))
     actual = list(orchestrate.as_completed(self.worker_pool, tasks))
     self.assertEmpty(self.worker_pool.acquired_workers)
     self.assertLen(actual, 3)
     self.assertEqual([2] * 3, actual)
 
   def test_as_completed_with_retry(self):
-    tasks = [chainable.trace(len)([1, 2]) for _ in range(3)]
+    tasks = [lazy_fns.trace(len)([1, 2]) for _ in range(3)]
     addrs = [
         self.always_timeout_server.address,
         self.unreachable_address,
@@ -102,7 +106,7 @@ class RunAsCompletedTest(absltest.TestCase):
     def foo():
       raise ValueError('foo')
 
-    tasks = [chainable.trace(foo)() for _ in range(3)]
+    tasks = [lazy_fns.trace(foo)() for _ in range(3)]
     addrs = [
         self.always_timeout_server.address,
         self.unreachable_address,
@@ -135,7 +139,7 @@ class RunAsCompletedTest(absltest.TestCase):
         time.sleep(0.01)
         cnt += 1
 
-    tasks = [chainable.trace(blocking_fn)(3)] * 3
+    tasks = [lazy_fns.trace(blocking_fn)(3)] * 3
     t = threading.Thread(
         target=list, args=(orchestrate.as_completed(shared_worker_pool, tasks),)
     )
@@ -146,7 +150,7 @@ class RunAsCompletedTest(absltest.TestCase):
     self.assertSameElements([], self.worker_pool._acquire_all())
     blocked[0] = False
     t.join()
-    tasks = [chainable.trace(len)([1, 2])]
+    tasks = [lazy_fns.trace(len)([1, 2])]
     actual = list(orchestrate.as_completed(self.worker_pool, tasks))
     self.assertEqual([2], actual)
     self.assertEmpty(shared_worker_pool.acquired_workers)
@@ -263,7 +267,7 @@ class RunInterleavedTest(parameterized.TestCase):
     self.assertEqual(cnt, math.ceil(total_numbers / batch_size))
     self.assertLen(runner.result_queue.returned, 1)
     agg_result = runner.result_queue.returned[0]
-    self.assertIsInstance(agg_result, chainable.AggregateResult)
+    self.assertIsInstance(agg_result, transform.AggregateResult)
     results = agg_result.agg_result
     self.assertIn('stats', results)
     self.assertIsInstance(results['stats'], rolling_stats.MeanAndVariance)
@@ -271,12 +275,12 @@ class RunInterleavedTest(parameterized.TestCase):
 
   def test_raises_value_error(self):
     pipeline = (
-        chainable.Pipeline.new(name='datasource')
+        _PIPELINE.new(name='datasource')
         .data_source(
             mit.batched(range(5), 2),
         )
         .chain(
-            chainable.Pipeline.new(name='apply')
+            _PIPELINE.new(name='apply')
             # Cannot directly assign the items to a non-dict inputs.
             .assign('feature1', fn=lambda x: x + 1)
         )

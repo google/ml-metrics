@@ -6,12 +6,12 @@ from typing import Any
 from ml_metrics._src.aggregates import classification
 from ml_metrics._src.aggregates import types
 
-InputType = types.InputType
-AverageType = types.AverageType
-
 
 def verify_input(y_true, y_pred, average, input_type, vocab, pos_label):
-  if average == AverageType.BINARY and input_type == InputType.BINARY:
+  if (
+      average == types.AverageType.BINARY
+      and input_type == types.InputType.BINARY
+  ):
     _validate_pos_label(y_true, y_pred, pos_label, vocab)
 
 

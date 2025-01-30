@@ -11,10 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Pipeline interfaces."""
-from absl import logging
-from ml_metrics.chainable import *  # pylint: disable=wildcard-import
+"""Image signals."""
 
-logging.warning(
-    'ml_metrics.pipeline is deprecated, uses ml_metrics.chainable instead.'
-)
+# pylint: disable=g-importing-member
+# pylint: disable=unused-import
+from ml_metrics._src.signals.image import content_metadata
