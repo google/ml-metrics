@@ -157,11 +157,11 @@ class MergedSequences(Generic[_ValueT]):
     if start.seq_idx == stop.seq_idx:
       return itt.islice(self._sequences[start.seq_idx], start.idx, stop.idx)
     # Chain multiple sequences together with correct slices.
-    sequences = [self._sequences[start.seq_idx][start.idx :]]
+    sequences = [itt.islice(self._sequences[start.seq_idx], start.idx, None)]
     for i_seq in range(start.seq_idx + 1, stop.seq_idx):
       sequences.append(self._sequences[i_seq])
     if stop.idx:
-      sequences.append(self._sequences[stop.seq_idx][: stop.idx])
+      sequences.append(itt.islice(self._sequences[stop.seq_idx], stop.idx))
     return itt.chain.from_iterable(sequences)
 
   def __getitem__(self, index) -> _ValueT | Iterator[_ValueT]:
