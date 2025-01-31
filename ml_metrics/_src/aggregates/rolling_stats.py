@@ -74,7 +74,7 @@ class FixedSizeSample(base.MergeableMetric):
     return self._logw
 
   def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(FixedSizeSample, self.max_size, seed=self.seed)
+    return base.as_agg_fn(self.__class__, self.max_size, seed=self.seed)
 
   def _add_samples_to_reservoir(self, samples: list[Any], n: int):
     # This is Algorithm L: https://dl.acm.org/doi/10.1145/198429.198435.
@@ -129,7 +129,7 @@ HistogramResult = collections.namedtuple(
 )
 
 
-@dataclasses.dataclass(slots=True, kw_only=True)
+@dataclasses.dataclass(slots=True)
 class Histogram(base.CallableMetric):
   """Computes the Histogram of the inputs.
 
@@ -143,7 +143,7 @@ class Histogram(base.CallableMetric):
   """
 
   range: tuple[float, float]
-  bins: int = 10
+  bins: int = dataclasses.field(default=10, kw_only=True)
   _hist: np.ndarray = dataclasses.field(default_factory=lambda: np.empty(0))
   _bin_edges: np.ndarray = dataclasses.field(
       default_factory=lambda: np.empty(0)
@@ -163,6 +163,9 @@ class Histogram(base.CallableMetric):
   @property
   def bin_edges(self) -> np.ndarray:
     return self._bin_edges
+
+  def as_agg_fn(self) -> base.AggregateFn:
+    return base.as_agg_fn(self.__class__, self.range, bins=self.bins)
 
   def new(
       self, inputs: types.NumbersT, weights: types.NumbersT | None = None
@@ -376,6 +379,9 @@ class MinMaxAndCount(base.MergeableMetric):
   _min: int = np.inf
   _max: int = 0
 
+  def as_agg_fn(self) -> base.AggregateFn:
+    return base.as_agg_fn(self.__class__, self.batch_score_fn, self.axis)
+
   def __eq__(self, other: 'MinMaxAndCount') -> bool:
     return (
         self._count == other.count
@@ -441,6 +447,9 @@ class _R2TjurBase(abc.ABC, base.MergeableMetric):
   sum_y_pred: float = 0
   sum_neg_y_true: float = 0
   sum_neg_y_pred: float = 0
+
+  def as_agg_fn(self) -> base.AggregateFn:
+    return base.as_agg_fn(self.__class__)
 
   def __eq__(self, other: '_R2TjurBase') -> bool:
     return (
@@ -534,6 +543,9 @@ class RRegression(base.MergeableMetric):
   sum_xx: types.NumbersT = 0  # sum(x**2)
   sum_yy: float = 0  # sum(y**2)
   sum_xy: types.NumbersT = 0  # sum(x * y)
+
+  def as_agg_fn(self) -> base.AggregateFn:
+    return base.as_agg_fn(self.__class__, self.center)
 
   def __eq__(self, other: 'RRegression') -> bool:
     return (
@@ -638,6 +650,9 @@ class SymmetricPredictionDifference(base.MergeableMetric):
   num_samples: int = 0
   sum_half_pointwise_rel_diff: float = 0
   # TODO: b/356933410 - Add k_epsilon.
+
+  def as_agg_fn(self) -> base.AggregateFn:
+    return base.as_agg_fn(self.__class__)
 
   def add(
       self, x: types.NumbersT, y: types.NumbersT

@@ -102,15 +102,10 @@ class HistogramTest(parameterized.TestCase):
         low=left_boundary, high=right_boundary, size=num_values
     )
 
-    actual_result = (
-        rolling_stats.Histogram(
-            range=(left_boundary, right_boundary),
-            bins=bins,
-        )
-        .add(inputs)
-        .result()
+    hist_fn = rolling_stats.Histogram(
+        range=(left_boundary, right_boundary), bins=bins
     )
-
+    actual_result = hist_fn.as_agg_fn()(inputs)
     expected_histogram, expected_bin_edges = np.histogram(
         inputs, bins=bins, range=(left_boundary, right_boundary)
     )
@@ -1031,7 +1026,8 @@ class MinMaxAndCountTest(parameterized.TestCase):
 
     expected_properties = ('count', 'min', 'max')
 
-    actual_result = rolling_stats.MinMaxAndCount(batch_score_fn=len).add(inputs)
+    minmax = rolling_stats.MinMaxAndCount(batch_score_fn=len).as_agg_fn()
+    actual_result = minmax(inputs)
 
     for property_name in expected_properties:
       self.assertEqual(getattr(actual_result, property_name), num_inputs)
@@ -1090,9 +1086,7 @@ class R2TjurTest(parameterized.TestCase):
     # sum(1 - y_true) = 1.0 + 0.0 + 0.0 = 1.0
     # sum((1 - y_true) * y_pred) = 1.0 * 0.8 + 0.0 * 0.3 + 0.0 * 0.9 = 0.8
 
-    expected_result = r2_metric(
-        sum_y_true=2.0, sum_y_pred=1.2, sum_neg_y_true=1.0, sum_neg_y_pred=0.8
-    )
+    expected_result = r2_metric(2.0, 1.2, 1.0, 0.8)
 
     self.assertEqual(result, expected_result)
 
@@ -1136,7 +1130,7 @@ class R2TjurTest(parameterized.TestCase):
     y_true = np.random.rand(1000000)
     y_pred = np.random.rand(1000000)
 
-    actual_result = r2_metric().add(y_true, y_pred).result()
+    actual_result = r2_metric().as_agg_fn()(y_true, y_pred)
 
     self.assertAlmostEqual(actual_result, expected_result, places=14)
 
@@ -1320,7 +1314,7 @@ class RRegressionTest(parameterized.TestCase):
     x = (1, 2, 3, 4, 5, 6, 7)
     y = (10, 9, 2.5, 6, 4, 3, 2)
 
-    actual_result = rolling_stats.RRegression(center=center).add(x, y).result()
+    actual_result = rolling_stats.RRegression(center=center).as_agg_fn()(x, y)
 
     self.assertAlmostEqual(actual_result, expected_result, places=10)
 
@@ -1474,9 +1468,8 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
 
     expected_result = 1.06072874494  # 2 * 1.59109311741 / 3 = 1.06072874494
 
-    actual_result = (
-        rolling_stats.SymmetricPredictionDifference().add(x, y).result()
-    )
+    spd = rolling_stats.SymmetricPredictionDifference().as_agg_fn()
+    actual_result = spd(x, y)
 
     self.assertAlmostEqual(actual_result, expected_result, places=11)
 
