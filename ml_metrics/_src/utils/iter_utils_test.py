@@ -146,13 +146,21 @@ class IterUtilsTest(parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, 'not in array'):
       a.index(10)
 
-  def test_merged_sequences(self):
+  def test_merged_sequences_default(self):
     a = iter_utils.MergedSequences([range(10), range(10, 20)])
     self.assertLen(a, 20)
     self.assertEqual(list(a), list(range(20)))
     self.assertEqual(11, a[11])
+    self.assertEqual(19, a[-1])
     self.assertEqual(list(a[0:11]), list(range(11)))
     self.assertEqual(list(a[8:20]), list(range(8, 20)))
+
+  def test_merged_sequences_index_raises(self):
+    a = iter_utils.MergedSequences([range(10), range(10, 20)])
+    with self.assertRaisesRegex(IndexError, 'Index -21 is out of range'):
+      _ = a[-21]
+    with self.assertRaisesRegex(IndexError, 'Index 20 is out of range'):
+      _ = a[20]
 
   def test_enqueue_dequeue_raises(self):
     q = iter_utils.IteratorQueue()

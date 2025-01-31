@@ -138,14 +138,15 @@ class MergedSequences(Generic[_ValueT]):
   def __len__(self) -> int:
     return self._seq_idxs[-1]
 
-  def _index(self, idx) -> _MergedSequenceIndex:
+  def _index(self, index: int) -> _MergedSequenceIndex:
+    index = len(self) + index if index < 0 else index
     indices = self._seq_idxs
-    idx_seq = bisect.bisect_left(indices, idx)
-    if idx_seq == len(indices) and idx > indices[-1]:
+    idx_seq = bisect.bisect_left(indices, index)
+    if idx_seq == len(indices) and index > indices[-1]:
       return _MergedSequenceIndex(idx_seq - 1)
-    if idx == indices[idx_seq]:
+    if index == indices[idx_seq]:
       return _MergedSequenceIndex(idx_seq, 0)
-    return _MergedSequenceIndex(idx_seq - 1, idx - indices[idx_seq - 1])
+    return _MergedSequenceIndex(idx_seq - 1, index - indices[idx_seq - 1])
 
   def slice(self, slice_: slice) -> Iterator[_ValueT]:
     """Slices the merged sequences."""
@@ -163,11 +164,14 @@ class MergedSequences(Generic[_ValueT]):
       sequences.append(self._sequences[stop.seq_idx][: stop.idx])
     return itt.chain.from_iterable(sequences)
 
-  def __getitem__(self, idx) -> _ValueT | Iterator[_ValueT]:
-    if isinstance(idx, slice):
-      return self.slice(idx)
-    multi_idx = self._index(idx)
-    return self._sequences[multi_idx.seq_idx][multi_idx.idx]
+  def __getitem__(self, index) -> _ValueT | Iterator[_ValueT]:
+    if isinstance(index, slice):
+      return self.slice(index)
+    multi_idx = self._index(index)
+    try:
+      return self._sequences[multi_idx.seq_idx][multi_idx.idx]
+    except IndexError:
+      raise IndexError(f'Index {index} is out of range.') from None
 
 
 @dc.dataclass(slots=True, eq=False)
