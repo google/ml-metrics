@@ -174,6 +174,33 @@ class HistogramTest(parameterized.TestCase):
       hist_1.merge(hist_2)
 
 
+class CounterTest(absltest.TestCase):
+
+  def test_counter_call(self):
+    counter = rolling_stats.Counter()
+    result = counter(['a', 'b'])
+    self.assertEqual({'a': 1, 'b': 1}, result)
+
+  def test_counter_agg_fn_call(self):
+    counter = rolling_stats.Counter().as_agg_fn()
+    result = counter(['a', 'b'])
+    self.assertEqual({'a': 1, 'b': 1}, result)
+
+  def test_counter_update(self):
+    counter = rolling_stats.Counter()
+    for x in ['a b'.split(' '), 'c a'.split(' ')]:
+      counter.add(x)
+    self.assertEqual({'a': 2, 'b': 1, 'c': 1}, counter.result())
+
+  def test_counter_merge(self):
+    counter_1 = rolling_stats.Counter()
+    counter_2 = rolling_stats.Counter()
+    counter_2.add(['a', 'b'])
+    counter_1.add(['a', 'b'])
+    counter_1.merge(counter_2)
+    self.assertEqual({'a': 2, 'b': 2}, counter_1.result())
+
+
 def get_expected_mean_and_variance(batches, batch_score_fn=None):
   if batch_score_fn is not None:
     batches = [batch_score_fn(batch) for batch in batches]

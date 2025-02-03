@@ -16,10 +16,10 @@ from __future__ import annotations
 
 import abc
 import collections
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 import dataclasses
 import math
-from typing import Any, Self
+from typing import Any, Generic, Self, TypeVar
 
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
@@ -27,6 +27,7 @@ from ml_metrics._src.utils import math_utils
 import numpy as np
 
 _EPSNEG = np.finfo(float).epsneg
+_T = TypeVar('_T')
 
 
 @dataclasses.dataclass(slots=True)
@@ -210,6 +211,32 @@ class Histogram(base.CallableMetric):
     return HistogramResult(
         hist=self._hist.copy(), bin_edges=self._bin_edges.copy()
     )
+
+
+@dataclasses.dataclass(slots=True, kw_only=True)
+class Counter(base.CallableMetric, Generic[_T]):
+  """An CallableMetric version of collections.Counter."""
+
+  _counter: collections.Counter[_T] = dataclasses.field(
+      default_factory=collections.Counter
+  )
+
+  @property
+  def counter(self):
+    return self._counter
+
+  def as_agg_fn(self) -> base.AggregateFn:
+    return base.as_agg_fn(self.__class__)
+
+  def new(self, inputs: Iterable[_T]) -> Self:
+    return self.__class__(_counter=collections.Counter(inputs))
+
+  def merge(self, other: Self) -> Self:
+    self._counter.update(other.counter)
+    return self
+
+  def result(self) -> collections.Counter[_T]:
+    return self._counter
 
 
 @dataclasses.dataclass(kw_only=True, eq=True)
