@@ -247,7 +247,7 @@ def classification_metrics(
     vocab: dict[str, int] | None = None,
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
-) -> tuple[tuple[float, ...], ...]:
+) -> dict[_StrOrMetric, float]:
   """Compute multiple metrics together for better efficiency.
 
   Args:
@@ -308,6 +308,8 @@ def precision(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 precision.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -332,6 +334,8 @@ def ppv(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 ppv.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -356,6 +360,8 @@ def recall(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 recall.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -380,6 +386,8 @@ def f1_score(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 f1_score.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -404,6 +412,8 @@ def accuracy(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 accuracy.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -428,6 +438,8 @@ def binary_accuracy(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 binary_accuracy.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -452,6 +464,8 @@ def sensitivity(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 sensitivity.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -476,6 +490,8 @@ def tpr(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 tpr.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -500,6 +516,8 @@ def specificity(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 specificity.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -524,6 +542,8 @@ def tnr(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 tnr.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -548,6 +568,8 @@ def fall_out(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 fall_out.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -572,6 +594,8 @@ def fpr(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 fpr.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -596,6 +620,8 @@ def miss_rate(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 miss_rate.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -620,6 +646,8 @@ def fnr(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 fnr.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -644,6 +672,8 @@ def negative_prediction_value(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 negative_prediction_value.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -668,6 +698,8 @@ def nvp(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 nvp.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -692,6 +724,8 @@ def false_discovery_rate(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 false_discovery_rate.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -716,6 +750,8 @@ def false_omission_rate(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 false_omission_rate.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -740,6 +776,8 @@ def threat_score(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 threat_score.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -764,6 +802,8 @@ def positive_likelihood_ratio(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 positive_likelihood_ratio.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -788,6 +828,8 @@ def negative_likelihood_ratio(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 negative_likelihood_ratio.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -812,6 +854,8 @@ def diagnostic_odds_ratio(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 diagnostic_odds_ratio.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -836,6 +880,8 @@ def positive_predictive_value(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 positive_predictive_value.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -860,6 +906,8 @@ def intersection_over_union(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 intersection_over_union.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -884,6 +932,8 @@ def prevalence(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 prevalence.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -908,6 +958,8 @@ def prevalence_threshold(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 prevalence_threshold.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -932,6 +984,8 @@ def matthews_correlation_coefficient(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 matthews_correlation_coefficient.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -956,6 +1010,8 @@ def informedness(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 informedness.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -980,6 +1036,8 @@ def markedness(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 markedness.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
@@ -1004,4 +1062,6 @@ def balanced_accuracy(
       dtype=dtype,
       k_list=k_list,
   )(y_true, y_pred)
+
+
 balanced_accuracy.__doc__ += _METRIC_PYDOC_POSTFIX
