@@ -60,6 +60,18 @@ class MockIterable:
     return iter(self._iteratable)
 
 
+class MockSequence:
+
+  def __init__(self, data):
+    self._data = data
+
+  def __len__(self):
+    return len(self._data)
+
+  def __getitem__(self, i):
+    return self._data[i.__index__()]
+
+
 def range_with_return(n, sleep: float = 0):
   for i in range(n):
     if sleep:
@@ -146,8 +158,18 @@ class IterUtilsTest(parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, 'not in array'):
       a.index(10)
 
-  def test_merged_sequences_default(self):
-    a = iter_utils.MergedSequences([range(10), range(10, 20)])
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='default',
+          seqs=[range(10), range(10, 20)],
+      ),
+      dict(
+          testcase_name='non_sliceable_sequence',
+          seqs=[MockSequence(range(10)), MockSequence(range(10, 20))],
+      ),
+  ])
+  def test_merged_sequences_default(self, seqs):
+    a = iter_utils.MergedSequences(seqs)
     self.assertLen(a, 20)
     self.assertEqual(list(a), list(range(20)))
     self.assertEqual(11, a[11])

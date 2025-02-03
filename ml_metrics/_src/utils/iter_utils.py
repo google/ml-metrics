@@ -127,6 +127,10 @@ class _MergedSequenceIndex:
   idx: int | None = None
 
 
+# slice cannot be a type annotation, this is for documentation purpose.
+_SliceT = Any
+
+
 class MergedSequences(Generic[_ValueT]):
   """Merges multiple sequences into a single sequence."""
 
@@ -138,7 +142,7 @@ class MergedSequences(Generic[_ValueT]):
   def __len__(self) -> int:
     return self._seq_idxs[-1]
 
-  def _index(self, index: int) -> _MergedSequenceIndex:
+  def _index(self, index: int | _SliceT) -> _MergedSequenceIndex:
     index = len(self) + index if index < 0 else index
     indices = self._seq_idxs
     idx_seq = bisect.bisect_left(indices, index)
@@ -148,7 +152,7 @@ class MergedSequences(Generic[_ValueT]):
       return _MergedSequenceIndex(idx_seq, 0)
     return _MergedSequenceIndex(idx_seq - 1, index - indices[idx_seq - 1])
 
-  def slice(self, slice_: slice) -> Iterator[_ValueT]:
+  def slice(self, slice_: _SliceT) -> Iterator[_ValueT]:
     """Slices the merged sequences."""
     if slice_.step is not None:
       raise NotImplementedError(f'step is not supported, got {slice_}')
@@ -157,14 +161,14 @@ class MergedSequences(Generic[_ValueT]):
     if start.seq_idx == stop.seq_idx:
       return itt.islice(self._sequences[start.seq_idx], start.idx, stop.idx)
     # Chain multiple sequences together with correct slices.
-    sequences = [self._sequences[start.seq_idx][start.idx :]]
+    sequences = [itt.islice(self._sequences[start.seq_idx], start.idx, None)]
     for i_seq in range(start.seq_idx + 1, stop.seq_idx):
       sequences.append(self._sequences[i_seq])
     if stop.idx:
-      sequences.append(self._sequences[stop.seq_idx][: stop.idx])
+      sequences.append(itt.islice(self._sequences[stop.seq_idx], stop.idx))
     return itt.chain.from_iterable(sequences)
 
-  def __getitem__(self, index) -> _ValueT | Iterator[_ValueT]:
+  def __getitem__(self, index: int | Any) -> _ValueT | Iterator[_ValueT]:
     if isinstance(index, slice):
       return self.slice(index)
     multi_idx = self._index(index)
