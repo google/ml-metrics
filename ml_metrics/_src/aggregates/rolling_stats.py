@@ -30,6 +30,30 @@ _EPSNEG = np.finfo(float).epsneg
 _T = TypeVar('_T')
 
 
+@dataclasses.dataclass(kw_only=True)
+class UnboundedSampler(base.CallableMetric):
+  """Stores all the inputs in memory."""
+
+  _samples: list[Any] = dataclasses.field(default_factory=list)
+
+  @property
+  def samples(self) -> list[Any]:
+    return self._samples
+
+  def as_agg_fn(self) -> base.AggregateFn:
+    return base.as_agg_fn(self.__class__)
+
+  def new(self, inputs: Iterable[Any]) -> Self:
+    return self.__class__(_samples=list(inputs))
+
+  def merge(self, other: Self) -> Self:
+    self._samples.extend(other.samples)
+    return self
+
+  def result(self) -> list[Any]:
+    return self._samples
+
+
 @dataclasses.dataclass(slots=True)
 class FixedSizeSample(base.MergeableMetric):
   """Generates a fixed size sample of the data stream.

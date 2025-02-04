@@ -16,6 +16,7 @@ import math
 
 from absl.testing import parameterized
 from ml_metrics._src.aggregates import rolling_stats
+from ml_metrics._src.chainables import transform
 from ml_metrics._src.utils import test_utils
 import more_itertools as mit
 import numpy as np
@@ -213,6 +214,45 @@ def get_expected_mean_and_variance(batches, batch_score_fn=None):
       _count=np.nansum(~np.isnan(batch), axis=0),
       _input_shape=batches.shape[1:] if batch.size else (),
   )
+
+
+class UnboundesSamplerTest(absltest.TestCase):
+
+  def test_default_call(self):
+    sampler = rolling_stats.UnboundedSampler()
+    result = sampler(['a', 'b'])
+    self.assertEqual(['a', 'b'], result)
+
+  def test_as_agg_fn_call(self):
+    sampler = rolling_stats.UnboundedSampler().as_agg_fn()
+    result = sampler(['a', 'b'])
+    self.assertEqual(['a', 'b'], result)
+
+  def test_batch_update(self):
+    sampler = rolling_stats.UnboundedSampler()
+    sampler.add(['a', 'b'])
+    sampler.add(['c', 'd'])
+    self.assertEqual(['a', 'b', 'c', 'd'], sampler.result())
+
+  def test_merge(self):
+    sampler_1 = rolling_stats.UnboundedSampler()
+    sampler_2 = rolling_stats.UnboundedSampler()
+    sampler_1.add(['a', 'b'])
+    sampler_2.add(['c', 'b'])
+    sampler_1.merge(sampler_2)
+    self.assertEqual(['a', 'b', 'c', 'b'], sampler_1.result())
+
+  def test_with_transform(self):
+    t = transform.TreeTransform().agg(
+        fn=rolling_stats.UnboundedSampler().as_agg_fn(),
+        output_keys='samples',
+    )
+    it = t.make().iterate([['a', 'b'], ['c']])
+    _ = mit.last(it)
+    metric_key = transform.MetricKey(metrics=('samples',))
+    expected_state = rolling_stats.UnboundedSampler(_samples=['a', 'b', 'c'])
+    self.assertEqual(expected_state, it.agg_state[metric_key])
+    self.assertEqual(['a', 'b', 'c'], it.agg_result['samples'])
 
 
 class FixedSizeSampleTest(parameterized.TestCase):
