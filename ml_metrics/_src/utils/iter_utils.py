@@ -127,6 +127,15 @@ class _MergedSequenceIndex:
   idx: int | None = None
 
 
+def index_slice(
+    data: types.RandomAccessible[_ValueT], start: int, stop: int | None
+) -> Iterator[_ValueT]:
+  """Slices a sequence that supports random access."""
+  if stop is None:
+    return (data[i] for i in range(start, len(data)))
+  return (data[i] for i in range(start, stop))
+
+
 # slice cannot be a type annotation, this is for documentation purpose.
 _SliceT = Any
 
@@ -159,13 +168,13 @@ class MergedSequences(Generic[_ValueT]):
     start = self._index(slice_.start)
     stop = self._index(slice_.stop)
     if start.seq_idx == stop.seq_idx:
-      return itt.islice(self._sequences[start.seq_idx], start.idx, stop.idx)
+      return index_slice(self._sequences[start.seq_idx], start.idx, stop.idx)
     # Chain multiple sequences together with correct slices.
-    sequences = [itt.islice(self._sequences[start.seq_idx], start.idx, None)]
+    sequences = [index_slice(self._sequences[start.seq_idx], start.idx, None)]
     for i_seq in range(start.seq_idx + 1, stop.seq_idx):
       sequences.append(self._sequences[i_seq])
     if stop.idx:
-      sequences.append(itt.islice(self._sequences[stop.seq_idx], stop.idx))
+      sequences.append(index_slice(self._sequences[stop.seq_idx], 0, stop.idx))
     return itt.chain.from_iterable(sequences)
 
   def __getitem__(self, index: int | Any) -> _ValueT | Iterator[_ValueT]:

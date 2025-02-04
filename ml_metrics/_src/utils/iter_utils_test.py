@@ -16,7 +16,7 @@ import asyncio
 import collections
 from collections.abc import Sequence
 from concurrent import futures
-import itertools as it
+import itertools as itt
 import queue
 import threading
 import time
@@ -64,11 +64,13 @@ class MockSequence:
 
   def __init__(self, data):
     self._data = data
+    self.ref_cnt = 0
 
   def __len__(self):
     return len(self._data)
 
   def __getitem__(self, i):
+    self.ref_cnt += 1
     return self._data[i.__index__()]
 
 
@@ -158,6 +160,12 @@ class IterUtilsTest(parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, 'not in array'):
       a.index(10)
 
+  def test_index_slice(self):
+    seq = MockSequence(range(10))
+    a = iter_utils.index_slice(seq, 3, 5)
+    self.assertEqual(list(a), [3, 4])
+    self.assertEqual(2, seq.ref_cnt)
+
   @parameterized.named_parameters([
       dict(
           testcase_name='default',
@@ -226,7 +234,7 @@ class IterUtilsTest(parameterized.TestCase):
       states = [thread_pool.submit(list, q) for _ in range(num_dequeue_threads)]
       input_q.enqueue_from_iterator(range_with_return(n))
     results = futures.as_completed(states)
-    actual = list(it.chain(*(result.result() for result in results)))
+    actual = list(itt.chain(*(result.result() for result in results)))
     expected = list(range(n))
     self.assertCountEqual(expected, actual)
     self.assertEqual([n] * num_threads, q.returned)
@@ -242,7 +250,7 @@ class IterUtilsTest(parameterized.TestCase):
     async def dequeue():
       tasks = (alist(q) for _ in range(num_dequeue_threads))
       results = await asyncio.gather(*tasks)
-      return list(it.chain(*results))
+      return list(itt.chain(*results))
 
     input_q.enqueue_from_iterator(range_with_return(n))
     actual = asyncio.run(dequeue())
@@ -423,7 +431,7 @@ class IterUtilsTest(parameterized.TestCase):
     infinite_batches = args_batched(
         num_args=2, batch_size=input_batch_size, batch_fn=batch_fn
     )
-    inputs = it.islice(infinite_batches, 5)
+    inputs = itt.islice(infinite_batches, 5)
     actual = iter_utils.rebatched_args(
         inputs, batch_size=batch_size, num_columns=2, pad=pad
     )
@@ -500,7 +508,7 @@ class IterUtilsTest(parameterized.TestCase):
       num_batches=5,
   ):
 
-    inputs = it.islice(
+    inputs = itt.islice(
         args_batched(num_columns, batch_size=input_batch_size), num_batches
     )
 
@@ -524,7 +532,7 @@ class IterUtilsTest(parameterized.TestCase):
     outputs, original = zip(*actual)
 
     expected_orignal = list(
-        it.islice(
+        itt.islice(
             args_batched(num_columns, batch_size=input_batch_size), num_batches
         )
     )
