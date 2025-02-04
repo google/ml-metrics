@@ -17,7 +17,7 @@ from __future__ import annotations
 import abc
 from collections.abc import Callable, Iterable
 import dataclasses
-from typing import Any, Generic, Protocol, Self, TypeVar, runtime_checkable
+from typing import Any, Generic, Protocol, Self, TypeGuard, TypeVar, runtime_checkable
 
 from ml_metrics._src import types
 from ml_metrics._src.chainables import lazy_fns
@@ -92,6 +92,18 @@ class CallableMetric(MergeableMetric, Callable[..., Any]):
   def __call__(self, *args, **kwargs):
     """Calculates the result from the sufficient statistics."""
     return self.new(*args, **kwargs).result()
+
+
+class HasAsAggFn(Protocol):
+  """An object that can be used as an aggregate function."""
+
+  def as_agg_fn(self) -> Aggregatable:
+    """Returns the aggregate function."""
+
+
+def has_as_agg_fn(obj: Any) -> TypeGuard[HasAsAggFn]:
+  """Returns True if the object has an as_agg_fn method."""
+  return types.obj_has_method(obj, 'as_agg_fn')
 
 
 @runtime_checkable

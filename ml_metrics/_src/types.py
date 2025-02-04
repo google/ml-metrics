@@ -80,7 +80,7 @@ class RandomAccessible(Protocol[_T]):
     """Same as Sequence.__len__."""
 
 
-def _obj_has_method(obj: Any, method_name: str) -> bool:
+def obj_has_method(obj: Any, method_name: str) -> bool:
   """Checks if the object has a method."""
   method = getattr(obj, method_name, False)
   return method and getattr(method, '__self__', None) is obj
@@ -88,29 +88,29 @@ def _obj_has_method(obj: Any, method_name: str) -> bool:
 
 def is_resolvable(obj: Resolvable[_T] | Any) -> TypeGuard[Resolvable[_T]]:
   """Checks if the object is a Resolvable."""
-  return _obj_has_method(obj, 'result_')
+  return obj_has_method(obj, 'result_')
 
 
 def is_makeable(obj: Makeable[_T] | Any) -> TypeGuard[Makeable[_T]]:
   """Checks if the object is a Makeable."""
-  return _obj_has_method(obj, 'make')
+  return obj_has_method(obj, 'make')
 
 
 def is_shardable(obj: Shardable | Any) -> TypeGuard[Shardable]:
   """Checks if the object is a Shardable."""
-  return _obj_has_method(obj, 'shard')
+  return obj_has_method(obj, 'shard')
 
 
 def is_serializable(obj: Serializable | Any) -> TypeGuard[Serializable]:
   """Checks if the object is a Shardable."""
-  return _obj_has_method(obj, 'get_config') and _obj_has_method(
+  return obj_has_method(obj, 'get_config') and obj_has_method(
       obj, 'from_config'
   )
 
 
 def is_recoverable(obj: Recoverable | Any) -> TypeGuard[Recoverable]:
   """Checks if the object is a Shardable."""
-  return _obj_has_method(obj, 'from_state') and hasattr(obj, 'state')
+  return obj_has_method(obj, 'from_state') and hasattr(obj, 'state')
 
 
 def is_array_like(obj: list[Any] | tuple[Any, ...] | npt.ArrayLike) -> bool:

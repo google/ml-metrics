@@ -21,15 +21,15 @@ class _SumMetric(base.CallableMetric):
   def __init__(self, state=0):
     self._state = state
 
+  def as_agg_fn(self):
+    return base.as_agg_fn(self.__class__)
+
   @property
   def state(self):
     return self._state
 
   def new(self, x):
     return _SumMetric(state=sum(x))
-
-  # def add(self, x):
-  #   self._state += sum(x)
 
   def merge(self, other):
     self._state += other.state

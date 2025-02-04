@@ -22,7 +22,7 @@ from ml_metrics._src.chainables import lazy_fns
 class AggregatesTest(absltest.TestCase):
 
   def test_callable_combinefn_in_process(self):
-    sum_fn = base.UserAggregateFn(test_utils._SumAggFn())
+    sum_fn = base.UserAggregateFn(test_utils._SumMetric().as_agg_fn())
     self.assertEqual(sum_fn(list(range(4))), 6)
 
   def test_mergeable_aggregate_fn_in_process(self):
@@ -61,6 +61,13 @@ class AggregatesTest(absltest.TestCase):
   def test_metric_callable(self):
     sum_fn = test_utils._SumMetric()
     self.assertEqual(6, sum_fn([1, 2, 3]))
+
+  def test_has_as_agg_fn(self):
+    sum_aggfn = test_utils._SumMetric().as_agg_fn()
+    self.assertFalse(base.has_as_agg_fn(sum_aggfn))
+    self.assertIsInstance(sum_aggfn, base.Aggregatable)
+    sum_metric = test_utils._SumMetric()
+    self.assertTrue(base.has_as_agg_fn(sum_metric))
 
 
 if __name__ == '__main__':

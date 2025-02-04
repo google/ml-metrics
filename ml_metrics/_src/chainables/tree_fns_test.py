@@ -25,6 +25,12 @@ import numpy as np
 Key = tree.Key
 
 
+class TestAverageMetric:
+
+  def as_agg_fn(self):
+    return TestAverageFn()
+
+
 class TestAverageFn:
 
   def __init__(self, batch_output=True, return_tuple=False):
@@ -339,6 +345,27 @@ class TreeFnTest(parameterized.TestCase):
         input_keys='a', fn=lazy_fns.trace(TestAverageFn)(), output_keys='mean'
     )
     self.assertEqual({'mean': [2.0]}, agg_fn(data))
+
+  def test_tree_aggregate_with_as_agg_fn(self):
+    data = {'a': [1, 2, 3], 'b': [4, 5, 6]}
+    agg_fn = tree_fns.TreeAggregateFn.new(
+        input_keys='a', fn=TestAverageMetric(), output_keys='mean'
+    )
+    self.assertEqual({'mean': [2.0]}, agg_fn(data))
+
+  def test_tree_aggregate_with_lasy_as_agg_fn(self):
+    data = {'a': [1, 2, 3], 'b': [4, 5, 6]}
+    agg_fn = tree_fns.TreeAggregateFn.new(
+        input_keys='a',
+        fn=lazy_fns.trace(TestAverageMetric)(),
+        output_keys='mean',
+    )
+    self.assertEqual({'mean': [2.0]}, agg_fn(data))
+
+  def test_tree_aggregate_invalid_agg_fn(self):
+    agg_fn = tree_fns.TreeAggregateFn.new(fn=1)
+    with self.assertRaisesRegex(TypeError, 'Not an aggregatable'):
+      _ = agg_fn.maybe_make()
 
   def test_tree_aggregate_with_keyword_arg(self):
     data = {'a': [1, 2, 3], 'b': [4, 5, 6]}

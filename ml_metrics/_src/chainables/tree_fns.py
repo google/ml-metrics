@@ -30,6 +30,7 @@ import more_itertools as mit
 import numpy as np
 
 
+_Aggregatable = aggregates.Aggregatable | aggregates.HasAsAggFn
 SliceIteratorFn = Callable[..., Iterable[Hashable]]
 SliceMaskIteratorFn = Callable[..., Iterable[tuple[tuple[Hashable, ...], Any]]]
 MaskTree = tree.MapLikeTree[bool]
@@ -144,9 +145,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
 
   @functools.cached_property
   def actual_fn(self) -> FnT:
-    if self.lazy:
-      return lazy_fns.maybe_make(self.fn)
-    return self.fn
+    return lazy_fns.maybe_make(self.fn) if self.lazy else self.fn
 
   @functools.cached_property
   def num_inputs(self):
@@ -162,9 +161,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
 
   def maybe_make(self: TreeFn) -> TreeFn:
     """Explicitly instantiate the lazy_fn of a tree_fn."""
-    if self.lazy:
-      return dataclasses.replace(self, fn=self.actual_fn)
-    return self
+    return dataclasses.replace(self, fn=self.actual_fn)
 
   def with_masks(
       self,
@@ -452,10 +449,21 @@ class TreeAggregateFn(
 ):
   """Transform with one AggregateFn with its input and output keys."""
 
-  fn: (
-      aggregates.Aggregatable | lazy_fns.LazyFn[aggregates.Aggregatable] | None
-  ) = None
+  fn: _Aggregatable | lazy_fns.LazyFn[_Aggregatable] | None = None
   disable_slicing: bool = False
+
+  @functools.cached_property
+  def actual_fn(self) -> aggregates.Aggregatable:
+    actual_fn = lazy_fns.maybe_make(self.fn) if self.lazy else self.fn
+    if aggregates.has_as_agg_fn(actual_fn):
+      actual_fn = actual_fn.as_agg_fn()
+    if not isinstance(actual_fn, aggregates.Aggregatable):
+      raise TypeError(
+          'Not an aggregatable, either has to be an istance of Aggregatable or'
+          ' has to have `as_agg_fn` method to convert it to an Aggregatable,'
+          f' got a {type(actual_fn)}, {actual_fn=}'
+      )
+    return actual_fn
 
   def create_state(self) -> StateT:
     try:
