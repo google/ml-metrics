@@ -158,7 +158,7 @@ class StageState:
   result_queue: iter_utils.IteratorQueue[Any]
   state: futures.Future[Any] = futures.Future()
   name: str = ''
-  progress: iter_utils.Progress | None = None
+  progress: iter_utils.Progress
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -172,8 +172,8 @@ class RunnerState:
   thread_pool: futures.ThreadPoolExecutor
 
   @property
-  def progress(self) -> iter_utils.Progress | None:
-    return self.stages[-1].progress if self.stages else None
+  def progress(self) -> iter_utils.Progress:
+    return self.stages[-1].progress if self.stages else iter_utils.Progress()
 
   def __enter__(self):
     self.run()
@@ -201,7 +201,7 @@ class RunnerState:
   def result_queue(self) -> iter_utils.IteratorQueue[Any]:
     return self.stages[-1].result_queue
 
-  def stage_progress(self) -> list[iter_utils.Progress | None]:
+  def stage_progress(self) -> list[iter_utils.Progress]:
     return [s.progress for s in self.stages]
 
   def done(self):
