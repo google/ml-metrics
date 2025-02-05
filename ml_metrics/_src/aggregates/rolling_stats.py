@@ -31,7 +31,7 @@ _T = TypeVar('_T')
 
 
 @dataclasses.dataclass(kw_only=True)
-class UnboundedSampler(base.CallableMetric):
+class UnboundedSampler(base.CallableMetric, base.HasAsAggFn):
   """Stores all the inputs in memory."""
 
   _samples: list[Any] = dataclasses.field(default_factory=list)
@@ -55,7 +55,7 @@ class UnboundedSampler(base.CallableMetric):
 
 
 @dataclasses.dataclass(slots=True)
-class FixedSizeSample(base.MergeableMetric):
+class FixedSizeSample(base.MergeableMetric, base.HasAsAggFn):
   """Generates a fixed size sample of the data stream.
 
   This sampler is used to generate a fixed size sample of the data stream.
@@ -155,7 +155,7 @@ HistogramResult = collections.namedtuple(
 
 
 @dataclasses.dataclass(slots=True)
-class Histogram(base.CallableMetric):
+class Histogram(base.CallableMetric, base.HasAsAggFn):
   """Computes the Histogram of the inputs.
 
   Attributes:
@@ -238,7 +238,7 @@ class Histogram(base.CallableMetric):
 
 
 @dataclasses.dataclass(slots=True, kw_only=True)
-class Counter(base.CallableMetric, Generic[_T]):
+class Counter(base.CallableMetric, base.HasAsAggFn, Generic[_T]):
   """An CallableMetric version of collections.Counter."""
 
   _counter: collections.Counter[_T] = dataclasses.field(

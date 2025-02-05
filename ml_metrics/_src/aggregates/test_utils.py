@@ -15,7 +15,7 @@
 from ml_metrics._src.aggregates import base
 
 
-class _SumMetric(base.CallableMetric):
+class _SumMetric(base.CallableMetric, base.HasAsAggFn):
   """Mock Metric for test."""
 
   def __init__(self, state=0):

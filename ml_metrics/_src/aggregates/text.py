@@ -26,7 +26,7 @@ FrequencyState = utils.FrequencyState
 
 
 @dataclasses.dataclass(kw_only=True)
-class TopKWordNGrams(base.MergeableMetric):
+class TopKWordNGrams(base.MergeableMetric, base.HasAsAggFn):
   """Top k word n-grams metrics.
 
   Identify the top `k` frequent occurring word n-grams with a case-insensitive
@@ -112,7 +112,7 @@ class TopKWordNGrams(base.MergeableMetric):
 
 
 @dataclasses.dataclass(kw_only=True)
-class PatternFrequency(base.MergeableMetric):
+class PatternFrequency(base.MergeableMetric, base.HasAsAggFn):
   """Pattern frequency metric.
 
   Identify the frequency of occurrence for each pattern found within the given

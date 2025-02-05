@@ -426,7 +426,7 @@ class ThresholdedRetrieval(base.MergeableMetric):
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class TopKRetrieval(base.MergeableMetric):
+class TopKRetrieval(base.MergeableMetric, base.HasAsAggFn):
   """TopKRetrievals.
 
   Attributes:
