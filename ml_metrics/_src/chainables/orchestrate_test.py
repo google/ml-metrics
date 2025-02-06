@@ -236,7 +236,9 @@ class RunInterleavedTest(parameterized.TestCase):
     worker_pool = courier_worker.WorkerPool(
         self.worker_pool.all_workers[:num_workers]
     )
-    master_server = courier_server.CourierServer(f'master{fused_str}')
+    master_server = None
+    if with_workers:
+      master_server = courier_server.CourierServer(f'master{fused_str}')
     with orchestrate.run_pipeline_interleaved(
         test_utils.sharded_pipeline(
             total_numbers=total_numbers,
@@ -257,9 +259,10 @@ class RunInterleavedTest(parameterized.TestCase):
     first_batch = mit.first(it_result)
     cnt = mit.ilen(it_result) + 1
     if with_workers:
+      assert master_server is not None
       self.assertTrue(master_server.has_started)
     else:
-      self.assertFalse(master_server.has_started)
+      self.assertIsNone(master_server)
     if fuse_aggregate:
       self.assertIsNone(first_batch)
     else:

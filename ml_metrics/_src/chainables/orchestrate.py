@@ -245,7 +245,7 @@ def _async_run_single_stage(
     event_loop: asyncio.AbstractEventLoop,
     thread_pool: futures.ThreadPoolExecutor,
     resource: RunnerResource,
-    master_server: courier_server.CourierServer,
+    master_server: courier_server.CourierServer | None = None,
     input_queue: iter_utils.IteratorQueue[Any] | None,
     ignore_failures: bool,
     aggregate_only: bool,
@@ -267,6 +267,7 @@ def _async_run_single_stage(
 
   def iterate_with_worker_pool():
     logging.info('chainable: "%s" started with worker pool', transform.name)
+    assert master_server is not None
     assert worker_pool is not None
     input_iterator = None
     if input_queue is not None:
@@ -421,7 +422,7 @@ def _async_run_single_stage(
 
 def run_pipeline_interleaved(
     pipeline: transform_lib.TreeTransform,
-    master_server: courier_server.CourierServer,
+    master_server: courier_server.CourierServer | None = None,
     resources: dict[str, RunnerResource] | None = None,
     aggregate_only: bool = False,
     ignore_failures: bool = False,
@@ -429,7 +430,8 @@ def run_pipeline_interleaved(
   """Run a pipeline with stages running interleaved."""
   input_queue = None
   resources = resources or {}
-  logging.info('chainable: resolved master address: %s', master_server.address)
+  if master_server is not None:
+    logging.info('chainable: resolved master addr: %s', master_server.address)
   thread_pool = futures.ThreadPoolExecutor()
   event_loop = asyncio.new_event_loop()
   event_loop_thread = threading.Thread(target=event_loop.run_forever)
