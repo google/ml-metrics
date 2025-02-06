@@ -148,6 +148,10 @@ class MergedSequences(Generic[_ValueT]):
     self._seq_idxs = [0]
     self._seq_idxs.extend(itt.accumulate(map(len, self._sequences), op.add))
 
+  @property
+  def sequences(self) -> list[types.RandomAccessible[_ValueT]]:
+    return self._sequences
+
   def __len__(self) -> int:
     return self._seq_idxs[-1]
 

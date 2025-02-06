@@ -185,6 +185,11 @@ class IterUtilsTest(parameterized.TestCase):
     self.assertEqual(list(a[0:11]), list(range(11)))
     self.assertEqual(list(a[8:20]), list(range(8, 20)))
 
+  def test_merged_sequences_sequences(self):
+    seqs = [range(10), range(10, 20)]
+    a = iter_utils.MergedSequences(seqs)
+    self.assertEqual(a.sequences, seqs)
+
   def test_merged_sequences_index_raises(self):
     a = iter_utils.MergedSequences([range(10), range(10, 20)])
     with self.assertRaisesRegex(IndexError, 'Index -21 is out of range'):
