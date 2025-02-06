@@ -74,7 +74,7 @@ def sharded_pipelines_as_iterator(
   calculate_agg_result = result_queue is not None
   num_shards = num_shards or worker_pool.num_workers
   worker_pool.wait_until_alive(deadline_secs=600)
-  sharded_tasks = [
+  sharded_tasks = (
       lazy_fns.trace(define_pipeline)(
           *pipeline_args,
           shard_index=i,
@@ -90,8 +90,8 @@ def sharded_pipelines_as_iterator(
           with_agg_result=False,
       )
       for i in range(num_shards)
-  ]
-  logging.info('chainable: distributed on %d shards', len(sharded_tasks))
+  )
+  logging.info('chainable: distributed on %d shards', num_shards)
   # Inference and aggregations.
   states_queue = queue.SimpleQueue()
   if calculate_agg_result:
@@ -147,6 +147,7 @@ def sharded_pipelines_as_iterator(
       sharded_tasks,
       generator_result_queue=states_queue,
       num_total_failures_threshold=faiure_threshold,
+      total_tasks=num_shards,
   )
   logging.info('chainable: iterator: %s', iterator)
   yield from iterator

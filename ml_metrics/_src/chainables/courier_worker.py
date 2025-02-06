@@ -32,7 +32,6 @@ from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import courier_utils
 from ml_metrics._src.utils import iter_utils
 
-
 _HRTBT_INTERVAL_SECS = 15
 _LOGGING_INTERVAL_SEC = 30
 _NUM_TOTAL_FAILURES_THRESHOLD = 60
@@ -429,6 +428,7 @@ class WorkerPool:
       *,
       generator_result_queue: queue.SimpleQueue[Any],
       num_total_failures_threshold: int = _NUM_TOTAL_FAILURES_THRESHOLD,
+      total_tasks: int = 0,
   ) -> Iterator[Any]:
     """Iterates through the result of a generator if the iterator task."""
     task_iterator = iter(task_iterator)
@@ -445,7 +445,7 @@ class WorkerPool:
     running_tasks: list[GeneratorTask] = []
     tasks: list[GeneratorTask] = []
     running_workers: set[courier_utils.CourierClient] = set()
-    total_tasks, finished_tasks_cnt, total_failures_cnt = 0, 0, 0
+    running_total, finished_tasks_cnt, total_failures_cnt = 0, 0, 0
     batch_cnt, prev_batch_cnt = 0, 0
     exhausted = False
     while not exhausted or tasks or running_tasks:
@@ -458,7 +458,7 @@ class WorkerPool:
         if not tasks and not exhausted:
           try:
             tasks.append(_as_generator_task(next(task_iterator)))
-            total_tasks += 1
+            running_total += 1
           except StopIteration:
             exhausted = True
         if tasks:
@@ -551,14 +551,14 @@ class WorkerPool:
             len(running_tasks),
             len(tasks),
             finished_tasks_cnt,
-            total_tasks,
+            total_tasks or running_total,
             total_failures_cnt,
             ticker - prev_ticker,
         )
         prev_ticker, prev_batch_cnt = ticker, batch_cnt
 
     assert not running_tasks
-    assert exhausted and total_tasks == finished_tasks_cnt
+    assert exhausted and running_total == finished_tasks_cnt
     event_loop.call_soon_threadsafe(event_loop.stop)
     loop_thread.join()
     while not output_queue.empty():
@@ -568,7 +568,7 @@ class WorkerPool:
         'chainable: finished running with %d/%d (finished/total) in %.2f'
         ' secs, average throughput: %.2f/sec.',
         finished_tasks_cnt,
-        total_tasks,
+        running_total,
         time.time() - start_time,
         batch_cnt / (time.time() - start_time),
     )
