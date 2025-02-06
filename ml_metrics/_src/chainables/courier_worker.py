@@ -305,6 +305,13 @@ class WorkerPool:
         if len(workers) >= minimum_num_workers:
           logging.info('chainable: pool connected %d workers', len(workers))
           return
+        logging.log_every_n_seconds(
+            logging.INFO,
+            'chainable: waiting for workers, connected %d / %d minimum workers',
+            _LOGGING_INTERVAL_SEC,
+            len(workers),
+            minimum_num_workers,
+        )
       except Exception as e:  # pylint: disable=broad-exception-caught
         logging.warning('chainable: exception when connecting: %s', type(e))
       time.sleep(0)
