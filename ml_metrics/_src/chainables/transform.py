@@ -147,7 +147,7 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
     else:
       iterator = iter_utils.piter(
           iterate_fn,
-          input_iterator=self.input_iterator,
+          input_iterators=[self.input_iterator],
           thread_pool=_get_thread_pool(),
           max_parallism=tree_fn.num_threads,
       )

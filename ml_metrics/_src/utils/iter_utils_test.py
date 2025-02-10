@@ -556,10 +556,43 @@ class IterUtilsTest(parameterized.TestCase):
     actual = list(iter_utils.piter(foo, max_parallism=256))
     self.assertCountEqual(list(range(n)), actual)
 
+  def test_piter_multiple_iterators(self):
+    n, m = 256, 2
+    assert n % m == 0
+    inputs = [range_with_return(m, 0.3) for _ in range(int(n / m))]
+    actual = list(iter_utils.piter(input_iterators=inputs))
+    expected = list(itt.chain(*[range(m) for _ in range(int(n / m))]))
+    self.assertCountEqual(expected, actual)
+
+  def test_piter_multiple_iterators_with_parallel_dequeue(self):
+    n, m = 256, 2
+    assert n % m == 0
+    inputs = [range(m) for _ in range(int(n / m))]
+    # This is to test when not all enqueuer are started before the dequeuer is,
+    # which could cause premature StopIteration controled by `enqueue_done`.
+    pool = futures.ThreadPoolExecutor(max_workers=1)
+    output = iter_utils.piter(input_iterators=inputs, thread_pool=pool)
+    actual = list(output)
+    expected = list(itt.chain(*inputs))
+    self.assertCountEqual(expected, actual)
+
+  def test_piter_no_input_iterators_and_inputs_raises(self):
+    with self.assertRaisesRegex(
+        ValueError, 'iterator_fn or input_iterators has to be provided.'
+    ):
+      _ = iter_utils.piter(None)
+
+  def test_piter_input_iterators_and_iterate_fn_raises(self):
+    inputs = [range(3)] * 2
+    inc = lambda x: x + 1
+    it = iter_utils.piter(lambda x: map(inc, x), input_iterators=inputs)
+    expected = list(map(inc, itt.chain(*inputs)))
+    self.assertCountEqual(expected, list(it))
+
   def test_pmap(self):
 
     def foo(x):
-      time.sleep(0.5)
+      time.sleep(0.3)
       return x + 1
 
     n = 256

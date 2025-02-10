@@ -291,7 +291,9 @@ class IteratorQueue(IterableQueue[_ValueT]):
   _dequeue_lock: threading.Condition
   # The lock here protects the access to all states below.
   _states_lock: threading.RLock
-  _iterator_cnt: int | None
+  _enqueue_cnt: int
+  _dequeue_cnt: int
+  _parallelism: int
   _returned: list[Any]
   _exception: Exception | None
   _progress: Progress
@@ -306,6 +308,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
       timeout: float | None = None,
       ignore_error: bool = False,
       max_batch_size: int = 0,
+      parallelism: int = 0,
   ):
     if isinstance(queue_or_size, int):
       self._queue = self._default_queue(queue_or_size)
@@ -321,7 +324,9 @@ class IteratorQueue(IterableQueue[_ValueT]):
     self._returned = []
     self._exception = None
     self._exhausted = False
-    self._iterator_cnt = None
+    self._parallelism = parallelism
+    self._enqueue_cnt = 0
+    self._dequeue_cnt = 0
     self._run_enqueue = True
     self.ignore_error = ignore_error
 
@@ -349,7 +354,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
         'chainable: "%s" dequeue exhausted with_exception=%s, remaining %d',
         self.name,
         self.exception is not None,
-        self._iterator_cnt,
+        (self._enqueue_cnt - self._dequeue_cnt),
     )
     self._exhausted = True
     self._dequeue_lock.notify_all()
@@ -364,7 +369,12 @@ class IteratorQueue(IterableQueue[_ValueT]):
   @property
   def enqueue_done(self) -> bool:
     """Indicates whether there is ongoing enqueuer."""
-    return self.exception is not None or self._iterator_cnt == 0
+    if self._exception:
+      return True
+    # If parallelism is not set, it means the no enqueuer has started yet.
+    if not self._parallelism:
+      return False
+    return self._enqueue_cnt == self._dequeue_cnt == self._parallelism
 
   @property
   def returned(self) -> list[Any]:
@@ -488,21 +498,18 @@ class IteratorQueue(IterableQueue[_ValueT]):
 
   def _start_enqueue(self):
     with self._states_lock:
-      if self._iterator_cnt is None:
-        self._iterator_cnt = 0
-      self._iterator_cnt += 1
+      self._enqueue_cnt += 1
+      self._parallelism = max(self._parallelism, self._enqueue_cnt)
 
   def _stop_enqueue(self, *values):
     """Stops enqueueing and records the returned values."""
     with self._states_lock:
-      self._iterator_cnt -= 1
-      if self._iterator_cnt < 0:
-        raise RuntimeError(f'{self._iterator_cnt=} cannot be negative.')
+      self._dequeue_cnt += 1
       self._returned.extend(values)
       logging.debug(
           'chainable: "%s" enqueue stop, remaining %d, with_exception=%s',
           self.name,
-          self._iterator_cnt,
+          self._dequeue_cnt,
           self.exception is not None,
       )
       if self.enqueue_done:
@@ -514,7 +521,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
   def stop_enqueue(self):
     self._run_enqueue = False
     with self._states_lock:
-      self._iterator_cnt = 0
+      self._dequeue_cnt = self._enqueue_cnt
     with self._enqueue_lock:
       self._enqueue_lock.notify_all()
     with self._dequeue_lock:
@@ -685,9 +692,9 @@ class _AsyncDequeueIterator:
 
 
 def piter(
-    iterator_fn: Callable[..., Iterable[_ValueT]],
-    input_iterator: Iterable[Any] | None = None,
+    iterator_fn: Callable[..., Iterable[_ValueT]] | None = None,
     *,
+    input_iterators: Iterable[Iterable[Any]] = (),
     max_parallism: int = 1,
     buffer_size: int = 0,
     thread_pool: futures.ThreadPoolExecutor | None = None,
@@ -696,7 +703,7 @@ def piter(
 
   Args:
     iterator_fn: A generator function that takes an iterable as input.
-    input_iterator: The input iterator to be passed to the iterator_fn.
+    input_iterators: The input iterators to be passed to the iterator_fn.
     max_parallism: The maximum number xof threads to be used.
     buffer_size: The buffer size of the queue.
     thread_pool: The thread pool to be used. If None, a new thread pool will be
@@ -705,22 +712,30 @@ def piter(
   Returns:
     An iterable that iterates through the chain of functions.
   """
-  output_queue = IteratorQueue(buffer_size, name='piter_output_q')
-  input_q = None
+  input_iterators = tuple(input_iterators)
+  if iterator_fn is None and not input_iterators:
+    raise ValueError('iterator_fn or input_iterators has to be provided.')
+  input_queue = None
   pool = thread_pool or futures.ThreadPoolExecutor()
-  if input_iterator is not None:
+  if input_iterators:
     # The input_queue uses a max_batch_size of 1 to ensure that the output_queue
     # is not consuming too many elements that leads to imbalanced parallelism.
-    max_batch_size = 1 if max_parallism > 1 else 0
-    input_q = IteratorQueue(
-        buffer_size, max_batch_size=max_batch_size, name='piter_input_q'
+    max_batch_size = 1 if max_parallism > 1 and iterator_fn is not None else 0
+    input_queue = IteratorQueue(
+        buffer_size,
+        max_batch_size=max_batch_size,
+        name='piter_input_q',
+        parallelism=len(input_iterators),
     )
-    pool.submit(input_q.enqueue_from_iterator, input_iterator)
+    for iterator in input_iterators:
+      pool.submit(input_queue.enqueue_from_iterator, iterator)
+    if iterator_fn is None:
+      return input_queue
+  output_queue = IteratorQueue(
+      buffer_size, name='piter_output_q', parallelism=max_parallism
+  )
   for _ in range(max_parallism):
-    if input_q is not None:
-      it = iterator_fn(input_q)
-    else:
-      it = iterator_fn()
+    it = iterator_fn(input_queue) if input_iterators else iterator_fn()
     pool.submit(output_queue.enqueue_from_iterator, it)
   return output_queue
 
@@ -735,7 +750,7 @@ def pmap(
 ):
   return piter(
       lambda x: map(fn, x),
-      input_iterator,
+      input_iterators=[input_iterator],
       max_parallism=max_parallism,
       buffer_size=buffer_size,
       thread_pool=thread_pool,
