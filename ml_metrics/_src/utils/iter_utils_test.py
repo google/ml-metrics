@@ -553,16 +553,20 @@ class IterUtilsTest(parameterized.TestCase):
     def foo():
       yield from input_iter
 
-    actual = list(iter_utils.piter(foo, max_parallism=256))
+    pit = iter_utils.piter(foo, max_parallism=256)
+    actual = list(pit)
     self.assertCountEqual(list(range(n)), actual)
+    self.assertIsInstance(pit, iter_utils.IteratorQueue)
 
   def test_piter_multiple_iterators(self):
     n, m = 256, 2
     assert n % m == 0
     inputs = [range_with_return(m, 0.3) for _ in range(int(n / m))]
-    actual = list(iter_utils.piter(input_iterators=inputs))
+    pit = iter_utils.piter(input_iterators=inputs)
+    actual = list(pit)
     expected = list(itt.chain(*[range(m) for _ in range(int(n / m))]))
     self.assertCountEqual(expected, actual)
+    self.assertIsInstance(pit, iter_utils.IteratorQueue)
 
   def test_piter_multiple_iterators_concurrent_dequeue(self):
     n, m = 256, 2
@@ -571,10 +575,11 @@ class IterUtilsTest(parameterized.TestCase):
     # This is to test when not all enqueuer are started before the dequeuer is,
     # which could cause premature StopIteration controled by `enqueue_done`.
     pool = futures.ThreadPoolExecutor(max_workers=1)
-    output = iter_utils.piter(input_iterators=inputs, thread_pool=pool)
-    actual = list(output)
+    pit = iter_utils.piter(input_iterators=inputs, thread_pool=pool)
+    actual = list(pit)
     expected = list(itt.chain(*inputs))
     self.assertCountEqual(expected, actual)
+    self.assertIsInstance(pit, iter_utils.IteratorQueue)
 
   def test_piter_no_input_iterators_and_inputs_raises(self):
     with self.assertRaisesRegex(
@@ -598,8 +603,10 @@ class IterUtilsTest(parameterized.TestCase):
       return x + 1
 
     n = 256
-    actual = list(iter_utils.pmap(foo, range(n), max_parallism=256))
+    it = iter_utils.pmap(foo, range(n), max_parallism=256)
+    actual = list(it)
     self.assertCountEqual(list(range(1, n + 1)), actual)
+    self.assertIsInstance(it, iter_utils.IteratorQueue)
 
   def test_pmap_in_process(self):
 
@@ -607,8 +614,10 @@ class IterUtilsTest(parameterized.TestCase):
       return x + 1
 
     n = 256
-    actual = list(iter_utils.pmap(foo, range(n), max_parallism=0))
+    it = iter_utils.pmap(foo, range(n), max_parallism=0)
+    actual = list(it)
     self.assertCountEqual(list(range(1, n + 1)), actual)
+    self.assertIsInstance(it, map)
 
 
 if __name__ == '__main__':
