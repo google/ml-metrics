@@ -691,6 +691,23 @@ class _AsyncDequeueIterator:
     return self
 
 
+def _get_thread_pool(
+    thread_pool: futures.ThreadPoolExecutor | None = None,
+) -> futures.ThreadPoolExecutor:
+  if isinstance(thread_pool, futures.ThreadPoolExecutor):
+    return thread_pool
+  return futures.ThreadPoolExecutor(thread_name_prefix='piter')
+
+
+def _get_iterate_fn(
+    fn: Callable[..., Iterable[_ValueT]],
+    input_iterable: Iterable[_ValueT] | None,
+) -> Iterable[_ValueT]:
+  if input_iterable is not None:
+    return fn(input_iterable)
+  return fn()
+
+
 def piter(
     iterator_fn: Callable[..., Iterable[_ValueT]] | None = None,
     *,
@@ -703,8 +720,12 @@ def piter(
 
   Args:
     iterator_fn: A generator function that takes an iterable as input.
-    input_iterators: The input iterators to be passed to the iterator_fn.
-    max_parallism: The maximum number xof threads to be used.
+    input_iterators: The input iterators to be passed to the iterator_fn. More
+      than one input iterators are supported and will be iterated concurrently.
+    max_parallism: The maximum number of threads to be used for iterator_fn. If
+      0, the iterator_fn will be called in process; If >= 1, the iterator_fn is
+      called concurrently with the specified number of threads including with
+      only one thread.
     buffer_size: The buffer size of the queue.
     thread_pool: The thread pool to be used. If None, a new thread pool will be
       created.
@@ -715,29 +736,38 @@ def piter(
   input_iterators = tuple(input_iterators)
   if iterator_fn is None and not input_iterators:
     raise ValueError('iterator_fn or input_iterators has to be provided.')
-  input_queue = None
-  pool = thread_pool or futures.ThreadPoolExecutor()
-  if input_iterators:
+  input_iterable = None
+  # No parallelism at all, use the input iterator directly.
+  if len(input_iterators) == 1 and not max_parallism:
+    input_iterable = input_iterators[0]
+  elif input_iterators:
     # The input_queue uses a max_batch_size of 1 to ensure that the output_queue
     # is not consuming too many elements that leads to imbalanced parallelism.
     max_batch_size = 1 if max_parallism > 1 and iterator_fn is not None else 0
-    input_queue = IteratorQueue(
-        buffer_size,
+    input_iterable = IteratorQueue(
+        buffer_size or max_parallism,  # Limit buffer size to avoid OOM.
         max_batch_size=max_batch_size,
         name='piter_input_q',
         parallelism=len(input_iterators),
     )
+    pool = _get_thread_pool(thread_pool)
     for iterator in input_iterators:
-      pool.submit(input_queue.enqueue_from_iterator, iterator)
-    if iterator_fn is None:
-      return input_queue
+      pool.submit(input_iterable.enqueue_from_iterator, iterator)
+  if iterator_fn is None:
+    assert input_iterable is not None
+    return input_iterable
+
   output_queue = IteratorQueue(
       buffer_size, name='piter_output_q', parallelism=max_parallism
   )
-  for _ in range(max_parallism):
-    it = iterator_fn(input_queue) if input_iterators else iterator_fn()
-    pool.submit(output_queue.enqueue_from_iterator, it)
-  return output_queue
+  if max_parallism:
+    pool = _get_thread_pool(thread_pool)
+    for _ in range(max_parallism):
+      it = _get_iterate_fn(iterator_fn, input_iterable)
+      pool.submit(output_queue.enqueue_from_iterator, it)
+    return output_queue
+  # In process mode when max_parallism is 0.
+  return _get_iterate_fn(iterator_fn, input_iterable)
 
 
 def pmap(

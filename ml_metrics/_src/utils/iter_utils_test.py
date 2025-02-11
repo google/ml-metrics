@@ -545,7 +545,7 @@ class IterUtilsTest(parameterized.TestCase):
     np.testing.assert_array_equal(expected_orignal, original)
     np.testing.assert_array_equal(expected_outputs, outputs)
 
-  def test_piter(self):
+  def test_piter_iterate_fn_only(self):
     n = 256
     input_iter = iter_utils.IteratorQueue()
     input_iter.enqueue_from_iterator(range(n))
@@ -564,7 +564,7 @@ class IterUtilsTest(parameterized.TestCase):
     expected = list(itt.chain(*[range(m) for _ in range(int(n / m))]))
     self.assertCountEqual(expected, actual)
 
-  def test_piter_multiple_iterators_with_parallel_dequeue(self):
+  def test_piter_multiple_iterators_concurrent_dequeue(self):
     n, m = 256, 2
     assert n % m == 0
     inputs = [range(m) for _ in range(int(n / m))]
@@ -592,11 +592,22 @@ class IterUtilsTest(parameterized.TestCase):
   def test_pmap(self):
 
     def foo(x):
+      # Sleep here 0.3s x 256 = 76.8s will make the small test timeout. This
+      # test will be flaky as a result.
       time.sleep(0.3)
       return x + 1
 
     n = 256
     actual = list(iter_utils.pmap(foo, range(n), max_parallism=256))
+    self.assertCountEqual(list(range(1, n + 1)), actual)
+
+  def test_pmap_in_process(self):
+
+    def foo(x):
+      return x + 1
+
+    n = 256
+    actual = list(iter_utils.pmap(foo, range(n), max_parallism=0))
     self.assertCountEqual(list(range(1, n + 1)), actual)
 
 
