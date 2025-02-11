@@ -191,6 +191,32 @@ class MergedSequences(Generic[_ValueT]):
       raise IndexError(f'Index {index} is out of range.') from None
 
 
+class MergedIterator(Iterable[_ValueT]):
+  """An iterator that merges multiple iterables."""
+
+  def __init__(
+      self, data_sources: Sequence[Iterable[_ValueT]], parallism: int = 0
+  ):
+    self._parallism = parallism
+    self._data_sources = list(data_sources)
+    self._iterators = [iter(ds) for ds in data_sources]
+    if self._parallism:
+      ds_queue = piter(
+          input_iterators=self._iterators, max_parallism=self._parallism
+      )
+      self._iterator = iter(ds_queue)
+    elif len(self._iterators) == 1:
+      self._iterator = self._iterators[0]
+    else:
+      self._iterator = itt.chain(*self._iterators)
+
+  def __next__(self) -> _ValueT:
+    return next(self._iterator)
+
+  def __iter__(self):
+    return self
+
+
 @dc.dataclass(slots=True, eq=False)
 class Progress:
   cnt: int = 0

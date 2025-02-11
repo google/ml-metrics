@@ -197,6 +197,21 @@ class IterUtilsTest(parameterized.TestCase):
     with self.assertRaisesRegex(IndexError, 'Index 20 is out of range'):
       _ = a[20]
 
+  def test_merged_iterator_single_iterator(self):
+    it = iter_utils.MergedIterator([range(10)])
+    self.assertEqual(list(it), list(range(10)))
+    self.assertEqual(type(it._iterator), type(iter(range(10))))
+
+  def test_merged_iterator_parallel(self):
+    it = iter_utils.MergedIterator([range(10), range(10, 20)], parallism=2)
+    self.assertCountEqual(list(it), list(range(20)))
+    self.assertIsInstance(it._iterator, iter_utils._DequeueIterator)
+
+  def test_merged_iterator_in_process(self):
+    it = iter_utils.MergedIterator([range(10), range(10, 20)], parallism=0)
+    self.assertCountEqual(list(it), list(range(20)))
+    self.assertIsInstance(it._iterator, itt.chain)
+
   def test_enqueue_dequeue_raises(self):
     q = iter_utils.IteratorQueue()
     q._exception = ValueError('foo')
