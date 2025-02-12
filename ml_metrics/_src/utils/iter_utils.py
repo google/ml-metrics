@@ -40,6 +40,7 @@ _ValueT = TypeVar('_ValueT')
 _InputT = TypeVar('_InputT')
 _MAX_BATCH_SIZE = 4096
 _ITERATE_FN_MAX_THREADS = 256
+_IGNORE_ERROR_TYPES = (ValueError, TypeError)
 
 
 class _QueueLike(Protocol[_ValueT]):
@@ -56,6 +57,18 @@ class _QueueLike(Protocol[_ValueT]):
 
 
 STOP_ITERATION = StopIteration()
+
+
+def iter_ignore_error(
+    it, error_types: tuple[type[Exception], ...] = _IGNORE_ERROR_TYPES
+):
+  while True:
+    try:
+      yield next(it)
+    except (StopIteration, StopAsyncIteration) as e:
+      return e.value
+    except error_types:
+      continue
 
 
 class _IteratorWithLatest(Iterator[_ValueT]):
@@ -121,19 +134,43 @@ class SequenceArray(Sequence):
     return result
 
 
+class RandomAccessRangeIterator(Iterator[_ValueT]):
+  """An range like iterator that iterate through random accessible data."""
+
+  def __init__(
+      self, data: types.RandomAccessible[_ValueT], start: int, stop: int | None
+  ):
+    self.data = data
+    self.stop = len(data) if stop is None else stop
+    self.start = start
+    self.i = start
+
+  def __next__(self):
+    if self.i == self.stop:
+      raise StopIteration()
+    try:
+      result = self.data[self.i]
+      return result
+    finally:
+      self.i += 1
+
+  def __iter__(self):
+    return self
+
+
+def index_slice(
+    data: types.RandomAccessible[_ValueT],
+    start: int = 0,
+    stop: int | None = None,
+) -> Iterator[_ValueT]:
+  """Slices a sequence that supports random access."""
+  return RandomAccessRangeIterator(data, start, stop)
+
+
 @dc.dataclass(frozen=True, slots=True)
 class _MergedSequenceIndex:
   seq_idx: int
   idx: int | None = None
-
-
-def index_slice(
-    data: types.RandomAccessible[_ValueT], start: int, stop: int | None
-) -> Iterator[_ValueT]:
-  """Slices a sequence that supports random access."""
-  if stop is None:
-    return (data[i] for i in range(start, len(data)))
-  return (data[i] for i in range(start, stop))
 
 
 # slice cannot be a type annotation, this is for documentation purpose.

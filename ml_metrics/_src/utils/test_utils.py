@@ -12,12 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Utilities for testing, internal use only."""
+
 from collections.abc import Iterable
 import unittest
 
 from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.chainables import transform
 import numpy as np
+
+
+class RangeWithException:
+  """A range that raises an exception at a specific value."""
+
+  def __init__(self, end: int, exc_i: int):
+    self.end = end
+    self.exc_i = exc_i
+
+  def __len__(self):
+    return self.end
+
+  def __getitem__(self, i):
+    if i == self.exc_i:
+      raise ValueError()
+    return i
 
 
 def assert_nested_container_equal(test: unittest.TestCase, a, b, strict=False):

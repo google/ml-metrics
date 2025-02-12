@@ -25,6 +25,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 from courier.python import testutil
 from ml_metrics._src.utils import iter_utils
+from ml_metrics._src.utils import test_utils
 import more_itertools as mit
 import numpy as np
 
@@ -143,6 +144,13 @@ class IterUtilsTest(parameterized.TestCase):
       return R(x, 0)
 
     self.assertEqual([R(0, 0), R(1, 0)], iter_utils.iterate_fn(foo)([0, 1]))
+
+  def test_iterate_ignore_error(self):
+    it = iter_utils.index_slice(test_utils.RangeWithException(5, 3))
+    it = map(lambda x: x, it)
+    # 0, 1, 2, 3, 4, ignore 3, got 0, 1, 2, 4
+    actual = list(iter_utils.iter_ignore_error(it))
+    self.assertEqual([0, 1, 2, 4], actual)
 
   def test_sequence_array_normal(self):
     a = iter_utils.SequenceArray(np.arange(10))
