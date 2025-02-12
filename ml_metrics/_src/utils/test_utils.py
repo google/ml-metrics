@@ -21,7 +21,7 @@ from ml_metrics._src.chainables import transform
 import numpy as np
 
 
-class RangeWithException:
+class RangeWithExc:
   """A range that raises an exception at a specific value."""
 
   def __init__(self, end: int, exc_i: int):

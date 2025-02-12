@@ -146,7 +146,7 @@ class IterUtilsTest(parameterized.TestCase):
     self.assertEqual([R(0, 0), R(1, 0)], iter_utils.iterate_fn(foo)([0, 1]))
 
   def test_iterate_ignore_error(self):
-    it = iter_utils.index_slice(test_utils.RangeWithException(5, 3))
+    it = iter_utils.index_slice(test_utils.RangeWithExc(5, 3))
     it = map(lambda x: x, it)
     # 0, 1, 2, 3, 4, ignore 3, got 0, 1, 2, 4
     actual = list(iter_utils.iter_ignore_error(it))

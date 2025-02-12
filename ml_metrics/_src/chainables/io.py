@@ -36,6 +36,7 @@ class ShardConfig:
 class SequenceDataSource(types.Recoverable, Iterable[_T]):
   """A shardable sequence data source."""
   data: types.RandomAccessible[_T]
+  ignore_error: bool = dc.field(kw_only=True, default=False)
   _shard_state: ShardConfig = dc.field(default_factory=ShardConfig)
   _start: int = 0
   _end: int | None = None
@@ -44,16 +45,22 @@ class SequenceDataSource(types.Recoverable, Iterable[_T]):
     data = self.data
     if not hasattr(data, '__getitem__') or not hasattr(data, '__len__'):
       raise TypeError(f'data is not indexable, got {type(data)=}')
-    if self._shard_state.num_shards < 1:
-      raise ValueError(f'num_shards must be positive, got {self._shard_state=}')
+    # Use MergedSequences even for a single sequence to enforce iterating by
+    # random access so that the iterator is continuable after exception.
+    if not isinstance(self.data, iter_utils.MergedSequences):
+      object.__setattr__(self, 'data', iter_utils.MergedSequences([self.data]))
 
   @classmethod
   def from_sequences(
-      cls, sequences: Iterable[types.RandomAccessible[_T]]
+      cls,
+      sequences: Iterable[types.RandomAccessible[_T]],
+      ignore_error: bool = False,
   ) -> Self:
-    return cls(iter_utils.MergedSequences(sequences))
+    return cls(iter_utils.MergedSequences(sequences), ignore_error=ignore_error)
 
   def shard(self, shard_index: int, num_shards: int, offset: int = 0) -> Self:
+    if num_shards < 1:
+      raise ValueError(f'num_shards must be positive, got {num_shards=}')
     interval, remainder = divmod(self.end - self.start, num_shards)
     start, adjusted_interval = self.start, 0
     for i in range(shard_index + 1):
@@ -109,7 +116,8 @@ class SequenceIterator(types.Recoverable, Iterator[_T]):
 
   def __init__(self, config: SequenceDataSource):
     self._index = config.start
-    self._it = iter(config.data[config.start : config.end])
+    iter_ = iter_utils.iter_ignore_error if config.ignore_error else iter
+    self._it = iter_(config.data[config.start : config.end])
     self.config = config
 
   def from_state(self, shard_state: ShardConfig) -> Self:

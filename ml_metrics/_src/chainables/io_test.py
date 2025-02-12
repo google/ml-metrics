@@ -15,6 +15,7 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 from ml_metrics._src.chainables import io
+from ml_metrics._src.utils import test_utils
 
 
 class SequenceDataSourceTest(parameterized.TestCase):
@@ -105,7 +106,16 @@ class SequenceDataSourceTest(parameterized.TestCase):
 
   def test_sharded_sequence_with_invalid_num_shards_raises_error(self):
     with self.assertRaisesRegex(ValueError, 'num_shards must be positive'):
-      _ = list(io.SequenceDataSource(range(3), io.ShardConfig(num_shards=0)))
+      _ = io.SequenceDataSource(range(3)).shard(0, 0)
+
+  def test_sequence_ignore_error(self):
+    ds = io.SequenceDataSource(test_utils.RangeWithExc(5, 2), ignore_error=True)
+    self.assertEqual([0, 1, 3, 4], list(ds))
+
+  def test_sequence_ignore_error_with_multiple_sequences(self):
+    seqs = [test_utils.RangeWithExc(5, 2), test_utils.RangeWithExc(5, 3)]
+    ds = io.SequenceDataSource.from_sequences(seqs, ignore_error=True)
+    self.assertEqual([0, 1, 3, 4, 0, 1, 2, 4], list(ds))
 
 
 class IterableDataSourceTest(parameterized.TestCase):
