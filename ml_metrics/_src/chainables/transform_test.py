@@ -187,7 +187,7 @@ def multi_slicer(preds, labels, within=()):
 
 class TransformDataSourceTest(parameterized.TestCase):
 
-  def test_sharded_sequence_data_source(self):
+  def test_sharded_sequence_data_source_make(self):
     ds = io.SequenceDataSource(range(3))
     p = transform.TreeTransform().data_source(ds).apply(fn=lambda x: x + 1)
     num_shards = 2
@@ -195,6 +195,15 @@ class TransformDataSourceTest(parameterized.TestCase):
     actual = [list(p.make(shard=shard)) for shard in shards]
     expected = [[1, 2], [3]]
     self.assertEqual(expected, actual)
+
+  def test_sharded_sequence_data_source_multithread(self):
+    ds = io.SequenceDataSource(range(3))
+    num_threads = 2
+    p = transform.TreeTransform(num_threads=num_threads).data_source(
+        ds
+    )
+    expected = [0, 1, 2]
+    self.assertEqual(expected, list(p.make()))
 
   def test_sharded_sequence_data_source_resume(self):
     ds = io.SequenceDataSource(range(3))
@@ -224,10 +233,10 @@ class TransformDataSourceTest(parameterized.TestCase):
     ):
       _ = p.make().iterate().state
     with self.assertRaisesRegex(
-        TypeError, 'Data source is not serializable, got .+'
+        TypeError, 'Data source is not recoverable, got .+'
     ):
       p.make().iterate().from_state(
-          transform._IteratorState(io.ShardConfig(), agg_state=None)
+          transform._IteratorState([io.ShardConfig()], agg_state=None)
       )
 
   def test_sharded_iterable_data_source(self):

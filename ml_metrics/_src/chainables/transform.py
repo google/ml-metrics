@@ -106,28 +106,48 @@ class AggregateResult:
 
 @dataclasses.dataclass(frozen=True)
 class _IteratorState:
-  input_state: io.ShardConfig
+  input_states: list[io.ShardConfig]
   agg_state: dict[MetricKey, Any] | None
+
+
+class _MergedIterator(types.Recoverable, iter_utils.MergedIterator[_ValueT]):
+  """An iterator that merges multiple iterables."""
+
+  def from_state(self, states: Sequence[io.ShardConfig]) -> Self:
+    data_sources = []
+    for data_source, ds_state in zip(self._data_sources, states, strict=True):
+      if not types.is_recoverable(data_source):
+        raise TypeError(f'Data source is not recoverable, got {data_source=}.')
+      data_sources.append(data_source.from_state(ds_state))
+    return self.__class__(data_sources, self._parallism)
+
+  @property
+  def state(self) -> list[io.ShardConfig]:
+    states = []
+    for iterator in self._iterators:
+      if not types.is_recoverable(iterator):
+        raise TypeError(f'Data source is not serializable, got {iterator=}.')
+      states.append(iterator.state)
+    return states
 
 
 class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
   """An iterator that returns the last value."""
-  input_iterator: Iterable[_ValueT]
+  input_iterator: _MergedIterator[_ValueT]
   agg_state: dict[MetricKey, Any] | None
 
   def __init__(
       self,
       tree_fn: CombinedTreeFn,
       *,
-      input_iterator: Iterable[tree.MapLikeTree | None] = (),
+      input_iterator: _MergedIterator[_ValueT],
       with_result: bool = True,
       with_agg_state: bool = True,
       with_agg_result: bool = True,
       state: Any = None,
   ):
-    super().__init__()
     self._tree_fn = tree_fn
-    self.input_iterator = iter(input_iterator)
+    self.input_iterator = input_iterator
     self._with_result = with_result
     self.agg_state = state
     self._with_agg_state = state and (with_agg_state or with_agg_result)
@@ -166,12 +186,7 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
     return None
 
   def from_state(self, state: _IteratorState) -> _IteratorWithAggResult:
-    input_iterator = self.input_iterator
-    if not types.is_recoverable(input_iterator):
-      raise TypeError(
-          f'Data source is not serializable, got {type(input_iterator)}.'
-      )
-    input_iterator = input_iterator.from_state(state.input_state)
+    input_iterator = self.input_iterator.from_state(state.input_states)
     return _IteratorWithAggResult(
         self._tree_fn,
         input_iterator=input_iterator,
@@ -183,13 +198,8 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
 
   @property
   def state(self) -> _IteratorState:
-    input_iterator = self.input_iterator
-    if types.is_recoverable(input_iterator):
-      agg_state = copy.deepcopy(self.agg_state)
-      return _IteratorState(input_iterator.state, agg_state=agg_state)
-    raise TypeError(
-        f'Data source is not serializable, got {type(input_iterator)=}.'
-    )
+    input_states = self.input_iterator.state
+    return _IteratorState(input_states, agg_state=copy.deepcopy(self.agg_state))
 
   def __next__(self) -> _ValueT:
     if (ticker := time.time()) - self._prev_ticker > _LOGGING_INTERVAL_SECS:
@@ -246,7 +256,7 @@ def clear_cache():
   lazy_fns.clear_cache()
 
 
-@functools.lru_cache(maxsize=16)
+@functools.lru_cache(maxsize=1)
 def _get_thread_pool():
   return futures.ThreadPoolExecutor(thread_name_prefix='chainable_mt')
 
@@ -274,6 +284,7 @@ class CombinedTreeFn:
   agg_fns: dict[TreeMapKeys | TreeMapKey, tree_fns.TreeAggregateFn]
   slicers: list[tree_fns.Slicer]
   output_fns: Sequence[tree_fns.TreeFn]
+  # TODO: b/395649147 - Rename to data_source.
   input_iterator: Iterable[Any] | None
   num_threads: int
 
@@ -296,13 +307,13 @@ class CombinedTreeFn:
     else:
       transforms = [transform]
     input_nodes, output_nodes = [], []
-    input_iterator, agg_node = None, None
+    data_source, agg_node = None, None
     name = ''
     for i, node in enumerate(transforms):
       name = node.name or name
       if node.input_iterator is not None:
         if i == 0:
-          input_iterator = node.input_iterator
+          data_source = node.input_iterator
         else:
           raise ValueError(
               f'data_source has to be the first node, it is at {i}th position.'
@@ -320,19 +331,19 @@ class CombinedTreeFn:
 
     # Reset the iterator_node and input_nodes if this is an aggregator.
     if mode == RunnerMode.AGGREGATE:
-      input_iterator = None
+      data_source = None
       input_nodes = []
       assert agg_node, 'Aggregation fn is required for "Aggregate" mode.'
 
     # Collect input_iterator.
-    input_iterator = lazy_fns.maybe_make(input_iterator)
+    data_source = lazy_fns.maybe_make(data_source)
     if input_state is not None:
-      if types.is_recoverable(input_iterator):
-        input_iterator = input_iterator.from_state(input_state)
+      if types.is_recoverable(data_source):
+        data_source = data_source.from_state(input_state)
       else:
         raise TypeError(
             f'Data source is not configurable but {input_state=} is provided.'
-            f' data source type: {type(input_iterator)}.'
+            f' data source type: {type(data_source)}.'
         )
     # Collect all the input functions from the input nodes.
     input_fns = list(
@@ -369,7 +380,7 @@ class CombinedTreeFn:
         agg_fns=agg_fns,
         slicers=slice_fns,
         output_fns=output_fns,
-        input_iterator=input_iterator,
+        input_iterator=data_source,
         num_threads=transform.num_threads,
     )
 
@@ -472,9 +483,9 @@ class CombinedTreeFn:
         lambda inputs, fn: fn(inputs), self.output_fns, result.data
     )
 
-  def _actual_inputs(self, inputs, input_iterator):
+  def _actual_inputs(self, inputs, data_source):
     """Selects the inputs when user provided one."""
-    if inputs is not None and input_iterator is not None:
+    if inputs is not None and data_source is not None:
       raise ValueError(
           'Inputs or input_iterator cannot be set at the same time, got both'
           f' for {self}'
@@ -483,17 +494,25 @@ class CombinedTreeFn:
     # is provided.
     if inputs is not None:
       return [inputs]
-    if input_iterator is not None:
-      return input_iterator
-    return self.input_iterator
+    if data_source is None:
+      data_source = self.input_iterator
+    if isinstance(data_source, _MergedIterator):
+      return data_source
+    if self.num_threads and types.is_shardable(data_source):
+      data_sources = [
+          data_source.shard(i, self.num_threads)
+          for i in range(self.num_threads)
+      ]
+    else:
+      data_sources = [data_source]
+    return _MergedIterator(data_sources, self.num_threads)
 
   def __iter__(self):
-    return _IteratorWithAggResult(
-        self, input_iterator=self.input_iterator, state=self.create_state()
-    )
+    return self.iterate()
 
   def iterate(
       self,
+      # TODO: b/395649147 - Rename input_iterator to data_source.
       input_iterator: Iterable[Any] | None = None,
       *,
       with_result: bool = True,
@@ -628,6 +647,7 @@ class TreeTransform(Generic[TreeFnT]):
   """
 
   name: str = ''
+  # TODO: b/395649147 - Rename input_iterator to data_source.
   input_iterator: types.MaybeResolvable[Iterable[Any]] | None = None
   input_transform: TreeTransform | None = None
   fns: tuple[TreeFnT, ...] = dataclasses.field(default_factory=tuple)
