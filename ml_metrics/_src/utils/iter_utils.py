@@ -208,12 +208,14 @@ class MergedSequences(Generic[_ValueT]):
       raise NotImplementedError(f'step is not supported, got {slice_}')
     start = self._index(slice_.start)
     stop = self._index(slice_.stop)
+    if start.seq_idx == len(self._sequences):
+      return iter(())
     if start.seq_idx == stop.seq_idx:
       return index_slice(self._sequences[start.seq_idx], start.idx, stop.idx)
     # Chain multiple sequences together with correct slices.
     sequences = [index_slice(self._sequences[start.seq_idx], start.idx, None)]
     for i_seq in range(start.seq_idx + 1, stop.seq_idx):
-      sequences.append(self._sequences[i_seq])
+      sequences.append(index_slice(self._sequences[i_seq]))
     if stop.idx:
       sequences.append(index_slice(self._sequences[stop.seq_idx], 0, stop.idx))
     return itt.chain.from_iterable(sequences)
