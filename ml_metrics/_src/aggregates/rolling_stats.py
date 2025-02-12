@@ -288,7 +288,7 @@ class Mean(base.CallableMetric):
     )
 
   def new(self, batch: types.NumbersT) -> types.NumbersT:
-    """Computes the suffient statistics of a batch of values.
+    """Computes the sufficient statistics of a batch of values.
 
     If `batch_score_fn` is provided, it will evaluate the batch and assign a
     score to each item. Subsequently, the statistics are computed based on
@@ -488,10 +488,11 @@ class _R2TjurBase(abc.ABC, base.MergeableMetric):
 
   https://www.statease.com/docs/v12/contents/advanced-topics/glm/tjur-pseudo-r-squared/
 
-  sum_y_true: The sum of y_true.
-  sum_y_pred: The sum of y_true * y_pred.
-  sum_neg_y_true: The sum of 1 - y_true.
-  sum_neg_y_pred: The sum of (1 - y_true) * y_pred.
+  Attributes:
+    sum_y_true: The sum of y_true.
+    sum_y_pred: The sum of y_true * y_pred.
+    sum_neg_y_true: The sum of 1 - y_true.
+    sum_neg_y_pred: The sum of (1 - y_true) * y_pred.
   """
 
   sum_y_true: float = 0
@@ -645,13 +646,13 @@ class RRegression(base.MergeableMetric):
 
     PCC = cov(X, Y) / std(X) / std(Y)
     where cov is the covariance, and std(X) is the standard deviation of X;
-    and analagously for std(Y).
+    and analogously for std(Y).
 
     After substituting estimates of the covariances and variances
     PCC = sum((x_i - x_bar) * (y_i - y_bar))
           / sqrt(sum((x_i - x_bar)**2)) / sqrt(sum((x_i - x_bar)**2))
     where x_i and y_i are the individual sampled points indexed with i, and
-    x_bar is the sample mean; and analagously for y_bar.
+    x_bar is the sample mean; and analogously for y_bar.
 
     Rearranging the PCC formula gives us
     PCC = (n * sum(x_i * y_i) - sum(x_i) * sum(y_i))

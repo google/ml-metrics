@@ -81,7 +81,7 @@ class CallableMetric(MergeableMetric, Callable[..., Any]):
 
   @abc.abstractmethod
   def new(self, *args, **kwargs) -> Self:
-    """Calculate the suffient statistics, should be idemponent."""
+    """Calculate the sufficient statistics, should be idempotent."""
 
   def add(self, *args, **kwargs):
     """Updates the sufficient statistics with a batch of inputs."""
@@ -125,7 +125,7 @@ class Aggregatable(Protocol):
     """
 
   def merge_states(self, states):
-    """Mering multiple states into a one state value.
+    """Merging multiple states into a one state value.
 
     This is only required for distributed implementations such as Beam. Only the
     first state may be modified and returned for efficiency.
@@ -244,7 +244,7 @@ class AggFnNested(AggregateFn):
 
   # TODO: b/311207032 - Implement this.
   def merge_states(self, states):
-    """Mering multiple states into a one state value."""
+    """Merging multiple states into a one state value."""
     raise NotImplementedError()
 
   def get_result(self, state):
@@ -273,7 +273,7 @@ class UserAggregateFn(AggregateFn):
     return self.fn.update_state(state, *inputs, **named_inputs)
 
   def merge_states(self, states):
-    """Mering multiple states into a one state value."""
+    """Merging multiple states into a one state value."""
     return self.fn.merge_states(states)
 
   def get_result(self, state):

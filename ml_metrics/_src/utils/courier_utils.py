@@ -65,10 +65,10 @@ class Task(FutureLike[_T]):
     blocking: Whether the wait for the call to complete.
     keep_result: Whether to keep the result.
     worker: The courier worker that runs this task.
-    state: the result of the task.
-    courier_method: the courier method of the task.
-    exception: the exception of the running this task if there is any.
-    result: get the result of the task if there is any.
+    state: The result of the task.
+    courier_method: The courier method of the task.
+    exception: The exception of the running this task if there is any.
+    result: get The result of the task if there is any.
     server_name: The server address this task is sent to.
     is_alive: True if the worker running this task is alive.
   """
@@ -142,9 +142,9 @@ class GeneratorTask(Task):
     blocking: Whether the wait for the call to complete.
     keep_result: Whether to keep the result.
     server_name: The server address this task is sent to.
-    state: the result of the task.
-    exception: the exception of the running this task if there is any.
-    result: get the result of the task if there is any.
+    state: The result of the task.
+    exception: The exception of the running this task if there is any.
+    result: Get the result of the task if there is any.
   """
 
 

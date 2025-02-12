@@ -507,13 +507,16 @@ def trace(
   counterpart of the function doesn't call the actual function, but record the
   arguments used to call the function later. To call the actual function, use
   `chainable.maybe_make(lazy_fn)`. E.g.,
+
   ```
   lazy_len = lazy(len)()
   # Then:
   lazy_len.call([1,2,3]) == len([1,2,3])
   ```
+
   This works recursively if the return of the function is also callable, one
   just needs to call the lazy_function one extra time: e.g.,
+
   ```
   class Foo:
     a: int
@@ -522,12 +525,16 @@ def trace(
   lazy_foo = lazy(Foo)(a=1)
   lazy_foo(3).call() == Foo(a=1)(3)
   ```
+
   The argument to the call() function is arbitrarily bindable; e.g.,
+
   ```
   lazy_foo = lazy(Foo)(a=1)
   lazy_foo().call(3) == lazy_foo(3).call().
   ```
+
   The arguments to the lazy_fn can also be a lazy_fn. E.g.,
+
   ```
   def get_a(): return 'a'
   lazy_a, lazy_Foo = lazy(get_a), lazy(Foo)

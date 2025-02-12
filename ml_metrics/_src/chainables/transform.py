@@ -579,8 +579,9 @@ class TreeTransform(Generic[TreeFnT]):
   """A lazy transform interface that works on a map like data.
 
   Each Transform represents a routine operating on a map-like data and returning
-  a map-like result. There are following main operations suppoted:
-    * Apply: it applies a routine on the inputs and directly returns the ouputs
+  a map-like result. There are following main operations supported:
+
+    * Apply: it applies a routine on the inputs and directly returns the outputs
       from the routine.
     * Assign: it applies a routine on the inputs and assign the result back to
       the inputs with the provided output_keys.
@@ -596,6 +597,8 @@ class TreeTransform(Generic[TreeFnT]):
 
   The following is an example of running an image classification model and
   calculating corresponding metrics:
+
+    ```
     predictions = (
         core.TreeTransform.new()
         # Reading
@@ -634,6 +637,7 @@ class TreeTransform(Generic[TreeFnT]):
         .add_slice('pred_id')  # single feature slice
         .add_slice(('label_id', 'pred_id')) # slice crosses
     )
+    ```
 
   Attributes:
     name: a readable name of the transform.
@@ -847,7 +851,7 @@ class TreeTransform(Generic[TreeFnT]):
       fn_batch_size: int = 0,
       batch_size: int = 0,
   ) -> TreeTransform:
-    """Applys a TreeFn on the selected inputs and directly outputs the result."""
+    """Applies a TreeFn on the selected inputs and directly outputs the result."""
     fn = tree_fns.TreeFn.new(
         output_keys=output_keys,
         fn=fn,
@@ -954,6 +958,7 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
     """Adds a slice and stack it on the existing slicers.
 
     This can be used in the following ways:
+
       * Slice on a single feature: `add_slice('feature')`.
       * Slice crosses with multiple features: `add_slice(('a', 'b')).
       * Slice with arbitrary slicing function that returns an iterable of

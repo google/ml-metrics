@@ -386,7 +386,7 @@ class WorkerPool:
     return len(self._workers)
 
   def shutdown(self, blocking: bool = False):
-    """Attemping to shut down workers."""
+    """Attempting to shut down workers."""
     while blocking and len(self.workers) < self.num_workers:
       logging.info(
           'chainable: shutting down %d workers, remaining %d workers are not'

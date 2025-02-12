@@ -317,14 +317,15 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
   This creates an immutable View of a `MapLikeTree`, the view implements the
   Mapping interfaces so it can be used with any TreeMapKey. Following are some
   examples:
-  Given a tree = TreeMapView({'a': [1, 2], 'b': [3, 4]}),
-    tree['a'] is [1, 2]
-    tree['a', 'b'] is ([1, 2], [3, 4]) (multi-key index)
-  Given a nested tree = TreeMapView({'a': {'a1': [1, 2]}, 'b': [3, 4]})
-    tree[Key.a.a1] is [1, 2]
-    tree[Key.a.a1, Key.b] is ([1, 2], [3, 4])
-  Given a tree = TreeMapView([{'a': [1, 2]}, {'b': [3, 4]}])
-    tree[Key.Index(0).a] is [1, 2]
+
+  - Given a tree = TreeMapView({'a': [1, 2], 'b': [3, 4]}),
+    - tree['a'] is [1, 2]
+    - tree['a', 'b'] is ([1, 2], [3, 4]) (multi-key index)
+  - Given a nested tree = TreeMapView({'a': {'a1': [1, 2]}, 'b': [3, 4]})
+    - tree[Key.a.a1] is [1, 2]
+    - tree[Key.a.a1, Key.b] is ([1, 2], [3, 4])
+  - Given a tree = TreeMapView([{'a': [1, 2]}, {'b': [3, 4]}])
+    - tree[Key.Index(0).a] is [1, 2]
 
   Attributes:
     data: Nested MapLike (Tree) structure.

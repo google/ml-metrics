@@ -41,10 +41,11 @@ def metrics_to_df(metrics: dict[_StrOrMetricKey, Any]) -> pd.DataFrame:
 
   This always converts the dict aggregation result to a DataFrame with
   the following columns:
-  - metric_name: the name of the metric.
-  - slice: the slice of the metric, if a slice is not specified, it will be
-    'overall'.
-  - value: the value of the metric.
+
+    - metric_name: the name of the metric.
+    - slice: the slice of the metric, if a slice is not specified, it will be
+      'overall'.
+    - value: the value of the metric.
 
   Args:
     metrics: the aggregation result.
