@@ -12,27 +12,42 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Keras metric wrapper."""
+from __future__ import annotations
 
 import dataclasses
-from typing import Any, Generic, TypeVar
+from typing import Any, Iterable, Protocol
 
 from ml_metrics._src.aggregates import base as agg
 
 
-KerasMetric = TypeVar("KerasMetric")
+class KerasMetric(Protocol):
+  """Base interface for Keras metrics."""
+
+  def update_state(self, *inputs, **named_inputs) -> None:
+    """Updates the state from a batch of inputs."""
+
+  def reset_state(self) -> None:
+    """Resets the state."""
+
+  def merge_state(self, other: Iterable[KerasMetric]) -> None:
+    """Merges the state with another state of the same type."""
+
+  def result(self) -> Any:
+    """Returns the result of the metric."""
 
 
 def is_keras_metric(metric: Any) -> bool:
   """Duck type check for Keras metric."""
   return (
       hasattr(metric, "update_state")
+      and hasattr(metric, "reset_state")
       and hasattr(metric, "merge_state")
       and hasattr(metric, "result")
   )
 
 
 @dataclasses.dataclass
-class KerasAggregateFn(agg.AggregateFn, Generic[KerasMetric]):
+class KerasAggregateFn(agg.AggregateFn):
   """AggregateFn for Keras metrics."""
 
   metric: KerasMetric
@@ -43,6 +58,7 @@ class KerasAggregateFn(agg.AggregateFn, Generic[KerasMetric]):
       self._metric = self.metric
     else:
       try:
+        assert hasattr(self.metric, "__call__")
         self._metric = self.metric()
         if not is_keras_metric(self._metric):
           raise TypeError("metric must implement Keras metric base interface.")
@@ -62,17 +78,15 @@ class KerasAggregateFn(agg.AggregateFn, Generic[KerasMetric]):
     state.update_state(*inputs, **named_inputs)
     return state
 
-  def merge_states(self, states: KerasMetric) -> KerasMetric:
+  def merge_states(self, states: Iterable[KerasMetric]) -> KerasMetric:
     # This in-place merges all the states into the first state and returns it.
     iter_states = iter(states)
     result = next(iter_states)
-    assert hasattr(result, "merge_state")
     result.merge_state(list(iter_states))
     return result
 
   def get_result(self, state: KerasMetric) -> Any:
     result = state.result()
-    try:
-      return state.numpy()
-    except AttributeError:
-      return result
+    if hasattr(result, "numpy"):
+      return result.numpy()
+    return result

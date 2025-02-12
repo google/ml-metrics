@@ -62,7 +62,7 @@ class KerasTest(absltest.TestCase):
         metric1.update_state(state1, [1, 2, 3]),
         metric2.update_state(state2, [4, 5, 6]),
     ])
-    self.assertEqual(3.5, metric1.get_result(merged_state).numpy())
+    self.assertEqual(3.5, metric1.get_result(merged_state))
 
   def test_keras_metric_wrapper(self):
     try:
