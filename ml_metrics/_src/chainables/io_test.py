@@ -54,6 +54,21 @@ class SequenceDataSourceTest(parameterized.TestCase):
     self.assertLen(ds.shard(0, 2, offset=1), 1)
     self.assertLen(ds.shard(1, 2), 1)
 
+  def test_sharded_sequence_repeated_shard_len(self):
+    ds = io.SequenceDataSource(list(range(10)))
+    self.assertLen(ds, 10)
+    self.assertLen(ds.shard(0, 2).shard(0, 2), 3)
+    self.assertLen(ds.shard(0, 2).shard(1, 2), 2)
+    self.assertLen(ds.shard(1, 2).shard(0, 2), 3)
+    self.assertLen(ds.shard(1, 2).shard(1, 2), 2)
+
+  def test_sharded_sequence_repeated_shard(self):
+    ds = io.SequenceDataSource(list(range(10)))
+    self.assertEqual([0, 1, 2], list(ds.shard(0, 2).shard(0, 2)))
+    self.assertEqual([3, 4], list(ds.shard(0, 2).shard(1, 2)))
+    self.assertEqual([5, 6, 7], list(ds.shard(1, 2).shard(0, 2)))
+    self.assertEqual([8, 9], list(ds.shard(1, 2).shard(1, 2)))
+
   def test_sharded_sequence_serialization(self):
     ds = io.SequenceDataSource(range(3))
     it = ds.iterate()
@@ -65,6 +80,14 @@ class SequenceDataSourceTest(parameterized.TestCase):
   def test_sharded_sequence_serialization_after_shard(self):
     ds = io.SequenceDataSource(range(4))
     it = ds.shard(1, num_shards=2).iterate()
+    self.assertEqual(2, next(it))
+    ds = ds.iterate().from_state(it.state)
+    self.assertEqual([3], list(it))
+    self.assertEqual([3], list(ds))
+
+  def test_sharded_sequence_serialization_after_shard_twice(self):
+    ds = io.SequenceDataSource(range(8))
+    it = ds.shard(0, 2).shard(1, 2).iterate()
     self.assertEqual(2, next(it))
     ds = ds.iterate().from_state(it.state)
     self.assertEqual([3], list(it))

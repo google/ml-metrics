@@ -29,6 +29,7 @@ class ShardConfig:
   shard_index: int = 0
   num_shards: int = 1
   start_index: int = 0
+  parent: ShardConfig | None = dc.field(default=None, kw_only=True)
 
 
 @dc.dataclass(frozen=True)
@@ -53,14 +54,17 @@ class SequenceDataSource(types.Recoverable, Iterable[_T]):
     return cls(iter_utils.MergedSequences(sequences))
 
   def shard(self, shard_index: int, num_shards: int, offset: int = 0) -> Self:
-    interval, remainder = divmod(len(self.data), num_shards)
-    start, adjusted_interval = 0, 0
+    interval, remainder = divmod(self.end - self.start, num_shards)
+    start, adjusted_interval = self.start, 0
     for i in range(shard_index + 1):
       adjusted_interval = interval + 1 if i < remainder else interval
       start += adjusted_interval if i < shard_index else 0
+    shard_state = ShardConfig(
+        shard_index, num_shards, offset, parent=self._shard_state
+    )
     return dc.replace(
         self,
-        _shard_state=ShardConfig(shard_index, num_shards, offset),
+        _shard_state=shard_state,
         _start=start + offset,
         _end=start + adjusted_interval,
     )
@@ -82,7 +86,11 @@ class SequenceDataSource(types.Recoverable, Iterable[_T]):
 
   def from_state(self, shard_state: ShardConfig) -> Self:
     """Iterates the data source given a shard index."""
-    return self.shard(
+    if shard_state.parent is not None:
+      result = self.from_state(shard_state.parent)
+    else:
+      result = SequenceDataSource(self.data)
+    return result.shard(
         shard_state.shard_index, shard_state.num_shards, shard_state.start_index
     )
 
