@@ -51,6 +51,7 @@ def sharded_pipelines_as_iterator(
         queue.SimpleQueue[transform_lib.AggregateResult] | None
     ) = None,
     retry_failures: bool = True,
+    retry_threshold: int = _RETRY_THRESHOLD,
     num_shards: int = 0,
     **pipeline_kwargs,
 ) -> Iterator[Any]:
@@ -63,6 +64,7 @@ def sharded_pipelines_as_iterator(
     with_batch_output: Whether to return the batch output.
     result_queue: The queue to output the result.
     retry_failures: Whether to retry when seeing failures.
+    retry_threshold: The threshold for the number of failures before giving up.
     num_shards: The number of shards to split the inputs as the datasource. This
       provides some control for the granularity of how much progress are lost
       when workers are dead.
@@ -142,7 +144,7 @@ def sharded_pipelines_as_iterator(
     )
     thread.start()
 
-  faiure_threshold = _RETRY_THRESHOLD if retry_failures else 0
+  faiure_threshold = retry_threshold if retry_failures else 0
   iterator = worker_pool.iterate(
       sharded_tasks,
       generator_result_queue=states_queue,
