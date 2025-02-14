@@ -356,8 +356,8 @@ class IteratorQueue(IterableQueue[_ValueT]):
   _dequeue_lock: threading.Condition
   # The lock here protects the access to all states below.
   _states_lock: threading.RLock
-  _enqueue_cnt: int
-  _dequeue_cnt: int
+  _enqueue_start: int
+  _enqueue_stop: int
   _parallelism: int
   _returned: list[Any]
   _exception: Exception | None
@@ -390,8 +390,8 @@ class IteratorQueue(IterableQueue[_ValueT]):
     self._exception = None
     self._exhausted = False
     self._parallelism = parallelism
-    self._enqueue_cnt = 0
-    self._dequeue_cnt = 0
+    self._enqueue_start = 0
+    self._enqueue_stop = 0
     self._run_enqueue = True
     self.ignore_error = ignore_error
 
@@ -419,7 +419,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
         'chainable: "%s" dequeue exhausted with_exception=%s, remaining %d',
         self.name,
         self.exception is not None,
-        (self._enqueue_cnt - self._dequeue_cnt),
+        (self._enqueue_start - self._enqueue_stop),
     )
     self._exhausted = True
     self._dequeue_lock.notify_all()
@@ -439,7 +439,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
     # If parallelism is not set, it means the no enqueuer has started yet.
     if not self._parallelism:
       return False
-    return self._enqueue_cnt == self._dequeue_cnt == self._parallelism
+    return self._enqueue_start == self._enqueue_stop == self._parallelism
 
   @property
   def returned(self) -> list[Any]:
@@ -563,18 +563,18 @@ class IteratorQueue(IterableQueue[_ValueT]):
 
   def _start_enqueue(self):
     with self._states_lock:
-      self._enqueue_cnt += 1
-      self._parallelism = max(self._parallelism, self._enqueue_cnt)
+      self._enqueue_start += 1
+      self._parallelism = max(self._parallelism, self._enqueue_start)
 
   def _stop_enqueue(self, *values):
     """Stops enqueueing and records the returned values."""
     with self._states_lock:
-      self._dequeue_cnt += 1
+      self._enqueue_stop += 1
       self._returned.extend(values)
       logging.debug(
           'chainable: "%s" enqueue stop, remaining %d, with_exception=%s',
           self.name,
-          self._dequeue_cnt,
+          self._enqueue_start - self._enqueue_stop,
           self.exception is not None,
       )
       if self.enqueue_done:
@@ -586,7 +586,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
   def stop_enqueue(self):
     self._run_enqueue = False
     with self._states_lock:
-      self._dequeue_cnt = self._enqueue_cnt
+      self._enqueue_stop = self._enqueue_start
     with self._enqueue_lock:
       self._enqueue_lock.notify_all()
     with self._dequeue_lock:
