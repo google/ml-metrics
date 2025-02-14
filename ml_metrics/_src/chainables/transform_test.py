@@ -770,6 +770,19 @@ class TransformTest(parameterized.TestCase):
     )
     self.assertEqual(expected, t.make()(inputs))
 
+  def test_select_with_rebatch(self):
+    t = transform.TreeTransform.new().select(('a', 'b'), batch_size=3)
+    inputs = [
+        {'a': [0, 1], 'b': [1, 2], 'c': [0, 1]},
+        {'a': [2, 3], 'b': [3, 4], 'c': [2, 3]},
+    ]
+    actual = list(t.make().iterate(inputs))
+    expected = [
+        {'a': [0, 1, 2], 'b': [1, 2, 3]},
+        {'a': [3], 'b': [4]},
+    ]
+    self.assertEqual(expected, actual)
+
   def test_aggregate_starts_with_empty_agg(self):
     p = (
         transform.TreeTransform.new()

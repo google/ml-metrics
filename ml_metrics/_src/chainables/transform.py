@@ -813,10 +813,15 @@ class TreeTransform(Generic[TreeFnT]):
     return self._maybe_new_transform(fn)
 
   def select(
-      self, input_keys: TreeMapKeys, output_keys: TreeMapKeys | None = None
+      self,
+      input_keys: TreeMapKeys,
+      output_keys: TreeMapKeys | None = None,
+      batch_size: int = 0,
   ) -> TreeTransform:
     output_keys = output_keys or input_keys
-    fn = tree_fns.Select.new(input_keys=input_keys, output_keys=output_keys)
+    fn = tree_fns.Select.new(
+        input_keys=input_keys, output_keys=output_keys, batch_size=batch_size
+    )
     return self._maybe_new_transform(fn)
 
   # TODO: b/356633410 - support rebatching.
