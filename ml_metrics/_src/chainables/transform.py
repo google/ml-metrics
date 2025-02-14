@@ -152,6 +152,7 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
     self.agg_state = state
     self._with_agg_state = state and (with_agg_state or with_agg_result)
     self._with_agg_result = with_agg_result
+    self._thread_pool = None
 
     def iterate_fn(
         input_iterator: Iterable[tree.MapLikeTree | None] = (),
@@ -168,12 +169,17 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
       iterator = iter_utils.piter(
           iterate_fn,
           input_iterators=[self.input_iterator],
-          thread_pool=_get_thread_pool(),
+          thread_pool=self._get_thread_pool(),
           max_parallism=tree_fn.num_threads,
       )
     self._iterator = iter(iterator)
     self._prev_ticker = time.time()
     self.batch_index = 0
+
+  def _get_thread_pool(self) -> futures.ThreadPoolExecutor:
+    if self._thread_pool is None:
+      self._thread_pool = futures.ThreadPoolExecutor()
+    return self._thread_pool
 
   @property
   def name(self) -> str:
@@ -231,6 +237,8 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
           f' {self.batch_index} batches, returned a type of'
           f' {type(returned)}.',
       )
+      if self._thread_pool is not None:
+        self._thread_pool.shutdown(wait=False)
       raise StopIteration(returned) if returned else e
 
   def __iter__(self):
@@ -254,11 +262,6 @@ class MetricKey:
 def clear_cache():
   """Clear the cache for maybe_make."""
   lazy_fns.clear_cache()
-
-
-@functools.lru_cache(maxsize=1)
-def _get_thread_pool():
-  return futures.ThreadPoolExecutor(thread_name_prefix='chainable_mt')
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
