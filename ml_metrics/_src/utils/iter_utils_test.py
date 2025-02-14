@@ -568,6 +568,30 @@ class IterUtilsTest(parameterized.TestCase):
     np.testing.assert_array_equal(expected_orignal, original)
     np.testing.assert_array_equal(expected_outputs, outputs)
 
+  def test_iterator_queue_ignore_error_with_skippable_input(self):
+    q = iter_utils.IteratorQueue(ignore_error=True)
+    with futures.ThreadPoolExecutor() as thread_pool:
+      f = thread_pool.submit(list, q)
+      thread_pool.submit(
+          q.enqueue_from_iterator,
+          iter_utils.index_slice(test_utils.RangeWithException(4, 2)),
+      )
+      self.assertEqual([0, 1, 3], f.result())
+
+  def test_iterator_queue_ignore_error_with_non_skippable_input(self):
+
+    def range_with_exc(x, exc_i):
+      for i in range(x):
+        if i == exc_i:
+          raise ValueError('foo')
+        yield i
+
+    q = iter_utils.IteratorQueue(ignore_error=True)
+    with futures.ThreadPoolExecutor() as thread_pool:
+      f = thread_pool.submit(list, q)
+      thread_pool.submit(q.enqueue_from_iterator, range_with_exc(5, 2))
+      self.assertEqual([0, 1], f.result())
+
   def test_piter_iterate_fn_only(self):
     n = 256
     input_iter = iter_utils.IteratorQueue()
