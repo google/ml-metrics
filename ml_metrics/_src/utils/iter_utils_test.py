@@ -600,17 +600,20 @@ class IterUtilsTest(parameterized.TestCase):
     def foo():
       yield from input_iter
 
-    pit = iter_utils.piter(foo, max_parallism=256)
-    actual = list(pit)
-    self.assertCountEqual(list(range(n)), actual)
+    with futures.ThreadPoolExecutor() as thread_pool:
+      pit = iter_utils.piter(foo, max_parallism=1, thread_pool=thread_pool)
+      actual = list(pit)
+      self.assertCountEqual(list(range(n)), actual)
     self.assertIsInstance(pit, iter_utils.IteratorQueue)
 
   def test_piter_multiple_iterators(self):
     n, m = 256, 2
     assert n % m == 0
     inputs = [range_with_return(m, 0.3) for _ in range(int(n / m))]
-    pit = iter_utils.piter(input_iterators=inputs)
-    actual = list(pit)
+    with futures.ThreadPoolExecutor(max_workers=len(inputs)) as thread_pool:
+      pit = iter_utils.piter(input_iterators=inputs, thread_pool=thread_pool)
+      actual = list(pit)
+      self.assertLen(thread_pool._threads, len(inputs))
     expected = list(itt.chain(*[range(m) for _ in range(int(n / m))]))
     self.assertCountEqual(expected, actual)
     self.assertIsInstance(pit, iter_utils.IteratorQueue)
@@ -621,9 +624,9 @@ class IterUtilsTest(parameterized.TestCase):
     inputs = [range(m) for _ in range(int(n / m))]
     # This is to test when not all enqueuer are started before the dequeuer is,
     # which could cause premature StopIteration controled by `enqueue_done`.
-    pool = futures.ThreadPoolExecutor(max_workers=1)
-    pit = iter_utils.piter(input_iterators=inputs, thread_pool=pool)
-    actual = list(pit)
+    with futures.ThreadPoolExecutor(max_workers=1) as pool:
+      pit = iter_utils.piter(input_iterators=inputs, thread_pool=pool)
+      actual = list(pit)
     expected = list(itt.chain(*inputs))
     self.assertCountEqual(expected, actual)
     self.assertIsInstance(pit, iter_utils.IteratorQueue)
@@ -650,8 +653,9 @@ class IterUtilsTest(parameterized.TestCase):
       return x + 1
 
     n = 256
-    it = iter_utils.pmap(foo, range(n), max_parallism=256)
-    actual = list(it)
+    with futures.ThreadPoolExecutor() as pool:
+      it = iter_utils.pmap(foo, range(n), max_parallism=256, thread_pool=pool)
+      actual = list(it)
     self.assertCountEqual(list(range(1, n + 1)), actual)
     self.assertIsInstance(it, iter_utils.IteratorQueue)
 

@@ -821,21 +821,21 @@ def piter(
         name='piter_input_q',
         parallelism=len(input_iterators),
     )
-    pool = _get_thread_pool(thread_pool)
+    thread_pool = _get_thread_pool(thread_pool)
     for iterator in input_iterators:
-      pool.submit(input_iterable.enqueue_from_iterator, iterator)
+      thread_pool.submit(input_iterable.enqueue_from_iterator, iterator)
   if iterator_fn is None:
     assert input_iterable is not None
     return input_iterable
 
-  output_queue = IteratorQueue(
-      buffer_size, name='piter_output_q', parallelism=max_parallism
-  )
   if max_parallism:
-    pool = _get_thread_pool(thread_pool)
+    output_queue = IteratorQueue(
+        buffer_size, name='piter_output_q', parallelism=max_parallism
+    )
+    thread_pool = _get_thread_pool(thread_pool)
     for _ in range(max_parallism):
       it = _get_iterate_fn(iterator_fn, input_iterable)
-      pool.submit(output_queue.enqueue_from_iterator, it)
+      thread_pool.submit(output_queue.enqueue_from_iterator, it)
     return output_queue
   # In process mode when max_parallism is 0.
   return _get_iterate_fn(iterator_fn, input_iterable)
