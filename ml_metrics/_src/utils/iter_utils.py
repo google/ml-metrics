@@ -459,11 +459,12 @@ class IteratorQueue(IterableQueue[_ValueT]):
         self._set_exhausted()
       return result
     except (queue.Empty, asyncio.QueueEmpty) as e:
+      # No need to rasie from since these are the actual error.
       if self._exhausted:
-        raise self.exception or StopIteration(*self.returned) from e
+        raise self.exception or StopIteration(*self.returned)
       if self.enqueue_done:
         self._set_exhausted()
-        raise self.exception or StopIteration(*self.returned) from e
+        raise self.exception or StopIteration(*self.returned)
       raise e
     except StopIteration as e:
       raise e
@@ -483,7 +484,8 @@ class IteratorQueue(IterableQueue[_ValueT]):
       max_batch_size: The number of elements to be dequeued. If 0, it will wait
         for at least one element. If set, it will wait at most max_batch_size
         elements.
-      block: Whether to block until there are enough elements before returning.
+      block: Whether to block until there are `max_batch_size` elements before
+        returning, only applicable when `max_batch_size` is positive.
 
     Returns:
       A list of dequeued elements.
@@ -604,12 +606,16 @@ class IteratorQueue(IterableQueue[_ValueT]):
         self._stop_enqueue(*e.args)
         return
       except Exception as e:  # pylint: disable=broad-exception-caught
+        # Need to go pass this exception assuming the iterator can skip error.
+        if self.ignore_error:
+          logging.exception(
+              'chainable: "%s" enqueue error ignored, stacktrace:', self.name
+          )
+          continue
         e.add_note(f'Exception during enqueueing "{self.name}".')
         logging.exception('chainable: "%s" enqueue failed.', self.name)
         self._exception = e
         self._stop_enqueue()
-        if self.ignore_error:
-          return
         raise e
 
 

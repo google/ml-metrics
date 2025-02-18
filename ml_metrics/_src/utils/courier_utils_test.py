@@ -503,25 +503,27 @@ class CourierClientTest(absltest.TestCase):
     except Exception:  # pylint: disable=broad-exception-caught
       self.fail('Worker is not idle after iteration.')
 
-  def test_legacy_async_iterate_raise(self):
-
-    def bad_generator():
-      for elem in range(3):
-        if elem == 2:
+  def test_legacy_async_iterate_ignore_error(self):
+    def bad_generator(n, exc_i):
+      for elem in range(n):
+        if elem == exc_i:
           raise TypeError('bad generator')
         yield elem
 
-    task = courier_utils.GeneratorTask.new(lazy_fns.trace(bad_generator)())
+    # The generator on the server ignores error and stops at the 1st exception.
+    task = courier_utils.GeneratorTask.new(lazy_fns.trace(bad_generator)(5, 3))
     agg_q = queue.SimpleQueue()
 
     async def run():
-      async for _ in self.prefetched_worker.async_iterate(
+      result = []
+      async for x in self.prefetched_worker.async_iterate(
           task, generator_result_queue=agg_q
       ):
-        pass
+        result.append(x)
+      return result
 
-    with self.assertRaises(TypeError):
-      asyncio.run(run())
+    result = asyncio.run(run())
+    self.assertEqual(list(range(3)), result)
 
   def test_worker_heartbeat(self):
     # Server is not started, thus it is never alive.
