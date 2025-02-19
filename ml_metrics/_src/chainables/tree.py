@@ -100,7 +100,7 @@ class NullMap(MapLike):
 # A MapLike tree is a nested MapLike structure. E.g., Sequence and Mapping
 # DataFrame, Numpy array are all MapLike.
 # Uses Union here since forward reference does not work with |.
-MapLikeTree = MapLike[BaseKey, Union['MapLikeTree', LeafValueT]]
+MapLikeTree = MapLike[BaseKey, Union['MapLikeTree', LeafValueT]] | LeafValueT
 MapLikeTreeCallable = Callable[[MapLikeTree | None], MapLikeTree | None]
 
 
