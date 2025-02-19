@@ -59,16 +59,47 @@ class _QueueLike(Protocol[_ValueT]):
 STOP_ITERATION = StopIteration()
 
 
-def iter_ignore_error(
-    it, error_types: tuple[type[Exception], ...] = _IGNORE_ERROR_TYPES
-):
+def iter_ignore_error(it):
+  """Yields the next element from an iterator, ignoring errors.
+
+  Be careful when using this function, it can cause infinite loop if the
+  underlying iterator cannot progress after an error, namely, calling `next()`
+  on the iterator after an error can progress to the next element or raise
+  `StopIteration`.
+
+  Args:
+    it: The iterator to ignore errors from.
+
+  Yilds:
+    The next element from the iterator, ignoring errors.
+  """
   while True:
     try:
       yield next(it)
     except (StopIteration, StopAsyncIteration) as e:
       return e.value
-    except error_types:
+    except _IGNORE_ERROR_TYPES:
       continue
+
+
+def map_ignore_error(
+    fn: Callable[[_InputT], _ValueT], it: Iterable[_InputT]
+) -> Iterator[_ValueT]:
+  """Maps a function to an iterator, ignoring errors.
+
+  Be careful when using this function, it can cause infinite loop if the
+  underlying iterator cannot progress after an error, namely, calling `next()`
+  on the iterator after an error can progress to the next element or raise
+  `StopIteration`.
+
+  Args:
+    fn: The function to map.
+    it: The iterator to ignore errors from.
+
+  Returns:
+    An iterator that yields that ignores errors.
+  """
+  return iter_ignore_error(map(fn, it))
 
 
 class _IteratorWithLatest(Iterator[_ValueT]):

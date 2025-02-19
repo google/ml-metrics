@@ -152,6 +152,16 @@ class IterUtilsTest(parameterized.TestCase):
     actual = list(iter_utils.iter_ignore_error(it))
     self.assertEqual([0, 1, 2, 4], actual)
 
+  def test_map_ignore_error(self):
+    def foo(x):
+      if x == 2:
+        raise ValueError('foo')
+      return x
+
+    it = iter_utils.map_ignore_error(foo, range(5))
+    actual = list(it)
+    self.assertEqual([0, 1, 3, 4], actual)
+
   def test_sequence_array_normal(self):
     a = iter_utils.SequenceArray(np.arange(10))
     self.assertIsInstance(a, Sequence)
