@@ -211,9 +211,13 @@ class IterUtilsTest(parameterized.TestCase):
     self.assertEqual(type(it._iterator), type(iter(range(10))))
 
   def test_merged_iterator_parallel(self):
-    it = iter_utils.MergedIterator([range(10), range(10, 20)], parallism=2)
-    self.assertCountEqual(list(it), list(range(20)))
-    self.assertIsInstance(it._iterator, iter_utils._DequeueIterator)
+    with futures.ThreadPoolExecutor() as thread_pool:
+      it = iter_utils.MergedIterator(
+          [range(10), range(10, 20)], parallism=2, thread_pool=thread_pool
+      )
+      self.assertCountEqual(list(it), list(range(20)))
+      self.assertLen(thread_pool._threads, 2)
+      self.assertIsInstance(it._iterator, iter_utils._DequeueIterator)
 
   def test_merged_iterator_in_process(self):
     it = iter_utils.MergedIterator([range(10), range(10, 20)], parallism=0)

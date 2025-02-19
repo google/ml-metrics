@@ -234,14 +234,19 @@ class MergedIterator(Iterable[_ValueT]):
   """An iterator that merges multiple iterables."""
 
   def __init__(
-      self, data_sources: Sequence[Iterable[_ValueT]], parallism: int = 0
+      self,
+      data_sources: Sequence[Iterable[_ValueT]],
+      parallism: int = 0,
+      thread_pool: futures.ThreadPoolExecutor | None = None,
   ):
     self._parallism = parallism
     self._data_sources = list(data_sources)
     self._iterators = [iter(ds) for ds in data_sources]
     if self._parallism:
       ds_queue = piter(
-          input_iterators=self._iterators, max_parallism=self._parallism
+          input_iterators=self._iterators,
+          max_parallism=self._parallism,
+          thread_pool=thread_pool,
       )
       self._iterator = iter(ds_queue)
     elif len(self._iterators) == 1:
@@ -765,9 +770,9 @@ class _AsyncDequeueIterator:
 def _get_thread_pool(
     thread_pool: futures.ThreadPoolExecutor | None = None,
 ) -> futures.ThreadPoolExecutor:
-  if isinstance(thread_pool, futures.ThreadPoolExecutor):
-    return thread_pool
-  return futures.ThreadPoolExecutor(thread_name_prefix='piter')
+  if thread_pool is None:
+    thread_pool = futures.ThreadPoolExecutor(thread_name_prefix='piter')
+  return thread_pool
 
 
 def _get_iterate_fn(
