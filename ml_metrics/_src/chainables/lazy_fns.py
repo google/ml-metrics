@@ -62,11 +62,11 @@ def _maybe_lru_cache(maxsize: int):
       if x.cache_result:
         try:
           result = lazy_obj_cache[x]
-          logging.debug('chainable: cache hit for type %s.', type(result))
+          logging.debug('chainable: cache hit: %s, got a %s', x, type(result))
           return result
         except KeyError as e:
           if isinstance(x, LazyFn):
-            logging.info('chainable: cache miss for type %s', type(x))
+            logging.info('chainable: cache miss: %s', x)
             result = fn(x)
             lazy_obj_cache[x] = result
             return result

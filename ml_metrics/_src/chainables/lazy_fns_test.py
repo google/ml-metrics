@@ -323,6 +323,17 @@ class LazyFnsTest(parameterized.TestCase):
       mock_cached_make.assert_not_called()
     self.assertEqual(lazy_fns.cache_info().hits, 1)
 
+  def test_maybe_make_cached_logging(self):
+    lazy_fns.clear_cache()
+    # list is not hashable, hash should fall back by id.
+    lazy_foo = trace(Foo)(1)(1, cache_result_=True)
+    with self.assertLogs(level='DEBUG') as logs:
+      self.assertEqual(2, maybe_make(lazy_foo))
+      _ = maybe_make(lazy_foo)
+    self.assertIn('cache miss: Foo(1)(1)', logs.output[0])
+    self.assertIn('cache hit: Foo(1)(1)', logs.output[1])
+    self.assertEqual(lazy_fns.cache_info().hits, 1)
+
   def test_lazy_fn_not_makeabe_raise_typeerror(self):
     with self.assertRaises(TypeError):
       maybe_make(lazy_fns.LazyFn(value=3))
