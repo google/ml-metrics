@@ -257,26 +257,30 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
     return mit.first(self.iterate([inputs]))
 
   def _iterate(
-      self, input_iterator: Iterable[tree.MapLikeTree[ValueT] | None]
-  ) -> Iterable[tree.MapLikeTree[ValueT] | None]:
-    input_iterator = iter(input_iterator)
-    fn_inputs = iter_utils.rebatched_args(
-        map(self.get_inputs, input_iterator),
-        batch_size=self.fn_batch_size,
-        num_columns=self.num_inputs,
-    )
+      self, input_iterator: Iterator[tree.MapLikeTree[ValueT] | None]
+  ) -> Iterator[tree.MapLikeTree[ValueT] | None]:
+    fn_inputs = map(self.get_inputs, input_iterator)
+    if self.fn_batch_size:
+      fn_inputs = iter_utils.rebatched_args(
+          fn_inputs,
+          batch_size=self.fn_batch_size,
+          num_columns=self.num_inputs,
+      )
     # Only ignore function call error.
     map_ = iter_utils.map_ignore_error if self.ignore_error else map
-    yield from iter_utils.rebatched_args(
-        map_(self._maybe_call_fn, fn_inputs),
-        batch_size=self.batch_size,
-        num_columns=self.num_outputs,
-    )
+    fn_outputs = map_(self._maybe_call_fn, fn_inputs)
+    if self.batch_size:
+      fn_outputs = iter_utils.rebatched_args(
+          fn_outputs,
+          batch_size=self.batch_size,
+          num_columns=self.num_outputs,
+      )
+    return fn_outputs
 
   def iterate(
       self, input_iterator: Iterable[tree.MapLikeTree[ValueT] | None]
-  ) -> Iterable[tree.MapLikeTree[ValueT] | None]:
-    yield from map(self._get_outputs, self._iterate(input_iterator))
+  ) -> Iterator[tree.MapLikeTree[ValueT] | None]:
+    return map(self._get_outputs, self._iterate(iter(input_iterator)))
 
   def __getstate__(self):
     state = self.__dict__.copy()
@@ -299,10 +303,10 @@ class Assign(TreeFn):
 
   def iterate(
       self, input_iterator: Iterable[tree.MapLikeTree[ValueT] | None]
-  ) -> Iterable[tree.MapLikeTree[ValueT] | None]:
-    yield from it.starmap(
+  ) -> Iterator[tree.MapLikeTree[ValueT] | None]:
+    return it.starmap(
         self._get_outputs,
-        iter_utils.processed_with_inputs(self._iterate, input_iterator),
+        iter_utils.processed_with_inputs(self._iterate, iter(input_iterator)),
     )
 
 
@@ -509,7 +513,7 @@ class TreeAggregateFn(
   # TODO: b/356633410 - support iterate for TreeAggregateFn.
   def iterate(
       self, input_iterator: Iterable[tree.MapLikeTree | None]
-  ) -> Iterable[tree.MapLikeTree | None]:
+  ) -> Iterator[tree.MapLikeTree | None]:
     raise NotImplementedError(
         f'TreeAggregateFn does not support iterate, TreeAggFn:{self}'
     )
