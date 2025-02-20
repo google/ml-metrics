@@ -635,7 +635,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
     iterator = iter(iterator)
     self._start_enqueue()
     self._run_enqueue = True
-    while self._run_enqueue:
+    while self._run_enqueue and not self.enqueue_done:
       try:
         self.put(next(iterator))
       except StopIteration as e:

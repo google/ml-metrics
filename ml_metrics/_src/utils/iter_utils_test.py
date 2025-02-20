@@ -83,6 +83,13 @@ def range_with_return(n, sleep: float = 0):
   return n
 
 
+def range_with_exc(x, exc_i):
+  for i in range(x):
+    if i == exc_i:
+      raise ValueError('foo')
+    yield i
+
+
 class IterUtilsTest(parameterized.TestCase):
 
   def setUp(self):
@@ -338,13 +345,9 @@ class IterUtilsTest(parameterized.TestCase):
       asyncio.run(q.async_enqueue_from_iterator(async_iter()))
 
   def test_iterator_queue_flush_raises(self):
-    def range_with_exc(n):
-      yield from range(n)
-      raise ValueError('foo')
-
     iterator = iter_utils.IteratorQueue(2)
     with futures.ThreadPoolExecutor() as thread_pool:
-      thread_pool.submit(iterator.enqueue_from_iterator, range_with_exc(10))
+      thread_pool.submit(iterator.enqueue_from_iterator, range_with_exc(10, 9))
       with self.assertRaises(ValueError):
         _ = iterator.get_batch(block=True)
 
@@ -582,6 +585,20 @@ class IterUtilsTest(parameterized.TestCase):
     np.testing.assert_array_equal(expected_orignal, original)
     np.testing.assert_array_equal(expected_outputs, outputs)
 
+  def test_iterator_queue_exception_all_threads_stop(self):
+    q = iter_utils.IteratorQueue()
+    num_threads = 5
+    with futures.ThreadPoolExecutor() as thread_pool:
+      for _ in range(num_threads):
+        thread_pool.submit(q.enqueue_from_iterator, range_with_return(999, 0.2))
+      thread_pool.submit(q.enqueue_from_iterator, range_with_exc(10, 3))
+      self.assertLen(thread_pool._threads, num_threads + 1)
+      with self.assertRaisesRegex(ValueError, 'foo'):
+        _ = list(q)
+    # This is more for documentation purpose since all threads should have
+    # stopped when thread pool is destroyed.
+    self.assertTrue(all(not t.is_alive()for t in thread_pool._threads))
+
   def test_iterator_queue_ignore_error_with_skippable_input(self):
     q = iter_utils.IteratorQueue(ignore_error=True)
     with futures.ThreadPoolExecutor() as thread_pool:
@@ -593,13 +610,6 @@ class IterUtilsTest(parameterized.TestCase):
       self.assertEqual([0, 1, 3], f.result())
 
   def test_iterator_queue_ignore_error_with_non_skippable_input(self):
-
-    def range_with_exc(x, exc_i):
-      for i in range(x):
-        if i == exc_i:
-          raise ValueError('foo')
-        yield i
-
     q = iter_utils.IteratorQueue(ignore_error=True)
     with futures.ThreadPoolExecutor() as thread_pool:
       f = thread_pool.submit(list, q)
