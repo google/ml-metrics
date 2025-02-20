@@ -133,28 +133,29 @@ class _MergedIterator(types.Recoverable, iter_utils.MergedIterator[_ValueT]):
 
 class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
   """An iterator that returns the last value."""
-  input_iterator: _MergedIterator[_ValueT]
+  data_sources: Sequence[Iterable[_ValueT]]
   agg_state: dict[MetricKey, Any] | None
 
   def __init__(
       self,
       tree_fn: CombinedTreeFn,
       *,
-      input_iterator: _MergedIterator[_ValueT],
+      data_sources: Sequence[Iterable[_ValueT]],
       ignore_error: bool,
       with_result: bool = True,
       with_agg_state: bool = True,
       with_agg_result: bool = True,
       state: Any = None,
+      input_override: _MergedIterator[_ValueT] | None = None,
   ):
     self._tree_fn = tree_fn
-    self.input_iterator = input_iterator
+    self._data_sources = data_sources
+    self._ignore_error = ignore_error
     self._with_result = with_result
     self.agg_state = state
     self._with_agg_state = state and (with_agg_state or with_agg_result)
     self._with_agg_result = with_agg_result
     self._thread_pool = None
-    self._ignore_error = ignore_error
 
     def iterate_fn(
         input_iterator: Iterable[tree.MapLikeTree | None] = (),
@@ -162,25 +163,35 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
       """Call a chain of functions in sequence."""
       result = input_iterator
       for fn in self._tree_fn.input_fns:
-        fn = dataclasses.replace(fn, ignore_error=ignore_error)
+        fn = dataclasses.replace(fn, ignore_error=self._ignore_error)
         result = fn.iterate(result)
       yield from result
 
-    if not tree_fn.num_threads:
-      iterator = iterate_fn(self.input_iterator)
+    if input_override is not None:
+      assert isinstance(input_override, _MergedIterator)
+      self._input_iterator = input_override
+    else:
+      self._input_iterator = _MergedIterator(
+          self._data_sources, self._tree_fn.num_threads, self._get_thread_pool()
+      )
+
+    if not self._tree_fn.input_fns:
+      iterator = self._input_iterator
+    elif not self._tree_fn.num_threads:
+      iterator = iterate_fn(self._input_iterator)
     else:
       iterator = iter_utils.piter(
           iterate_fn,
-          input_iterators=[self.input_iterator],
+          input_iterators=[self._input_iterator],
           thread_pool=self._get_thread_pool(),
-          max_parallism=tree_fn.num_threads,
+          max_parallism=self._tree_fn.num_threads,
       )
     self._iterator = iter(iterator)
     self._prev_ticker = time.time()
     self.batch_index = 0
 
-  def _get_thread_pool(self) -> futures.ThreadPoolExecutor:
-    if self._thread_pool is None:
+  def _get_thread_pool(self) -> futures.ThreadPoolExecutor | None:
+    if self._thread_pool is None and self._tree_fn.num_threads:
       self._thread_pool = futures.ThreadPoolExecutor()
     return self._thread_pool
 
@@ -195,20 +206,21 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
     return None
 
   def from_state(self, state: _IteratorState) -> _IteratorWithAggResult:
-    input_iterator = self.input_iterator.from_state(state.input_states)
+    input_iterator = self._input_iterator.from_state(state.input_states)
     return _IteratorWithAggResult(
         self._tree_fn,
-        input_iterator=input_iterator,
+        data_sources=self._data_sources,
         ignore_error=self._ignore_error,
         with_result=self._with_result,
         with_agg_state=self._with_agg_state,
         with_agg_result=self._with_agg_result,
         state=state.agg_state,
+        input_override=input_iterator,
     )
 
   @property
   def state(self) -> _IteratorState:
-    input_states = self.input_iterator.state
+    input_states = self._input_iterator.state
     return _IteratorState(input_states, agg_state=copy.deepcopy(self.agg_state))
 
   def __next__(self) -> _ValueT:
@@ -490,7 +502,7 @@ class CombinedTreeFn:
         lambda inputs, fn: fn(inputs), self.output_fns, result.data
     )
 
-  def _actual_inputs(self, inputs, data_source):
+  def _actual_inputs(self, inputs, data_source) -> list[Iterable[Any]]:
     """Selects the inputs when user provided one."""
     if inputs is not None and data_source is not None:
       raise ValueError(
@@ -500,11 +512,10 @@ class CombinedTreeFn:
     # Overrides the internal input_iterator if either inputs or input_iterator
     # is provided.
     if inputs is not None:
-      return [inputs]
+      # An iterable of a single element.
+      return [io.SequenceDataSource([inputs])]
     if data_source is None:
       data_source = self.input_iterator
-    if isinstance(data_source, _MergedIterator):
-      return data_source
     if self.num_threads and types.is_shardable(data_source):
       data_sources = [
           data_source.shard(i, self.num_threads)
@@ -512,7 +523,7 @@ class CombinedTreeFn:
       ]
     else:
       data_sources = [data_source]
-    return _MergedIterator(data_sources, self.num_threads)
+    return data_sources
 
   def __iter__(self):
     return self.iterate()
@@ -548,9 +559,10 @@ class CombinedTreeFn:
     Returns:
       An iterator that also optionally keeps the aggregation result and state.
     """
+    data_source = input_iterator
     return _IteratorWithAggResult(
         self,
-        input_iterator=self._actual_inputs(None, input_iterator),
+        data_sources=self._actual_inputs(None, data_source),
         ignore_error=ignore_error,
         with_result=with_result,
         with_agg_state=with_agg_state,
@@ -570,8 +582,11 @@ class CombinedTreeFn:
           'Non-aggregate transform is not callable with iterator inputs, uses '
           '`iterate()` instead.'
       )
-    iter_result = self.iterate(
-        self._actual_inputs(inputs, input_iterator), ignore_error=ignore_error
+    iter_result = _IteratorWithAggResult(
+        self,
+        data_sources=self._actual_inputs(inputs, input_iterator),
+        ignore_error=ignore_error,
+        state=self.create_state(),
     )
     result = mit.last(iter_result)
     if iter_result.agg_result is not None:
