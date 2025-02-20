@@ -77,6 +77,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
   )
   fn_batch_size: int = 0
   batch_size: int = 0
+  ignore_error: bool = False
   _default_constructor: bool = dataclasses.field(default=True, repr=False)
 
   def __post_init__(self):
@@ -106,6 +107,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       replace_mask_false_with: Any = tree.DEFAULT_FILTER,
       fn_batch_size: int = 0,
       batch_size: int = 0,
+      ignore_error: bool = False,
       **disable_slicing,
   ) -> Self:
     """Normalizes the arguments before constructing a TreeFn."""
@@ -134,6 +136,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
         replace_mask_false_with=replace_mask_false_with,
         fn_batch_size=fn_batch_size,
         batch_size=batch_size,
+        ignore_error=ignore_error,
         _default_constructor=False,
         **disable_slicing,
     )
@@ -262,8 +265,10 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
         batch_size=self.fn_batch_size,
         num_columns=self.num_inputs,
     )
+    # Only ignore function call error.
+    map_ = iter_utils.map_ignore_error if self.ignore_error else map
     yield from iter_utils.rebatched_args(
-        map(self._maybe_call_fn, fn_inputs),
+        map_(self._maybe_call_fn, fn_inputs),
         batch_size=self.batch_size,
         num_columns=self.num_outputs,
     )

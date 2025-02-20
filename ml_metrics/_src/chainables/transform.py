@@ -141,6 +141,7 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
       tree_fn: CombinedTreeFn,
       *,
       input_iterator: _MergedIterator[_ValueT],
+      ignore_error: bool,
       with_result: bool = True,
       with_agg_state: bool = True,
       with_agg_result: bool = True,
@@ -153,6 +154,7 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
     self._with_agg_state = state and (with_agg_state or with_agg_result)
     self._with_agg_result = with_agg_result
     self._thread_pool = None
+    self._ignore_error = ignore_error
 
     def iterate_fn(
         input_iterator: Iterable[tree.MapLikeTree | None] = (),
@@ -160,6 +162,7 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
       """Call a chain of functions in sequence."""
       result = input_iterator
       for fn in self._tree_fn.input_fns:
+        fn = dataclasses.replace(fn, ignore_error=ignore_error)
         result = fn.iterate(result)
       yield from result
 
@@ -196,6 +199,7 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
     return _IteratorWithAggResult(
         self._tree_fn,
         input_iterator=input_iterator,
+        ignore_error=self._ignore_error,
         with_result=self._with_result,
         with_agg_state=self._with_agg_state,
         with_agg_result=self._with_agg_result,
@@ -522,6 +526,7 @@ class CombinedTreeFn:
       with_agg_state: bool = True,
       with_agg_result: bool = True,
       state: Any = None,
+      ignore_error: bool = False,
   ) -> _IteratorWithAggResult[Any]:
     """An iterator runner that takes an input_iterator runs the transform.
 
@@ -538,6 +543,7 @@ class CombinedTreeFn:
       with_agg_result: whether to yield the aggregation result at the end of the
         iteration.
       state: an optional initial aggregation state.
+      ignore_error: whether to ignore the error when running the transform.
 
     Returns:
       An iterator that also optionally keeps the aggregation result and state.
@@ -545,13 +551,16 @@ class CombinedTreeFn:
     return _IteratorWithAggResult(
         self,
         input_iterator=self._actual_inputs(None, input_iterator),
+        ignore_error=ignore_error,
         with_result=with_result,
         with_agg_state=with_agg_state,
         with_agg_result=with_agg_result,
         state=state or self.create_state(),
     )
 
-  def __call__(self, inputs=None, *, input_iterator=None):
+  def __call__(
+      self, inputs=None, *, input_iterator=None, ignore_error: bool = False
+  ):
     if (
         not self.agg_fns
         and inputs is None
@@ -561,7 +570,9 @@ class CombinedTreeFn:
           'Non-aggregate transform is not callable with iterator inputs, uses '
           '`iterate()` instead.'
       )
-    iter_result = self.iterate(self._actual_inputs(inputs, input_iterator))
+    iter_result = self.iterate(
+        self._actual_inputs(inputs, input_iterator), ignore_error=ignore_error
+    )
     result = mit.last(iter_result)
     if iter_result.agg_result is not None:
       return iter_result.agg_result

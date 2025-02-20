@@ -153,6 +153,19 @@ class TreeFnTest(parameterized.TestCase):
     mock_actual_fn.assert_not_called()
     self.assertEqual(tree_fn, pickle.loads(pickle.dumps(tree_fn)))
 
+  def test_tree_fn_ignore_error(self):
+    def foo(x):
+      if x == 2:
+        raise ValueError('foo')
+      return x
+
+    tree_fn = tree_fns.TreeFn.new(
+        fn=foo,
+        ignore_error=True,
+    )
+    actual = list(tree_fn.iterate(range(5)))
+    self.assertEqual([0, 1, 3, 4], actual)
+
   def test_tree_fn_default_constructor_raises(self):
     with self.assertRaisesRegex(ValueError, 'Do not use the constructor.'):
       tree_fns.TreeFn()

@@ -227,6 +227,21 @@ class TransformDataSourceTest(parameterized.TestCase):
     self.assertEqual([(1 + 2) / 2], it.agg_result)
     self.assertEqual([(1 + 2) / 2], it_new.agg_result)
 
+  def test_sequence_data_source_ignore_error(self):
+    def foo(x):
+      if x == 2:
+        raise ValueError('foo')
+      return x
+
+    num_threads = 1
+    p = transform.TreeTransform(num_threads=num_threads).apply(fn=foo)
+    expected = [0, 1, 3]
+    it = p.make().iterate(range(4), ignore_error=True)
+    self.assertEqual(expected, list(it))
+    assert it._thread_pool is not None
+    self.assertNotEmpty(it._thread_pool._threads)
+    self.assertTrue(all(not t.is_alive() for t in it._thread_pool._threads))
+
   def test_data_source_not_recoverable_raise_error(self):
     ds = range(3)
     p = transform.TreeTransform().data_source(ds).apply(fn=lambda x: x + 1)
