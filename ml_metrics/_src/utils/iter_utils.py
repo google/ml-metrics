@@ -261,7 +261,7 @@ class MergedSequences(Generic[_ValueT]):
       raise IndexError(f'Index {index} is out of range.') from None
 
 
-class MergedIterator(Iterable[_ValueT]):
+class MergedIterator(Iterator[_ValueT]):
   """An iterator that merges multiple iterables."""
 
   def __init__(
@@ -964,8 +964,8 @@ class _TeeIterator(Iterator[_ValueT]):
   out of memory issue as common.
   """
 
-  def __init__(self, iterator: Iterable[_ValueT], *, buffer_size: int = 0):
-    self._iterator = iter(iterator)
+  def __init__(self, iterator: Iterator[_ValueT], *, buffer_size: int = 0):
+    self._iterator = iterator
     self._buffer_size = buffer_size
     self._buffer = collections.deque(maxlen=buffer_size or None)
     self._exhausted = False
@@ -1001,8 +1001,8 @@ class _TeeIterator(Iterator[_ValueT]):
 
 
 def processed_with_inputs(
-    process_fn: Callable[[Iterable[_InputT]], Iterable[_ValueT]],
-    input_iterator: Iterable[_InputT],
+    process_fn: Callable[[Iterator[_InputT]], Iterator[_ValueT]],
+    input_iterator: Iterator[_InputT],
     *,
     max_buffer_size: int = 0,
 ) -> Iterator[tuple[_InputT, _ValueT]]:
