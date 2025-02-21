@@ -197,14 +197,14 @@ class TransformDataSourceTest(parameterized.TestCase):
     self.assertEqual(expected, actual)
 
   def test_sharded_sequence_data_source_multithread(self):
-    ds = io.SequenceDataSource(range(10))
-    num_threads = 2
+    ds = io.SequenceDataSource(range(512))
+    num_threads = 64
     p = transform.TreeTransform(num_threads=num_threads).data_source(ds)
-    expected = range(10)
+    expected = list(range(512))
     it = p.make().iterate()
     self.assertCountEqual(expected, list(it))
     assert it._thread_pool is not None
-    self.assertLen(it._thread_pool._threads, num_threads)
+    self.assertNotEmpty(it._thread_pool._threads)
     self.assertTrue(all(not t.is_alive() for t in it._thread_pool._threads))
 
   def test_sharded_sequence_data_source_resume(self):

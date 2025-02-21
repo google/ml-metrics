@@ -192,7 +192,13 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
 
   def _get_thread_pool(self) -> futures.ThreadPoolExecutor | None:
     if self._thread_pool is None and self._tree_fn.num_threads:
-      self._thread_pool = futures.ThreadPoolExecutor()
+      # The maximum number of threads is the num_threads for the input and
+      # another num_threads for the function itself pluse one thread as the
+      # output.
+      self._thread_pool = futures.ThreadPoolExecutor(
+          max_workers=self._tree_fn.num_threads * 2 + 1,
+          thread_name_prefix=f'piter_pool: "{self.name}"',
+      )
     return self._thread_pool
 
   @property
