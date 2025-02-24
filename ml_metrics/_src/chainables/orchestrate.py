@@ -140,7 +140,7 @@ def sharded_pipelines_as_iterator(
       )
 
     thread = threading.Thread(
-        target=compute_result, args=(states_queue, result_queue)
+        target=compute_result, args=(states_queue, result_queue), daemon=True
     )
     thread.start()
 
