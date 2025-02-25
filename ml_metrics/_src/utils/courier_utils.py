@@ -20,7 +20,6 @@ import asyncio
 from collections.abc import AsyncIterator, Iterable, Iterator
 from concurrent import futures
 import dataclasses as dc
-import gzip
 import queue
 import threading
 import time
@@ -601,7 +600,7 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
     return state
 
   def _result_or_exception(self, pickled: bytes) -> Any | Exception:
-    result = lazy_fns.pickler.loads(gzip.decompress(pickled))
+    result = lazy_fns.pickler.loadz(pickled)
     if isinstance(result, Exception):
       raise result
     if isinstance(result, lazy_fns.LazyObject):

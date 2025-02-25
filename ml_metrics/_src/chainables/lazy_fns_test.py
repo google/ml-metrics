@@ -342,6 +342,11 @@ class LazyFnsTest(parameterized.TestCase):
     lazy_foo = trace(Foo)(a=trace(get)('a'))
     self.assertEqual(lazy_foo, pickle.loads(pickle.dumps(lazy_foo)))
 
+  def test_lazy_fn_pickling_with_compression(self):
+    lazy_foo = trace(Foo)(a=trace(get)('a'), b=trace(get)('b'))
+    b = lazy_fns.pickler.dumpz(lazy_foo)
+    self.assertEqual(lazy_foo, lazy_fns.pickler.loadz(b))
+
   def test_lazy_fn_returns_lazy(self):
     lazy_foo = trace(foo)(1, 2, 3, a='a', b='b')
     expected = lazy_fns.LazyFn.new(

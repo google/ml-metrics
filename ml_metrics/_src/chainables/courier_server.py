@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from concurrent import futures
-import gzip
 import signal
 import threading
 import time
@@ -217,9 +216,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
         if isinstance(e, (ValueError, TypeError, RuntimeError)):
           logging.exception('chainable: maybe_make exception for %s.', lazy_obj)
       try:
-        result = pickler.dumps(result)
-        if compress:
-          result = gzip.compress(result)
+        result = pickler.dumps(result, compress=compress)
         with self._tx_stats_lock:
           ticker, bytes_sent, num_txs = self._tx_stats
           self._tx_stats = (ticker, bytes_sent + len(result), num_txs + 1)

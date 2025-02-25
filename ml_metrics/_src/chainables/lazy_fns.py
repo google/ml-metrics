@@ -20,6 +20,7 @@ import collections
 from collections.abc import Callable, Hashable, Iterator, Mapping, Sequence
 import dataclasses as dc
 import functools
+import gzip
 import importlib
 import inspect
 import itertools as it
@@ -147,11 +148,19 @@ class _Pickler:
           ' `dumps` methods.'
       )
 
-  def dumps(self, value: Any) -> bytes:
-    return self.default.dumps(value)
+  def dumps(self, value: Any, compress: bool = False) -> bytes:
+    bytes_ = self.default.dumps(value)
+    return gzip.compress(bytes_) if compress else bytes_
 
-  def loads(self, value: bytes) -> Any:
+  def loads(self, value: bytes, compress: bool = False) -> Any:
+    value = gzip.decompress(value) if compress else value
     return self.default.loads(value)
+
+  def dumpz(self, value: Any) -> bytes:
+    return self.dumps(value, compress=True)
+
+  def loadz(self, value: bytes) -> Any:
+    return self.loads(value, compress=True)
 
 
 pickler = _Pickler()
