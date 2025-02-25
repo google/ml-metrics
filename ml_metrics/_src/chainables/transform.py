@@ -25,7 +25,7 @@ Following is an example of an evaluation pipeline where:
     fanout logic.
 
   eval_pipeline = (
-      TreeTransform.new()
+      TreeTransform()
       .data_source(iterator_fn)
       .apply(
           fn=preprocess_fn,
@@ -635,7 +635,7 @@ class TreeTransform(Generic[TreeFnT]):
 
     ```
     predictions = (
-        core.TreeTransform.new()
+        core.TreeTransform()
         # Reading
         .data_source(iterator_make=get_iterator(path))
         # Example pre_processing
@@ -682,7 +682,7 @@ class TreeTransform(Generic[TreeFnT]):
     num_threads: maximum number of threads to run the transform.
     id: the id of the transform, unique for each transform.
     is_noop: whether the transform is a no-op, e.g., no function to execute.
-      This is useful at the beginning of a chain by calling `Transform.new()`.
+      This is useful at the beginning of a chain by calling `Transform()`.
   """
 
   name: str = ''
@@ -757,7 +757,7 @@ class TreeTransform(Generic[TreeFnT]):
     # Consecutive transforms with the same name will be considered as the same
     # transform.
     tracked = None
-    for transform in self.flatten_transform() + [TreeTransform.new()]:
+    for transform in self.flatten_transform() + [TreeTransform()]:
       if not tracked:
         tracked = transform
         continue
