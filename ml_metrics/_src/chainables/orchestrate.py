@@ -403,8 +403,7 @@ def _async_run_single_stage(
     if input_queue is not None:
       input_iterator = iter(input_queue)
     iterator = transform.make().iterate(
-        input_iterator=input_iterator,
-        with_result=not aggregate_only,
+        input_iterator, with_result=not aggregate_only
     )
     result_q.enqueue_from_iterator(iterator)
     delta_time = time.time() - start_time

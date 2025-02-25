@@ -309,8 +309,7 @@ class CombinedTreeFn:
   agg_fns: dict[TreeMapKeys | TreeMapKey, tree_fns.TreeAggregateFn]
   slicers: list[tree_fns.Slicer]
   output_fns: Sequence[tree_fns.TreeFn]
-  # TODO: b/395649147 - Rename to data_source.
-  input_iterator: Iterable[Any] | None
+  data_source: Iterable[Any] | None
   num_threads: int
 
   @classmethod
@@ -405,7 +404,7 @@ class CombinedTreeFn:
         agg_fns=agg_fns,
         slicers=slice_fns,
         output_fns=output_fns,
-        input_iterator=data_source,
+        data_source=data_source,
         num_threads=transform.num_threads,
     )
 
@@ -521,7 +520,7 @@ class CombinedTreeFn:
       # An iterable of a single element.
       return [io.SequenceDataSource([inputs])]
     if data_source is None:
-      data_source = self.input_iterator
+      data_source = self.data_source
     if self.num_threads and types.is_shardable(data_source):
       data_sources = [
           data_source.shard(i, self.num_threads)
@@ -536,8 +535,7 @@ class CombinedTreeFn:
 
   def iterate(
       self,
-      # TODO: b/395649147 - Rename input_iterator to data_source.
-      input_iterator: Iterable[Any] | None = None,
+      data_source: Iterable[Any] | None = None,
       *,
       with_result: bool = True,
       with_agg_state: bool = True,
@@ -545,7 +543,7 @@ class CombinedTreeFn:
       state: Any = None,
       ignore_error: bool = False,
   ) -> _IteratorWithAggResult[Any]:
-    """An iterator runner that takes an input_iterator runs the transform.
+    """An iterator runner that takes an data_source runs the transform.
 
     The iterator by default yields the output of all the input_functions before
     the first aggregation function in the chain. Optionally, it can also yield
@@ -553,7 +551,7 @@ class CombinedTreeFn:
     iteration.
 
     Args:
-      input_iterator: the input iterator.
+      data_source: the input iterator.
       with_result: whether to yield the output of running the input_functions.
       with_agg_state: whether to yield the aggregation state at the end of the
         iteration.
@@ -565,7 +563,6 @@ class CombinedTreeFn:
     Returns:
       An iterator that also optionally keeps the aggregation result and state.
     """
-    data_source = input_iterator
     return _IteratorWithAggResult(
         self,
         data_sources=self._actual_inputs(None, data_source),
@@ -582,7 +579,7 @@ class CombinedTreeFn:
     if (
         not self.agg_fns
         and inputs is None
-        and (input_iterator is not None or self.input_iterator is not None)
+        and (input_iterator is not None or self.data_source is not None)
     ):
       raise ValueError(
           'Non-aggregate transform is not callable with iterator inputs, uses '
