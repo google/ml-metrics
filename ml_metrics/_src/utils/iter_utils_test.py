@@ -208,7 +208,9 @@ class IterUtilsTest(parameterized.TestCase):
     self.assertEqual(11, a[11])
     self.assertEqual(19, a[-1])
     self.assertEqual(list(a[0:11]), list(range(11)))
+    self.assertEqual(list(a[:11]), list(range(11)))
     self.assertEqual(list(a[8:20]), list(range(8, 20)))
+    self.assertEqual(list(a[11:]), list(range(11, 20)))
 
   def test_merged_sequences_sequences(self):
     seqs = [range(10), range(10, 20)]

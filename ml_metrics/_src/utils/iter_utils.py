@@ -237,8 +237,8 @@ class MergedSequences(Generic[_ValueT]):
     """Slices the merged sequences."""
     if slice_.step is not None:
       raise NotImplementedError(f'step is not supported, got {slice_}')
-    start = self._index(slice_.start)
-    stop = self._index(slice_.stop)
+    start = self._index(slice_.start or 0)
+    stop = self._index(len(self) if slice_.stop is None else slice_.stop)
     if start.seq_idx == len(self._sequences):
       return iter(())
     if start.seq_idx == stop.seq_idx:
