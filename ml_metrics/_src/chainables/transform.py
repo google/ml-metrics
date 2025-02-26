@@ -856,6 +856,32 @@ class TreeTransform(Generic[TreeFnT]):
     )
     return self._maybe_new_transform(fn)
 
+  def batch(self, batch_size: int = 0):
+    """Batches the input of this transform.
+
+    This batches single element to a list of elements. E.g., for inputs of
+    [1, 2, 3], given `p = TreeTransform().batch(2)`, `p.make().iterate(inputs)`
+    yields [[1, 2], [3]]. This also works for multiple output operations where
+    multiple output_keys are provided. E.g., with a dict inputs of [{'a': 1,
+    'b': 2}, {'a': 3, 'b': 4}], given `p = TreeTransform().select(('a',
+    'b')).batch(2)`, `p.make().iterate(inputs)` yields [{'a': [1, 3], 'b': [2,
+    4]}].
+
+    Args:
+      batch_size: the batch size.
+
+    Returns:
+      A TreeTransform that batches the input of this transform.
+    """
+    fn = lambda *args: tuple([arg] for arg in args)
+    keys = tuple(self.output_keys) or tree.Key.SELF
+    return self.apply(
+        output_keys=keys,
+        fn=fn,
+        input_keys=keys,
+        batch_size=batch_size,
+    )
+
   # TODO: b/356633410 - support rebatching.
   def aggregate(
       self,

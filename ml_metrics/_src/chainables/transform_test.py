@@ -800,6 +800,39 @@ class TransformTest(parameterized.TestCase):
     ]
     self.assertEqual(expected, actual)
 
+  def test_batch_direct(self):
+    t = transform.TreeTransform.new().batch(batch_size=3)
+    actual = list(t.make().iterate(range(10)))
+    expected = list(map(list, mit.batched(range(10), 3)))
+    self.assertEqual(expected, actual)
+
+  def test_batch_with_apply(self):
+    fn = lambda x: (x['a'], x['b'])
+    inputs = [
+        {'a': 0, 'b': 1},
+        {'a': 2, 'b': 3},
+        {'a': 4, 'b': 5},
+    ]
+    t = (
+        transform.TreeTransform.new()
+        .apply(fn=fn, output_keys=('a', 'b'))
+        .batch(batch_size=2)
+    )
+    actual = list(t.make().iterate(inputs))
+    expected = [{'a': [0, 2], 'b': [1, 3]}, {'a': [4], 'b': [5]}]
+    self.assertEqual(expected, actual)
+
+  def test_batch_with_batch_with_select(self):
+    inputs = [
+        {'a': 0, 'b': 1},
+        {'a': 2, 'b': 3},
+        {'a': 4, 'b': 5},
+    ]
+    t = transform.TreeTransform.new().select(('a', 'b')).batch(batch_size=2)
+    actual = list(t.make().iterate(inputs))
+    expected = [{'a': [0, 2], 'b': [1, 3]}, {'a': [4], 'b': [5]}]
+    self.assertEqual(expected, actual)
+
   def test_aggregate_starts_with_empty_agg(self):
     p = (
         transform.TreeTransform()
