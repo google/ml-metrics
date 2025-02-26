@@ -359,6 +359,7 @@ class PrefetchedCourierServer(CourierServer):
       timeout_secs: float = 10200,
       prefetch_size: int = 2,
       clients: Iterable[str] = (),
+      ignore_error: bool = True,
   ):
     super().__init__(
         server_name,
@@ -369,6 +370,7 @@ class PrefetchedCourierServer(CourierServer):
     self.prefetch_size = prefetch_size
     self._enqueue_thread = None
     self._generator = None
+    self._ignore_error = ignore_error
 
   def __hash__(self) -> int:
     return super().__hash__()
@@ -400,7 +402,7 @@ class PrefetchedCourierServer(CourierServer):
           self._enqueue_thread.join()
       self._generator = iter_utils.IteratorQueue(
           self.prefetch_size,
-          ignore_error=True,
+          ignore_error=self._ignore_error,
           name=f'prefetch_queue@{self.address}',
       )
       self._enqueue_thread = threading.Thread(
