@@ -440,7 +440,7 @@ class WorkerPool:
       async for elem in aiterator:
         output_queue.put(elem)
 
-    loop_thread = threading.Thread(target=event_loop.run_forever)
+    loop_thread = threading.Thread(target=event_loop.run_forever, daemon=True)
     loop_thread.start()
     running_tasks: list[GeneratorTask] = []
     tasks: list[GeneratorTask] = []
