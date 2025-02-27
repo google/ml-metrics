@@ -150,7 +150,7 @@ class _Pickler:
 
   def dumps(self, value: Any, compress: bool = False) -> bytes:
     bytes_ = self.default.dumps(value)
-    return gzip.compress(bytes_) if compress else bytes_
+    return gzip.compress(bytes_, compresslevel=5) if compress else bytes_
 
   def loads(self, value: bytes, compress: bool = False) -> Any:
     value = gzip.decompress(value) if compress else value
