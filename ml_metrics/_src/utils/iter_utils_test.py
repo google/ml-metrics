@@ -112,7 +112,7 @@ class IterUtilsTest(parameterized.TestCase):
     self.assertEqual([1, 2], actual)
 
   def test_parallel_iterate_fn_return_tuple(self):
-    sleep_time = 0.3
+    sleep_time = 0.6
 
     def foo(x, y):
       time.sleep(sleep_time)
@@ -635,7 +635,7 @@ class IterUtilsTest(parameterized.TestCase):
   def test_piter_multiple_iterators(self):
     n, m = 256, 2
     assert n % m == 0
-    inputs = [range_with_return(m, 0.3) for _ in range(int(n / m))]
+    inputs = [range_with_return(m, 0.6) for _ in range(int(n / m))]
     with futures.ThreadPoolExecutor(max_workers=len(inputs)) as thread_pool:
       pit = iter_utils.piter(input_iterators=inputs, thread_pool=thread_pool)
       actual = list(pit)
