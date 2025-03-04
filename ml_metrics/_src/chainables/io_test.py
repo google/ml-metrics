@@ -110,15 +110,15 @@ class SequenceDataSourceTest(parameterized.TestCase):
 
   def test_sequence_ignore_error_single_sequence(self):
     ds = io.SequenceDataSource(
-        test_utils.RangeWithException(5, 2), ignore_error=True
+        test_utils.SequenceWithExc(5, 2), ignore_error=True
     )
     self.assertEqual([0, 1, 3, 4], list(ds))
 
   def test_sequence_ignore_error_multiple_sequences(self):
     ds = io.SequenceDataSource.from_sequences(
         [
-            test_utils.RangeWithException(5, 2),
-            test_utils.RangeWithException(5, 3),
+            test_utils.SequenceWithExc(5, 2),
+            test_utils.SequenceWithExc(5, 3),
         ],
         ignore_error=True,
     )

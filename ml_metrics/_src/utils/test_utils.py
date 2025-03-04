@@ -14,6 +14,7 @@
 """Utilities for testing, internal use only."""
 
 from collections.abc import Iterable
+import time
 import unittest
 
 from ml_metrics._src.aggregates import rolling_stats
@@ -21,7 +22,48 @@ from ml_metrics._src.chainables import transform
 import numpy as np
 
 
-class RangeWithException:
+def range_with_exc(x, exc_i):
+  for i in range(x):
+    if i == exc_i:
+      raise ValueError(f'range_with_exc at {i}')
+    yield i
+
+
+def range_with_sleep(n, sleep: float = 0):
+  for i in range(n):
+    if sleep:
+      time.sleep(sleep)
+    yield i
+
+
+def range_with_return(n, return_value: int = 0):
+  return_value = return_value or n
+  for i in range(n):
+    yield i
+  return return_value
+
+
+def inf_range(n):
+  yield from range(n)
+  raise ValueError(
+      'The runner does not iterate and copy everything into memory, it should'
+      ' never be exhausted.'
+  )
+
+
+class NoLenIter(Iterable):
+
+  def __init__(self, iterable):
+    self._iteratable = iterable
+
+  def __len__(self):
+    raise ValueError('Cannot call len()')
+
+  def __iter__(self):
+    return iter(self._iteratable)
+
+
+class SequenceWithExc:
   """A range that raises an exception at a specific value."""
 
   def __init__(self, end: int, exc_i: int):

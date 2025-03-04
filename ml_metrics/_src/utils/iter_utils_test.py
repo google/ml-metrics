@@ -49,18 +49,6 @@ def args_batched(num_args, batch_size, batch_fn=lambda x: x):
   )
 
 
-class MockIterable:
-
-  def __init__(self, iterable):
-    self._iteratable = iterable
-
-  def __len__(self):
-    raise NotImplementedError()
-
-  def __iter__(self):
-    return iter(self._iteratable)
-
-
 class MockSequence:
 
   def __init__(self, data):
@@ -73,21 +61,6 @@ class MockSequence:
   def __getitem__(self, i):
     self.ref_cnt += 1
     return self._data[i.__index__()]
-
-
-def range_with_return(n, sleep: float = 0):
-  for i in range(n):
-    if sleep:
-      time.sleep(sleep)
-    yield i
-  return n
-
-
-def range_with_exc(x, exc_i):
-  for i in range(x):
-    if i == exc_i:
-      raise ValueError('foo')
-    yield i
 
 
 class IterUtilsTest(parameterized.TestCase):
@@ -153,7 +126,7 @@ class IterUtilsTest(parameterized.TestCase):
     self.assertEqual([R(0, 0), R(1, 0)], iter_utils.iterate_fn(foo)([0, 1]))
 
   def test_iterate_ignore_error(self):
-    it = iter_utils.index_slice(test_utils.RangeWithException(5, 3))
+    it = iter_utils.index_slice(test_utils.SequenceWithExc(5, 3))
     it = map(lambda x: x, it)
     # 0, 1, 2, 3, 4, ignore 3, got 0, 1, 2, 4
     actual = list(iter_utils.iter_ignore_error(it))
@@ -252,7 +225,7 @@ class IterUtilsTest(parameterized.TestCase):
   def test_iterator_queue_enqueue_dequeue_single_thread(self):
     q = iter_utils.IteratorQueue()
     self.assertFalse(q.enqueue_done)
-    q.enqueue_from_iterator(range_with_return(10))
+    q.enqueue_from_iterator(test_utils.range_with_return(10))
     self.assertTrue(q.enqueue_done)
     q_iter = q.dequeue_as_iterator(num_steps=10)
     actual = list(iter(q_iter))
@@ -263,8 +236,8 @@ class IterUtilsTest(parameterized.TestCase):
   def test_iterator_queue_async_enqueue_dequeue_single_thread(self):
     q = iter_utils.AsyncIteratorQueue()
     # This merges two streams of iterator into one.
-    q.enqueue_from_iterator(range_with_return(1))
-    q.enqueue_from_iterator(range_with_return(2))
+    q.enqueue_from_iterator(test_utils.range_with_return(1))
+    q.enqueue_from_iterator(test_utils.range_with_return(2))
     output_q = iter_utils.AsyncIteratorQueue()
     asyncio.run(output_q.async_enqueue_from_iterator(q))
     async_iter = output_q.async_dequeue_as_iterator(num_steps=3)
@@ -283,7 +256,7 @@ class IterUtilsTest(parameterized.TestCase):
       t.start()
     with futures.ThreadPoolExecutor() as thread_pool:
       states = [thread_pool.submit(list, q) for _ in range(num_dequeue_threads)]
-      input_q.enqueue_from_iterator(range_with_return(n))
+      input_q.enqueue_from_iterator(test_utils.range_with_return(n))
     results = futures.as_completed(states)
     actual = list(itt.chain(*(result.result() for result in results)))
     expected = list(range(n))
@@ -303,7 +276,7 @@ class IterUtilsTest(parameterized.TestCase):
       results = await asyncio.gather(*tasks)
       return list(itt.chain(*results))
 
-    input_q.enqueue_from_iterator(range_with_return(n))
+    input_q.enqueue_from_iterator(test_utils.range_with_return(n))
     actual = asyncio.run(dequeue())
     expected = list(range(n))
     self.assertCountEqual(expected, actual)
@@ -349,7 +322,9 @@ class IterUtilsTest(parameterized.TestCase):
   def test_iterator_queue_flush_raises(self):
     iterator = iter_utils.IteratorQueue(2)
     with futures.ThreadPoolExecutor() as thread_pool:
-      thread_pool.submit(iterator.enqueue_from_iterator, range_with_exc(10, 9))
+      thread_pool.submit(
+          iterator.enqueue_from_iterator, test_utils.range_with_exc(10, 9)
+      )
       with self.assertRaises(ValueError):
         _ = iterator.get_batch(block=True)
 
@@ -357,7 +332,9 @@ class IterUtilsTest(parameterized.TestCase):
     iterator = iter_utils.IteratorQueue(2)
     result = []
     with futures.ThreadPoolExecutor() as thread_pool:
-      thread_pool.submit(iterator.enqueue_from_iterator, range_with_return(10))
+      thread_pool.submit(
+          iterator.enqueue_from_iterator, test_utils.range_with_return(10)
+      )
       qsize = iterator._queue.qsize()
       result += iterator.get_batch()
       result += iterator.get_batch(2, block=True)
@@ -371,7 +348,8 @@ class IterUtilsTest(parameterized.TestCase):
     num_examples = 3
     with futures.ThreadPoolExecutor() as thread_pool:
       thread_pool.submit(
-          iterator.enqueue_from_iterator, range_with_return(10, sleep=0.25)
+          iterator.enqueue_from_iterator,
+          test_utils.range_with_sleep(10, sleep=0.25),
       )
       while iterator._queue.qsize() < num_examples:
         time.sleep(0)
@@ -592,10 +570,14 @@ class IterUtilsTest(parameterized.TestCase):
     num_threads = 5
     with futures.ThreadPoolExecutor() as thread_pool:
       for _ in range(num_threads):
-        thread_pool.submit(q.enqueue_from_iterator, range_with_return(999, 0.2))
-      thread_pool.submit(q.enqueue_from_iterator, range_with_exc(10, 3))
+        thread_pool.submit(
+            q.enqueue_from_iterator, test_utils.range_with_sleep(999, 0.2)
+        )
+      thread_pool.submit(
+          q.enqueue_from_iterator, test_utils.range_with_exc(10, 3)
+      )
       self.assertLen(thread_pool._threads, num_threads + 1)
-      with self.assertRaisesRegex(ValueError, 'foo'):
+      with self.assertRaisesRegex(ValueError, 'range_with_exc at 3'):
         _ = list(q)
     # This is more for documentation purpose since all threads should have
     # stopped when thread pool is destroyed.
@@ -607,7 +589,7 @@ class IterUtilsTest(parameterized.TestCase):
       f = thread_pool.submit(list, q)
       thread_pool.submit(
           q.enqueue_from_iterator,
-          iter_utils.index_slice(test_utils.RangeWithException(4, 2)),
+          iter_utils.index_slice(test_utils.SequenceWithExc(4, 2)),
       )
       self.assertEqual([0, 1, 3], f.result())
 
@@ -615,7 +597,9 @@ class IterUtilsTest(parameterized.TestCase):
     q = iter_utils.IteratorQueue(ignore_error=True)
     with futures.ThreadPoolExecutor() as thread_pool:
       f = thread_pool.submit(list, q)
-      thread_pool.submit(q.enqueue_from_iterator, range_with_exc(5, 2))
+      thread_pool.submit(
+          q.enqueue_from_iterator, test_utils.range_with_exc(5, 2)
+      )
       self.assertEqual([0, 1], f.result())
 
   def test_piter_iterate_fn_only(self):
@@ -635,7 +619,7 @@ class IterUtilsTest(parameterized.TestCase):
   def test_piter_multiple_iterators(self):
     n, m = 256, 2
     assert n % m == 0
-    inputs = [range_with_return(m, 0.6) for _ in range(int(n / m))]
+    inputs = [test_utils.range_with_sleep(m, 0.6) for _ in range(int(n / m))]
     with futures.ThreadPoolExecutor(max_workers=len(inputs)) as thread_pool:
       pit = iter_utils.piter(input_iterators=inputs, thread_pool=thread_pool)
       actual = list(pit)
