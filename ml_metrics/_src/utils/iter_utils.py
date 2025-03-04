@@ -274,9 +274,8 @@ class MergedIterator(Iterator[_ValueT]):
     self._data_sources = list(data_sources)
     self._iterators = [iter(ds) for ds in data_sources]
     if self._parallism:
-      ds_queue = piter(
+      ds_queue = piter_multiplex(
           input_iterators=self._iterators,
-          max_parallism=self._parallism,
           thread_pool=thread_pool,
       )
       self._iterator = iter(ds_queue)
@@ -801,6 +800,79 @@ def _get_iterate_fn(
   return iter_fn(inputs) if inputs is not None else iter_fn()
 
 
+def piter_multiplex(
+    input_iterators: Iterable[Iterable[_ValueT]],
+    thread_pool: futures.ThreadPoolExecutor,
+    buffer_size: int = 0,
+    max_batch_size: int = 0,
+) -> Iterable[_ValueT]:
+  """Call a chain of functions in sequence concurrently with multithreads.
+
+  Args:
+    input_iterators: The input iterators to be passed to the iterator_fn. More
+      than one input iterators are supported and will be iterated concurrently.
+    thread_pool: The thread pool to be used.
+    buffer_size: The buffer size of the queue.
+    max_batch_size: The max batch size when dequeuing.
+
+  Returns:
+    An iterable that iterates through the chain of functions.
+  """
+  input_iterators = tuple(input_iterators)
+  if not input_iterators:
+    raise ValueError('input_iterators has to be provided.')
+
+  result_queue = IteratorQueue(
+      buffer_size,
+      max_batch_size=max_batch_size,
+      name='piter_multiplex_q',
+      max_enqueuer=len(input_iterators),
+  )
+  thread_pool = _get_thread_pool(thread_pool)
+  for iterator in input_iterators:
+    thread_pool.submit(result_queue.enqueue_from_iterator, iterator)
+  return result_queue
+
+
+def piter_fn(
+    iterator_fn: Callable[..., Iterable[_ValueT]] | None = None,
+    *,
+    thread_pool: futures.ThreadPoolExecutor | None,
+    input_iterable: Iterable[Any] | None = None,
+    parallism: int = 1,
+    buffer_size: int = 0,
+) -> Iterable[_ValueT]:
+  """Call a chain of functions in sequence concurrently with multithreads.
+
+  Args:
+    iterator_fn: A generator function that takes an iterable as input.
+    thread_pool: The thread pool to be used.
+    input_iterable: The input iterators to be passed to the iterator_fn. More
+      than one input iterators are supported and will be iterated concurrently.
+    parallism: The maximum number of threads to be used for iterator_fn. If 0,
+      the iterator_fn will be called in process; If >= 1, the iterator_fn is
+      called concurrently.
+    buffer_size: The buffer size of the queue.
+
+  Returns:
+    An iterable that iterates through the chain of functions.
+  """
+  if parallism:
+    if thread_pool is None:
+      raise ValueError('thread_pool required, got None.')
+    if input_iterable is not None:
+      assert isinstance(input_iterable, (IteratorQueue, _DequeueIterator))
+    output_queue = IteratorQueue(
+        buffer_size, name='piter_fn_q', max_enqueuer=parallism
+    )
+    for _ in range(parallism):
+      it = _get_iterate_fn(iterator_fn, input_iterable)
+      thread_pool.submit(output_queue.enqueue_from_iterator, it)
+    return output_queue
+  # In process mode when max_parallism is 0.
+  return _get_iterate_fn(iterator_fn, input_iterable)
+
+
 def piter(
     iterator_fn: Callable[..., Iterable[_ValueT]] | None = None,
     *,
@@ -837,30 +909,25 @@ def piter(
     # The input_queue uses a max_batch_size of 1 to ensure that the output_queue
     # is not consuming too many elements that leads to imbalanced parallelism.
     max_batch_size = 1 if max_parallism > 1 and iterator_fn is not None else 0
-    input_iterable = IteratorQueue(
-        buffer_size or max_parallism,  # Limit buffer size to avoid OOM.
-        max_batch_size=max_batch_size,
-        name='piter_input_q',
-        max_enqueuer=len(input_iterators),
-    )
     thread_pool = _get_thread_pool(thread_pool)
-    for iterator in input_iterators:
-      thread_pool.submit(input_iterable.enqueue_from_iterator, iterator)
+    input_iterable = piter_multiplex(
+        input_iterators,
+        thread_pool=thread_pool,
+        # Limit buffer size to avoid OOM.
+        buffer_size=buffer_size or max_parallism,
+        max_batch_size=max_batch_size,
+    )
   if iterator_fn is None:
     assert input_iterable is not None
     return input_iterable
-
-  if max_parallism:
-    output_queue = IteratorQueue(
-        buffer_size, name='piter_output_q', max_enqueuer=max_parallism
-    )
-    thread_pool = _get_thread_pool(thread_pool)
-    for _ in range(max_parallism):
-      it = _get_iterate_fn(iterator_fn, input_iterable)
-      thread_pool.submit(output_queue.enqueue_from_iterator, it)
-    return output_queue
-  # In process mode when max_parallism is 0.
-  return _get_iterate_fn(iterator_fn, input_iterable)
+  thread_pool = _get_thread_pool(thread_pool)
+  return piter_fn(
+      iterator_fn,
+      thread_pool=thread_pool,
+      input_iterable=input_iterable,
+      parallism=max_parallism,
+      buffer_size=buffer_size,
+  )
 
 
 def pmap(
@@ -871,12 +938,25 @@ def pmap(
     buffer_size: int = 0,
     thread_pool: futures.ThreadPoolExecutor | None = None,
 ):
-  return piter(
-      lambda x: map(fn, x),
-      input_iterators=[input_iterator],
-      max_parallism=max_parallism,
-      buffer_size=buffer_size,
+  """A wrapper of piter to make it easier to use with pmap."""
+  if not max_parallism:
+    return map(fn, input_iterator)
+  if thread_pool is None:
+    thread_pool = futures.ThreadPoolExecutor(max_workers=1 + max_parallism)
+  # The input_queue uses a max_batch_size of 1 to ensure that the output_queue
+  # is not consuming too many elements that leads to imbalanced parallelism.
+  pit = piter_multiplex(
+      [input_iterator],
       thread_pool=thread_pool,
+      max_batch_size=1,
+      buffer_size=max_parallism,
+  )
+  return piter_fn(
+      lambda it: map(fn, it),
+      thread_pool=thread_pool,
+      input_iterable=pit,
+      parallism=max_parallism,
+      buffer_size=buffer_size,
   )
 
 
