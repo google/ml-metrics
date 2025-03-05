@@ -1079,7 +1079,7 @@ def processed_with_inputs(
     input_iterator: Iterator[_InputT],
     *,
     max_buffer_size: int = 0,
-) -> Iterator[tuple[_InputT, _ValueT]]:
+) -> Iterator[tuple[_ValueT, _InputT]]:
   """Zips the processed outputs with its inputs."""
   iter_input = _TeeIterator(input_iterator, buffer_size=max_buffer_size)
   iter_output = process_fn(iter_input)
