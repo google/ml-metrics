@@ -300,9 +300,10 @@ class TransformTest(parameterized.TestCase):
     p = (
         transform.TreeTransform()
         .apply(fn=len, output_keys='a')
-        .assign('b', fn=lambda x: x + 1, input_keys='a')
+        .apply(fn=len, output_keys='b')
+        .assign('c', fn=lambda x: x + 1, input_keys='b')
     )
-    self.assertEqual(p.output_keys, {'a', 'b'})
+    self.assertEqual(p.output_keys, {'c', 'b'})
     p = p.aggregate(fn=MockAverageFn(), output_keys='c').add_aggregate(
         output_keys='d', fn=MockAverageFn()
     )

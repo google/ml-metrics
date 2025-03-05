@@ -810,6 +810,10 @@ class TreeTransform(Generic[TreeFnT]):
     result = set()
     for fn in self.fns:
       non_dict_keys, dict_keys = mit.partition(_is_dict, fn.output_keys)
+      # Aggregate and Assign/Apply Ops are separated into different transforms.
+      # The base TreeFn means this is an Apply Op.
+      if type(fn) is tree_fns.TreeFn:  # pylint: disable=unidiomatic-typecheck
+        result = set()
       result.update(itertools.chain(non_dict_keys, *dict_keys))
     return result
 
