@@ -205,7 +205,7 @@ class TransformDataSourceTest(parameterized.TestCase):
     self.assertEqual([(1 + 2) / 2], it.agg_result)
     self.assertEqual([(1 + 2) / 2], it_new.agg_result)
 
-  def test_sequence_data_source_ignore_error(self):
+  def test_sequence_data_source_apply_ignore_error(self):
     def foo(x):
       if x == 2:
         raise ValueError('foo')
@@ -214,6 +214,25 @@ class TransformDataSourceTest(parameterized.TestCase):
     num_threads = 1
     p = transform.TreeTransform(num_threads=num_threads).apply(fn=foo)
     expected = [0, 1, 3]
+    it = p.make().iterate(range(4), ignore_error=True)
+    self.assertEqual(expected, list(it))
+    assert it._thread_pool is not None
+    self.assertNotEmpty(it._thread_pool._threads)
+    self.assertTrue(all(not t.is_alive() for t in it._thread_pool._threads))
+
+  def test_sequence_data_source_assign_ignore_error(self):
+    def foo(x):
+      if x == 2:
+        raise ValueError('foo')
+      return x
+
+    num_threads = 1
+    p = (
+        transform.TreeTransform(num_threads=num_threads)
+        .apply(fn=lambda x: x, output_keys='a')
+        .assign('b', fn=foo, input_keys='a')
+    )
+    expected = [{'a': 0, 'b': 0}, {'a': 1, 'b': 1}, {'a': 3, 'b': 3}]
     it = p.make().iterate(range(4), ignore_error=True)
     self.assertEqual(expected, list(it))
     assert it._thread_pool is not None

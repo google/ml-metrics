@@ -57,9 +57,10 @@ class _QueueLike(Protocol[_ValueT]):
 
 
 STOP_ITERATION = StopIteration()
+_SKIP = '_SKIP'
 
 
-def iter_ignore_error(it):
+def iter_ignore_error(it, error_return=None):
   """Yields the next element from an iterator, ignoring errors.
 
   Be careful when using this function, it can cause infinite loop if the
@@ -69,6 +70,7 @@ def iter_ignore_error(it):
 
   Args:
     it: The iterator to ignore errors from.
+    error_return: The value to return when an error is encountered.
 
   Yilds:
     The next element from the iterator, ignoring errors.
@@ -79,6 +81,8 @@ def iter_ignore_error(it):
     except (StopIteration, StopAsyncIteration) as e:
       return e.value
     except _IGNORE_ERROR_TYPES:
+      if error_return is not None:
+        yield error_return
       continue
 
 
@@ -1079,12 +1083,20 @@ def processed_with_inputs(
     input_iterator: Iterator[_InputT],
     *,
     max_buffer_size: int = 0,
+    ignore_error: bool = False,
 ) -> Iterator[tuple[_ValueT, _InputT]]:
   """Zips the processed outputs with its inputs."""
   iter_input = _TeeIterator(input_iterator, buffer_size=max_buffer_size)
   iter_output = process_fn(iter_input)
-  # Note that recital iterator has to be put after the input iterator so that
-  # there are values to be recited.
+  if ignore_error:
+    iter_output = iter_ignore_error(iter_output, error_return=_SKIP)
+    # Note that recital iterator has to be put after the input iterator so that
+    # there are values to be recited.
+    return (
+        (output, input)
+        for output, input in zip(iter_output, iter_input.tee())
+        if output is not _SKIP
+    )
   return zip(iter_output, iter_input.tee())
 
 

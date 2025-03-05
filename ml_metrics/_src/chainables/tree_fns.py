@@ -257,7 +257,9 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
     return mit.first(self.iterate([inputs]))
 
   def _iterate(
-      self, input_iterator: Iterator[tree.MapLikeTree[ValueT] | None]
+      self,
+      input_iterator: Iterator[tree.MapLikeTree[ValueT] | None],
+      ignore_error: bool = False,
   ) -> Iterator[tree.MapLikeTree[ValueT] | None]:
     fn_inputs = map(self.get_inputs, input_iterator)
     if self.fn_batch_size:
@@ -267,7 +269,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
           num_columns=self.num_inputs,
       )
     # Only ignore function call error.
-    map_ = iter_utils.map_ignore_error if self.ignore_error else map
+    map_ = iter_utils.map_ignore_error if ignore_error else map
     fn_outputs = map_(self._maybe_call_fn, fn_inputs)
     if self.batch_size:
       fn_outputs = iter_utils.rebatched_args(
@@ -280,7 +282,10 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
   def iterate(
       self, input_iterator: Iterable[tree.MapLikeTree[ValueT] | None]
   ) -> Iterator[tree.MapLikeTree[ValueT] | None]:
-    return map(self._get_outputs, self._iterate(iter(input_iterator)))
+    return map(
+        self._get_outputs,
+        self._iterate(iter(input_iterator), ignore_error=self.ignore_error),
+    )
 
   def __getstate__(self):
     state = self.__dict__.copy()
@@ -306,7 +311,9 @@ class Assign(TreeFn):
   ) -> Iterator[tree.MapLikeTree[ValueT] | None]:
     return it.starmap(
         self._get_outputs,
-        iter_utils.processed_with_inputs(self._iterate, iter(input_iterator)),
+        iter_utils.processed_with_inputs(
+            self._iterate, iter(input_iterator), ignore_error=self.ignore_error
+        ),
     )
 
 
