@@ -23,6 +23,131 @@ class TextTest(parameterized.TestCase):
   @parameterized.named_parameters([
       dict(
           testcase_name='simple_text',
+          input_text='Hi, how are you?',
+          expected_counts=4,
+      ),
+      dict(
+          testcase_name='empty_text',
+          input_text='',
+          expected_counts=0,
+      ),
+      dict(
+          testcase_name='repeated_text',
+          input_text='Hi hi HI hi hi',
+          expected_counts=3,
+      ),
+      dict(
+          testcase_name='mixed_char_text',
+          input_text='a b!@ 14cD.',
+          expected_counts=3,
+      ),
+  ])
+  def test_unique_word_count(self, input_text, expected_counts):
+    count = text.unique_word_count(input_text)
+    self.assertEqual(expected_counts, count)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='simple_text',
+          input_text='Hi, how are you?',
+          expected_counts=16,
+      ),
+      dict(
+          testcase_name='empty_text',
+          input_text='',
+          expected_counts=0,
+      ),
+      dict(
+          testcase_name='repeated_text',
+          input_text='Hi hi HI hi hi',
+          expected_counts=14,
+      ),
+      dict(
+          testcase_name='mixed_char_text',
+          input_text='a b!@ 14cD.',
+          expected_counts=11,
+      ),
+  ])
+  def test_number_of_characters(self, input_text, expected_counts):
+    count = text.number_of_characters(input_text)
+    self.assertEqual(expected_counts, count)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='simple_text',
+          input_text='No caps at all',
+          expected_counts=0,
+      ),
+      dict(
+          testcase_name='empty_text',
+          input_text='',
+          expected_counts=0,
+      ),
+      dict(
+          testcase_name='some_caps',
+          input_text='HI how are you?',
+          expected_counts=0.25,
+      ),
+      dict(
+          testcase_name='all_caps',
+          input_text='ALL CAPS',
+          expected_counts=1,
+      ),
+  ])
+  def test_percentage_all_caps(self, input_text, expected_counts):
+    count = text.percentage_all_caps(input_text)
+    self.assertEqual(expected_counts, count)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='simple_text',
+          input_text='No non-ascii characters',
+          expected_counts=0,
+      ),
+      dict(
+          testcase_name='empty_text',
+          input_text='',
+          expected_counts=0,
+      ),
+      dict(
+          testcase_name='some_non_ascii_characters',
+          input_text='Hällö, wörld!',
+          expected_counts=0.23,
+      ),
+  ])
+  def test_percentage_non_ascii_characters(self, input_text, expected_counts):
+    count = text.percentage_non_ascii_characters(input_text)
+    self.assertAlmostEqual(expected_counts, count, places=2)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='no_repeated_words',
+          input_text='No repeated words',
+          expected_counts=1,
+      ),
+      dict(
+          testcase_name='empty_text',
+          input_text='',
+          expected_counts=0,
+      ),
+      dict(
+          testcase_name='three_words_are_unique_out_of_four',
+          input_text='Hi hi hi all',
+          expected_counts=0.75,
+      ),
+      dict(
+          testcase_name='one_word_is_unique_out_of_three',
+          input_text='hi hi hi',
+          expected_counts=0.33,
+      ),
+  ])
+  def test_type_token_ratio(self, input_text, expected_counts):
+    count = text.type_token_ratio(input_text)
+    self.assertAlmostEqual(expected_counts, count, places=2)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='simple_text',
           input_text='aBc',
           expected_counts=3,
       ),
@@ -54,7 +179,7 @@ class TextTest(parameterized.TestCase):
       ),
       dict(
           testcase_name='mixed_symbol_text',
-          input_text='1. I\'m doing well. How are you?',
+          input_text="1. I'm doing well. How are you?",
           expected_counts=6,
       ),
   ])
@@ -64,7 +189,7 @@ class TextTest(parameterized.TestCase):
 
   def test_token_count(self):
     def tokenizer(x):
-      return [x[:i+1] for i in range(len(x))]
+      return [x[: i + 1] for i in range(len(x))]
 
     count = text.token_count(text='abcd', tokenizer=tokenizer)
     self.assertEqual(4, count)

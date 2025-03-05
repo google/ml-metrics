@@ -41,12 +41,12 @@ def word_count(text: str) -> int:
   treated as one word, "Im".
 
   Args:
-    text:
-      Input text.
+    text: Input text.
+
   Returns:
     Number of words.
   """
-  return len(re.sub(r'[^a-zA-Z ]', '', text).split())
+  return len(_get_words(text))
 
 
 def token_count(text: str, tokenizer: Callable[[str], Sequence[Any]]) -> int:
@@ -129,7 +129,56 @@ def is_all_whitespace(text: str) -> bool:
 
 def average_word_length(text: str) -> float:
   """Computes the average word length."""
-  words = re.sub(r'[^a-zA-Z ]', '', text).split()
+  words = _get_words(text)
   if not words:
     return 0.0
   return sum(len(word) for word in words) / len(words)
+
+
+def _get_words(text: str) -> list[str]:
+  """Returns the words in the text."""
+  return re.sub(r'[^a-zA-Z ]', '', text).split()
+
+
+def unique_word_count(text: str) -> int:
+  """Computes the number of unique words."""
+  return len(set(_get_words(text)))
+
+
+def number_of_characters(text: str) -> int:
+  """Computes the number of characters."""
+  return len(text)
+
+
+def percentage_all_caps(text: str) -> float:
+  """Computes the percentage of all caps."""
+  words = _get_words(text)
+  if not words:
+    return 0
+  return len([word for word in words if word.isupper()]) / len(words)
+
+
+def percentage_non_ascii_characters(text: str) -> float:
+  """Computes the percentage of non-ascii characters."""
+  if not number_of_characters(text):
+    return 0
+  return 1 - (non_ascii_char_count(text) / number_of_characters(text))
+
+
+def type_token_ratio(text: str) -> float:
+  """Computes the type token ratio.
+
+  Words with the same letters but different lowercase letters are considered
+  different.
+
+  Args:
+    text: Input text.
+
+  Returns:
+    The ratio of unique words to total words.
+  """
+  words = _get_words(text)
+  if not words:
+    return 0
+
+  return unique_word_count(text) / len(words)
