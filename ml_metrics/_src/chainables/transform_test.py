@@ -371,6 +371,18 @@ class TransformTest(parameterized.TestCase):
         list(t3.make().iterate(inputs)),
     )
 
+  def test_transform_filter(self):
+    t = (
+        transform.TreeTransform()
+        .data_source(range(5))
+        .apply(fn=lambda x: (x, x + 1), output_keys=('a', 'b'))
+        .filter(lambda x: x % 2 == 0, input_keys='a')
+        .batch(batch_size=2)
+    )
+    self.assertEqual(
+        list(t.make()), [{'a': [0, 2], 'b': [1, 3]}, {'a': [4], 'b': [5]}]
+    )
+
   def test_transform_named_transforms_with_duplicate_names(self):
     t1 = transform.TreeTransform.new(name='A').data_source(
         test_utils.NoLenIter(range(3))

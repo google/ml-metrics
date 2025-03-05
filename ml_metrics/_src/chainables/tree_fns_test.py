@@ -221,6 +221,11 @@ class TreeFnTest(parameterized.TestCase):
     )
     self.assertEqual((8, 8), tree_fn(data))
 
+  def test_filter_fn(self):
+    data = range(6)
+    tree_fn = tree_fns.FilterFn.new(fn=lambda x: x % 2 == 0)
+    self.assertEqual([0, 2, 4], list(tree_fn.iterate(data)))
+
   def test_assign(self):
     data = {
         'a': 7,

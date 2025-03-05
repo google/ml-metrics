@@ -296,6 +296,16 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
     self.__dict__.update(state)
 
 
+class FilterFn(TreeFn):
+  """A lazy Map operation that operates on an mappable."""
+
+  def iterate(
+      self, input_iterator: Iterable[tree.MapLikeTree[ValueT] | None]
+  ) -> Iterator[tree.MapLikeTree[ValueT] | None]:
+    it_ = iter_utils.processed_with_inputs(self._iterate, iter(input_iterator))
+    return (elem for (value,), elem in it_ if value)
+
+
 class Assign(TreeFn):
   """A lazy Map operation that operates on an mappable."""
 

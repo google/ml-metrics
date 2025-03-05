@@ -834,6 +834,21 @@ class TreeTransform(Generic[TreeFnT]):
           f' {assign_keys=} all output keys so far: {output_keys}.'
       )
 
+  def filter(
+      self,
+      fn: Callable[..., bool],
+      *,
+      input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+  ):
+    """Filters the input of this transform."""
+    assert fn is not None, 'fn must be provided, got None.'
+    # The output_keys here is mostly for correct `self.output_keys`, which is
+    # not used in FilterFn when filtering.
+    fn = tree_fns.FilterFn.new(
+        fn=fn, input_keys=input_keys, output_keys=tuple(self.output_keys)
+    )
+    return self._maybe_new_transform(fn)
+
   def assign(
       self,
       assign_keys: TreeMapKey | TreeMapKeys = (),
