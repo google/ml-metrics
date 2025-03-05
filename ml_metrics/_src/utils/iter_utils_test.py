@@ -211,7 +211,7 @@ class IterUtilsTest(parameterized.TestCase):
       )
       self.assertCountEqual(list(it), list(range(20)))
       self.assertLen(thread_pool._threads, 2)
-      self.assertIsInstance(it._iterator, iter_utils._DequeueIterator)
+      self.assertIsInstance(it._iterator, iter_utils.DequeueIterator)
 
   def test_merged_iterator_in_process(self):
     it = iter_utils.MergedIterator([range(10), range(10, 20)], parallism=0)
@@ -703,6 +703,20 @@ class IterUtilsTest(parameterized.TestCase):
     actual = list(it)
     self.assertCountEqual(list(range(1, n + 1)), actual)
     self.assertIsInstance(it, map)
+
+  def test_pmap_early_stop(self):
+    m, p = 2, 128  # p = 256 / m
+
+    inputs = [test_utils.range_with_sleep(m, 0.3) for _ in range(p)]
+    with futures.ThreadPoolExecutor(max_workers=len(inputs) + p) as pool:
+      q = iter_utils.piter_multiplex(inputs, thread_pool=pool, max_batch_size=1)
+      self.assertIsInstance(q, iter_utils.IteratorQueue)
+      it = iter(q)
+      _ = [next(it), next(it)]
+      it.maybe_stop()
+    # This assertion is for documentation purpose since the threads should have
+    # stopped when the thread pool is destroyed.
+    self.assertTrue(all(not t.is_alive() for t in pool._threads))
 
 
 if __name__ == '__main__':

@@ -167,36 +167,37 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
         result = fn.iterate(result)
       yield from result
 
+    max_parallelism = len(data_sources) + self._tree_fn.num_threads
     if input_override is not None:
       assert isinstance(input_override, _MergedIterator)
-      self._input_iterator = input_override
+      input_iterator = input_override
     else:
-      self._input_iterator = _MergedIterator(
-          self._data_sources, self._tree_fn.num_threads, self._get_thread_pool()
+      thread_pool = self._get_thread_pool(max_parallelism)
+      input_iterator = _MergedIterator(
+          self._data_sources, self._tree_fn.num_threads, thread_pool
       )
-
+    self._input_iterator = input_iterator
     if not self._tree_fn.input_fns:
       iterator = self._input_iterator
     elif not self._tree_fn.num_threads:
       iterator = iterate_fn(self._input_iterator)
     else:
-      iterator = iter_utils.piter(
+      iterator = iter_utils.piter_fn(
           iterate_fn,
-          input_iterators=[self._input_iterator],
-          thread_pool=self._get_thread_pool(),
-          max_parallism=self._tree_fn.num_threads,
+          thread_pool=self._get_thread_pool(max_parallelism),
+          input_iterable=iter(self._input_iterator),
+          parallism=self._tree_fn.num_threads,
       )
     self._iterator = iter(iterator)
     self._prev_ticker = time.time()
     self.batch_index = 0
 
-  def _get_thread_pool(self) -> futures.ThreadPoolExecutor | None:
+  def _get_thread_pool(
+      self, max_workers: int
+  ) -> futures.ThreadPoolExecutor | None:
     if self._thread_pool is None and self._tree_fn.num_threads:
-      # The maximum number of threads is the num_threads for the input and
-      # another num_threads for the function itself pluse one thread as the
-      # output.
       self._thread_pool = futures.ThreadPoolExecutor(
-          max_workers=self._tree_fn.num_threads * 2 + 1,
+          max_workers=max_workers,
           thread_name_prefix=f'piter_pool: "{self.name}"',
       )
     return self._thread_pool
@@ -229,6 +230,13 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
     input_states = self._input_iterator.state
     return _IteratorState(input_states, agg_state=copy.deepcopy(self.agg_state))
 
+  def maybe_stop(self):
+    self._input_iterator.maybe_stop()
+    if isinstance(self._iterator, iter_utils.DequeueIterator):
+      self._iterator.maybe_stop()
+    if self._thread_pool is not None:
+      self._thread_pool.shutdown()
+
   def __next__(self) -> _ValueT:
     if (ticker := time.time()) - self._prev_ticker > _LOGGING_INTERVAL_SECS:
       logging.info(
@@ -259,9 +267,15 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
           f' {self.batch_index} batches, returned a type of'
           f' {type(returned)}.',
       )
-      if self._thread_pool is not None:
-        self._thread_pool.shutdown()
+      self.maybe_stop()
       raise StopIteration(returned) if returned else e
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      logging.exception('chainable: exception when iterating "%s".', self.name)
+      self.maybe_stop()
+      raise e
+    except KeyboardInterrupt as e:
+      self.maybe_stop()
+      raise e
 
   def __iter__(self):
     return self

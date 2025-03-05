@@ -1475,6 +1475,22 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual(inputs, result)
     self.assertEqual([3.0], iterator.returned[0].agg_result)
 
+  def test_transform_maybe_stop(self):
+    datasource = test_utils.range_with_sleep(256, 0.3)
+    p = (
+        transform.TreeTransform(num_threads=1)
+        .data_source(datasource)
+        .apply(fn=lambda x: x)
+    )
+
+    it = p.make().iterate()
+    for x in it:
+      if x == 2:
+        it.maybe_stop()
+    assert it._thread_pool
+    self.assertTrue(all(not t.is_alive() for t in it._thread_pool._threads))
+    self.assertEqual([], list(it))
+
 
 if __name__ == '__main__':
   absltest.main()

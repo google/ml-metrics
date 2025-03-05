@@ -261,7 +261,7 @@ class MergedSequences(Generic[_ValueT]):
       raise IndexError(f'Index {index} is out of range.') from None
 
 
-class MergedIterator(Iterator[_ValueT]):
+class MergedIterator(Iterable[_ValueT]):
   """An iterator that merges multiple iterables."""
 
   def __init__(
@@ -284,11 +284,12 @@ class MergedIterator(Iterator[_ValueT]):
     else:
       self._iterator = itt.chain(*self._iterators)
 
-  def __next__(self) -> _ValueT:
-    return next(self._iterator)
+  def maybe_stop(self):
+    if isinstance(self._iterator, DequeueIterator):
+      self._iterator.maybe_stop()
 
   def __iter__(self):
-    return self
+    return self._iterator
 
 
 @dc.dataclass(slots=True, eq=False)
@@ -308,7 +309,7 @@ class IterableQueue(Generic[_ValueT], abc.ABC):
     """Dequeue a batch of elements from the queue."""
 
   def dequeue_as_iterator(self, num_steps: int = -1) -> Iterator[_ValueT]:
-    return _DequeueIterator(self, num_steps=num_steps)
+    return DequeueIterator(self, num_steps=num_steps)
 
   def __iter__(self):
     return self.dequeue_as_iterator()
@@ -611,11 +612,13 @@ class IteratorQueue(IterableQueue[_ValueT]):
   def stop_enqueue(self):
     self._run_enqueue = False
     with self._states_lock:
-      self._enqueue_stop = self._enqueue_start
+      self._enqueue_stop = self._enqueue_start = self._max_enqueuer
+      self._exception = StopIteration()
     with self._enqueue_lock:
       self._enqueue_lock.notify_all()
     with self._dequeue_lock:
       self._dequeue_lock.notify_all()
+    logging.info('chainable: Manual stopping "%s" enqueue.', self.name)
 
   def enqueue_from_iterator(self, iterator: Iterable[_ValueT]):
     """Iterates through a generator while enqueue its elements."""
@@ -642,7 +645,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
         raise e
 
 
-class _DequeueIterator(Iterator[_ValueT]):
+class DequeueIterator(Iterator[_ValueT]):
   """An iterator that dequeues from an IteratorQueue."""
 
   def __init__(self, q: IterableQueue[_ValueT], *, num_steps: int = -1):
@@ -652,8 +655,13 @@ class _DequeueIterator(Iterator[_ValueT]):
     self._run_until_exhausted = num_steps < 0
     self._cache = collections.deque()
 
+  def maybe_stop(self):
+    assert isinstance(self._iterator_queue, IteratorQueue)
+    self._iterator_queue.stop_enqueue()
+
   def __next__(self) -> _ValueT:
     if not self._run_until_exhausted and self._cnt == self._num_steps:
+      self.maybe_stop()
       raise StopIteration()
     if not self._cache:
       self._cache.extend(self._iterator_queue.get_batch())
@@ -861,7 +869,7 @@ def piter_fn(
     if thread_pool is None:
       raise ValueError('thread_pool required, got None.')
     if input_iterable is not None:
-      assert isinstance(input_iterable, (IteratorQueue, _DequeueIterator))
+      assert isinstance(input_iterable, (IteratorQueue, DequeueIterator))
     output_queue = IteratorQueue(
         buffer_size, name='piter_fn_q', max_enqueuer=parallism
     )
