@@ -349,9 +349,9 @@ class CombinedTreeFn:
     name = ''
     for i, node in enumerate(transforms):
       name = node.name or name
-      if node.input_iterator is not None:
+      if node.data_source_ is not None:
         if i == 0:
-          data_source = node.input_iterator
+          data_source = node.data_source_
         else:
           raise ValueError(
               f'data_source has to be the first node, it is at {i}th position.'
@@ -687,7 +687,7 @@ class TreeTransform(Generic[TreeFnT]):
 
   Attributes:
     name: a readable name of the transform.
-    input_iterator: the input iterator, cannot coexist with the input_transform.
+    data_source_: the input iterator, cannot coexist with the input_transform.
     input_transform: the transform that outputs the input of this transform.
     fns: the underlying routines of the transforms.
     num_threads: maximum number of threads to run the transform.
@@ -697,8 +697,7 @@ class TreeTransform(Generic[TreeFnT]):
   """
 
   name: str = ''
-  # TODO: b/395649147 - Rename input_iterator to data_source.
-  input_iterator: types.MaybeResolvable[Iterable[Any]] | None = None
+  data_source_: types.MaybeResolvable[Iterable[Any]] | None = None
   input_transform: TreeTransform | None = None
   fns: tuple[TreeFnT, ...] = dataclasses.field(default_factory=tuple)
   num_threads: int = _DEFAULT_NUM_THREADS
@@ -707,10 +706,10 @@ class TreeTransform(Generic[TreeFnT]):
   )
 
   def __post_init__(self):
-    if self.input_iterator is not None and self.input_transform is not None:
+    if self.data_source_ is not None and self.input_transform is not None:
       raise ValueError(
           'Ambiguous inputs: input_iteartor and input_transform are both set.'
-          f'got {self.input_iterator=} and {self.input_transform=}.'
+          f'got {self.data_source_=} and {self.input_transform=}.'
       )
     input_transform = self.input_transform
     if input_transform and input_transform.is_noop:
@@ -722,19 +721,9 @@ class TreeTransform(Generic[TreeFnT]):
 
   @classmethod
   def new(
-      cls,
-      *,
-      name: str = '',
-      input_iterator: types.MaybeResolvable[Iterable[Any]] | None = None,
-      input_transform: TreeTransformT | None = None,
-      num_threads: int = _DEFAULT_NUM_THREADS,
+      cls, *, name: str = '', num_threads: int = _DEFAULT_NUM_THREADS
   ) -> Self:
-    return cls(
-        input_transform=input_transform,
-        input_iterator=input_iterator,
-        name=name,
-        num_threads=num_threads,
-    )
+    return cls(name=name, num_threads=num_threads)
 
   @property
   def id(self):
@@ -742,7 +731,7 @@ class TreeTransform(Generic[TreeFnT]):
 
   @property
   def is_noop(self):
-    return not self.fns and self.input_iterator is None
+    return not self.fns and self.data_source_ is None
 
   def __hash__(self):
     return hash(self._id)
@@ -798,8 +787,8 @@ class TreeTransform(Generic[TreeFnT]):
     )
 
   def data_source(self, iterator: Any = None) -> TreeTransform:
-    return TreeTransform.new(
-        input_iterator=iterator,
+    return TreeTransform(
+        data_source_=iterator,
         name=self.name,
         num_threads=self.num_threads,
     )

@@ -257,7 +257,7 @@ def _async_run_single_stage(
   # TODO: b/356633410 - Support ignore_failures.
   del ignore_failures
   worker_pool = resource.worker_pool
-  if worker_pool and transform.input_iterator is not None:
+  if worker_pool and transform.data_source_ is not None:
     raise ValueError(
         'chainable: input_iterator is not supported with worker_pool.'
     )
