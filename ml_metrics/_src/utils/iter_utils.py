@@ -658,6 +658,7 @@ class DequeueIterator(Iterator[_ValueT]):
     self._cnt = 0
     self._run_until_exhausted = num_steps < 0
     self._cache = collections.deque()
+    self._lock = threading.Lock()
 
   def maybe_stop(self):
     assert isinstance(self._iterator_queue, IteratorQueue)
@@ -667,10 +668,11 @@ class DequeueIterator(Iterator[_ValueT]):
     if not self._run_until_exhausted and self._cnt == self._num_steps:
       self.maybe_stop()
       raise StopIteration()
-    if not self._cache:
-      self._cache.extend(self._iterator_queue.get_batch())
-    self._cnt += 1
-    return self._cache.popleft()
+    with self._lock:
+      if not self._cache:
+        self._cache.extend(self._iterator_queue.get_batch())
+      self._cnt += 1
+      return self._cache.popleft()
 
   def __iter__(self):
     return self
