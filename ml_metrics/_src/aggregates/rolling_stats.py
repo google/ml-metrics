@@ -475,6 +475,44 @@ class MinMaxAndCount(base.MergeableMetric):
 
 
 @dataclasses.dataclass(slots=True)
+class ValueAccumulator(base.CallableMetric):
+  """This stores and accumulates all the values."""
+
+  concat_fn: Callable[[Any, Any], Any] | None = None
+  metric_fns: Callable[..., Any] | dict[str, Callable[..., Any]] | None = None
+  _data: tuple[list[Any], ...] = dataclasses.field(default=(), kw_only=True)
+
+  @property
+  def data(self) -> tuple[list[Any], ...]:
+    return self._data
+
+  def as_agg_fn(self) -> base.AggregateFn:
+    return base.as_agg_fn(self.__class__, self.concat_fn, self.metric_fns)
+
+  def new(self, *args):
+    if self.concat_fn:
+      return self.__class__(_data=tuple(x for x in args))
+    return self.__class__(_data=tuple([x] for x in args))
+
+  def merge(self, other: Self) -> None:
+    if not self._data:
+      self._data = tuple(other.data)
+      return
+    xs_and_ys = zip(self._data, other.data, strict=True)
+    if self.concat_fn:
+      self._data = tuple(self.concat_fn(x, y) for x, y in xs_and_ys)
+    else:
+      self._data = tuple(x + y for x, y in xs_and_ys)
+
+  def result(self) -> tuple[list[Any], ...] | list[Any] | dict[str, Any] | Any:
+    if not self.metric_fns:
+      return self._data if len(self._data) > 1 else self._data[0]
+    if isinstance(self.metric_fns, dict):
+      return {k: metric(*self._data) for k, metric in self.metric_fns.items()}
+    return self.metric_fns(*self._data)
+
+
+@dataclasses.dataclass(slots=True)
 class _R2TjurBase(abc.ABC, base.MergeableMetric):
   """Base class for Tjur's R^2.
 

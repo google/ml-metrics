@@ -1131,6 +1131,64 @@ class MinMaxAndCountTest(parameterized.TestCase):
       self.assertEqual(getattr(actual_result, property_name), 0)
 
 
+class ValueAccumulatorTest(parameterized.TestCase):
+
+  def test_value_accumulator_single_column_no_concatenate(self):
+    accumulator = rolling_stats.ValueAccumulator()
+    inputs = [1, 2, 3]
+    for batch in inputs:
+      accumulator.add(batch)
+    actual = accumulator.result()
+    self.assertEqual(inputs, actual)
+
+  def test_value_accumulator_concat_list(self):
+    concat_fn = lambda x, y: x + y
+    accumulator = rolling_stats.ValueAccumulator(concat_fn=concat_fn)
+    inputs = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
+    for batch in inputs:
+      accumulator.add(batch)
+    actual = accumulator.result()
+    self.assertEqual(list(range(9)), actual)
+
+  def test_value_accumulator_concat_np_array(self):
+    concat_fn = lambda x, y: np.concat((x, y), axis=-1)
+    accumulator = rolling_stats.ValueAccumulator(concat_fn=concat_fn)
+    inputs = [np.arange(3), np.arange(3, 6), np.arange(6, 9)]
+    for batch in inputs:
+      accumulator.add(batch)
+    actual = accumulator.result()
+    np.testing.assert_array_equal(actual, np.arange(9))
+
+  def test_value_accumulator_two_columns(self):
+    concat_fn = lambda x, y: x + y
+    accumulator = rolling_stats.ValueAccumulator(concat_fn=concat_fn)
+    inputs = [([0, 1, 2], [3, 4, 5]), ([6, 7, 8], [9, 10, 11])]
+    for batch in inputs:
+      accumulator.add(*batch)
+    actual = accumulator.result()
+    expected = ([0, 1, 2, 6, 7, 8], [3, 4, 5, 9, 10, 11])
+    self.assertEqual(expected, actual)
+
+  def test_value_accumulator_metric_fns(self):
+    concat_fn = lambda x, y: x + y
+    metric_fns = {'sum': sum, 'mean': np.mean}
+    accumulator = rolling_stats.ValueAccumulator(concat_fn, metric_fns)
+    inputs = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
+    for batch in inputs:
+      accumulator.add(batch)
+    actual = accumulator.result()
+    expected = {'sum': 36, 'mean': 4.0}
+    self.assertEqual(expected, actual)
+
+  def test_value_accumulator_as_agg_fn(self):
+    concat_fn = lambda x, y: x + y
+    accumulator = rolling_stats.ValueAccumulator(concat_fn, sum)
+    agg_fn = accumulator.as_agg_fn()
+    actual = agg_fn(list(range(9)))
+    expected = 36
+    self.assertEqual(expected, actual)
+
+
 class R2TjurTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
