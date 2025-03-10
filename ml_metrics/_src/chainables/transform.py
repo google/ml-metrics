@@ -929,9 +929,9 @@ class TreeTransform(Generic[TreeFnT]):
 
   def apply(
       self,
+      fn: types.MaybeResolvable[Callable[..., Any]] | None = None,
       *,
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      fn: types.MaybeResolvable[Callable[..., Any]] | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       fn_batch_size: int = 0,
       batch_size: int = 0,
