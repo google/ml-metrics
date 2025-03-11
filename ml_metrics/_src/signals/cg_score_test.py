@@ -77,6 +77,14 @@ class CgScoreTest(absltest.TestCase):
     self.assertLen(cg_scores_three, 4)
     np.testing.assert_allclose(cg_scores_one, cg_scores_three)
 
+  def test_one_single_label(self):
+    embeddings = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+    labels = np.array([1, 1, 1])
+    cg_scores = cg_score.complexity_gap_score(
+        labels, embeddings, num_repetitions=1
+    )
+    self.assertSequenceAlmostEqual(cg_scores, [0, 0, 0])
+
 
 if __name__ == '__main__':
   absltest.main()
