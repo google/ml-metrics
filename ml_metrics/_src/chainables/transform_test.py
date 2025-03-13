@@ -1377,7 +1377,7 @@ class TransformTest(parameterized.TestCase):
         .apply(iter_utils.iterate_fn(lambda x: x + 10))
         .aggregate(fn=MockAverageFn())
     )
-    actual_fn: transform.CombinedTreeFn = t.make()
+    actual_fn: transform.TransformRunner = t.make()
     self.assertEqual([13.5], actual_fn())
     self.assertEqual(
         [13.5], actual_fn(input_iterator=test_utils.NoLenIter(input_iterator))
@@ -1411,7 +1411,7 @@ class TransformTest(parameterized.TestCase):
         .apply(iter_utils.iterate_fn(lambda x: x + 10))
         .aggregate(fn=MockAverageFn())
     )
-    actual_fn: transform.CombinedTreeFn = t.make()
+    actual_fn: transform.TransformRunner = t.make()
     with self.assertRaises(ValueError):
       # Exhausting the iterator is necessary to get the aggregate result.
       mit.last(state := actual_fn.iterate())

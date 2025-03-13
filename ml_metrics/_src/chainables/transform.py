@@ -131,14 +131,14 @@ class _MergedIterator(types.Recoverable, iter_utils.MergedIterator[_ValueT]):
     return states
 
 
-class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
+class _RunnerIterator(types.Recoverable, Iterator[_ValueT]):
   """An iterator that returns the last value."""
   data_sources: Sequence[Iterable[_ValueT]]
   agg_state: dict[MetricKey, Any] | None
 
   def __init__(
       self,
-      tree_fn: CombinedTreeFn,
+      tree_fn: TransformRunner,
       *,
       data_sources: Sequence[Iterable[_ValueT]],
       ignore_error: bool,
@@ -212,9 +212,9 @@ class _IteratorWithAggResult(types.Recoverable, Iterable[_ValueT]):
       return self._tree_fn.get_result(self.agg_state)
     return None
 
-  def from_state(self, state: _IteratorState) -> _IteratorWithAggResult:
+  def from_state(self, state: _IteratorState) -> _RunnerIterator:
     input_iterator = self._input_iterator.from_state(state.input_states)
-    return _IteratorWithAggResult(
+    return _RunnerIterator(
         self._tree_fn,
         data_sources=self._data_sources,
         ignore_error=self._ignore_error,
@@ -301,7 +301,7 @@ def clear_cache():
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class CombinedTreeFn:
+class TransformRunner(aggregates.Aggregatable):
   """Combining multiple transforms into concrete functions.
 
   This class encapsulates all in-process logic of a TreeTransform.
@@ -412,7 +412,7 @@ class CombinedTreeFn:
         )
       else:
         output_fns.extend([tree_fn.maybe_make() for tree_fn in node.fns])
-    return CombinedTreeFn(
+    return TransformRunner(
         name=name,
         input_fns=input_fns,
         agg_fns=agg_fns,
@@ -556,7 +556,7 @@ class CombinedTreeFn:
       with_agg_result: bool = True,
       state: Any = None,
       ignore_error: bool = False,
-  ) -> _IteratorWithAggResult[Any]:
+  ) -> _RunnerIterator[Any]:
     """An iterator runner that takes an data_source runs the transform.
 
     The iterator by default yields the output of all the input_functions before
@@ -577,7 +577,7 @@ class CombinedTreeFn:
     Returns:
       An iterator that also optionally keeps the aggregation result and state.
     """
-    return _IteratorWithAggResult(
+    return _RunnerIterator(
         self,
         data_sources=self._actual_inputs(None, data_source),
         ignore_error=ignore_error,
@@ -599,7 +599,7 @@ class CombinedTreeFn:
           'Non-aggregate transform is not callable with iterator inputs, uses '
           '`iterate()` instead.'
       )
-    iter_result = _IteratorWithAggResult(
+    iter_result = _RunnerIterator(
         self,
         data_sources=self._actual_inputs(inputs, input_iterator),
         ignore_error=ignore_error,
@@ -777,9 +777,9 @@ class TreeTransform(Generic[TreeFnT]):
       # TODO: b/318463291 - deprecates runner mode in favor named transform.
       mode: RunnerMode = RunnerMode.DEFAULT,
       shard: io.ShardConfig | None = None,
-  ) -> CombinedTreeFn:
+  ) -> TransformRunner:
     """Makes the concrete function instance from the transform."""
-    return CombinedTreeFn.from_transform(
+    return TransformRunner.from_transform(
         self,
         recursive=recursive,
         mode=mode,
