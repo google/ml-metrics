@@ -606,16 +606,17 @@ class IterUtilsTest(parameterized.TestCase):
 
   def test_piter_fn_only(self):
     n = 256
-    input_iter = iter_utils.IteratorQueue()
-    input_iter.enqueue_from_iterator(range(n))
 
-    def foo():
-      yield from input_iter
+    def foo(it):
+      for x in it:
+        yield x + 1
 
     with futures.ThreadPoolExecutor() as thread_pool:
-      pit = iter_utils.piter_fn(foo, parallism=1, thread_pool=thread_pool)
+      pit = iter_utils.piter_fn(
+          foo, input_iterable=range(n), parallism=8, thread_pool=thread_pool
+      )
       actual = list(pit)
-      self.assertCountEqual(list(range(n)), actual)
+      self.assertCountEqual(list(range(1, n + 1)), actual)
     self.assertIsInstance(pit, iter_utils.IteratorQueue)
 
   def test_piter_piter_multiplex(self):

@@ -649,6 +649,21 @@ class IteratorQueue(IterableQueue[_ValueT]):
         raise e
 
 
+class _ThreadSafeIterator(Iterator[_ValueT]):
+  """Converts an iterator to be thread safe."""
+
+  def __init__(self, iterable: Iterable[_ValueT]):
+    self._iterator = iter(iterable)
+    self._lock = threading.Lock()
+
+  def __next__(self):
+    with self._lock:
+      return next(self._iterator)
+
+  def __iter__(self):
+    return self
+
+
 class DequeueIterator(Iterator[_ValueT]):
   """An iterator that dequeues from an IteratorQueue."""
 
@@ -658,7 +673,6 @@ class DequeueIterator(Iterator[_ValueT]):
     self._cnt = 0
     self._run_until_exhausted = num_steps < 0
     self._cache = collections.deque()
-    self._lock = threading.Lock()
 
   def maybe_stop(self):
     assert isinstance(self._iterator_queue, IteratorQueue)
@@ -668,11 +682,10 @@ class DequeueIterator(Iterator[_ValueT]):
     if not self._run_until_exhausted and self._cnt == self._num_steps:
       self.maybe_stop()
       raise StopIteration()
-    with self._lock:
-      if not self._cache:
-        self._cache.extend(self._iterator_queue.get_batch())
-      self._cnt += 1
-      return self._cache.popleft()
+    if not self._cache:
+      self._cache.extend(self._iterator_queue.get_batch())
+    self._cnt += 1
+    return self._cache.popleft()
 
   def __iter__(self):
     return self
@@ -851,8 +864,8 @@ def piter_multiplex(
 def piter_fn(
     iterator_fn: Callable[..., Iterable[_ValueT]] | None = None,
     *,
-    thread_pool: futures.ThreadPoolExecutor | None,
     input_iterable: Iterable[Any] | None = None,
+    thread_pool: futures.ThreadPoolExecutor | None,
     parallism: int = 1,
     buffer_size: int = 0,
 ) -> Iterable[_ValueT]:
@@ -860,8 +873,8 @@ def piter_fn(
 
   Args:
     iterator_fn: A generator function that takes an iterable as input.
-    thread_pool: The thread pool to be used.
     input_iterable: The input iterators to be passed to the iterator_fn. More
+    thread_pool: The thread pool to be used.
       than one input iterators are supported and will be iterated concurrently.
     parallism: The maximum number of threads to be used for iterator_fn. If 0,
       the iterator_fn will be called in process; If >= 1, the iterator_fn is
@@ -875,7 +888,7 @@ def piter_fn(
     if thread_pool is None:
       raise ValueError('thread_pool required, got None.')
     if input_iterable is not None:
-      assert isinstance(input_iterable, (IteratorQueue, DequeueIterator))
+      input_iterable = _ThreadSafeIterator(input_iterable)
     output_queue = IteratorQueue(
         buffer_size, name='piter_fn_q', max_enqueuer=parallism
     )
@@ -917,7 +930,7 @@ def piter(
     raise ValueError('iterator_fn or input_iterators has to be provided.')
   input_iterable = None
   # No parallelism at all, use the input iterator directly.
-  if len(input_iterators) == 1 and not max_parallism:
+  if len(input_iterators) == 1:
     input_iterable = input_iterators[0]
   elif input_iterators:
     # The input_queue uses a max_batch_size of 1 to ensure that the output_queue
@@ -957,18 +970,10 @@ def pmap(
     return map(fn, input_iterator)
   if thread_pool is None:
     thread_pool = futures.ThreadPoolExecutor(max_workers=1 + max_parallism)
-  # The input_queue uses a max_batch_size of 1 to ensure that the output_queue
-  # is not consuming too many elements that leads to imbalanced parallelism.
-  pit = piter_multiplex(
-      [input_iterator],
-      thread_pool=thread_pool,
-      max_batch_size=1,
-      buffer_size=max_parallism,
-  )
   return piter_fn(
       lambda it: map(fn, it),
       thread_pool=thread_pool,
-      input_iterable=pit,
+      input_iterable=input_iterator,
       parallism=max_parallism,
       buffer_size=buffer_size,
   )
