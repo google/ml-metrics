@@ -49,6 +49,11 @@ def args_batched(num_args, batch_size, batch_fn=lambda x: x):
   )
 
 
+def iter_inc(it):
+  for x in it:
+    yield x + 1
+
+
 class MockSequence:
 
   def __init__(self, data):
@@ -197,26 +202,44 @@ class IterUtilsTest(parameterized.TestCase):
     with self.assertRaisesRegex(IndexError, 'Index 20 is out of range'):
       _ = a[20]
 
-  def test_merged_iterator_single_iterator(self):
-    it = iter_utils.MergedIterator([range(10)])
+  def test_multiplex_iterator_single_iterator(self):
+    it = iter_utils.MultiplexIterator(data_sources=[range(10)])
     self.assertEqual(list(it), list(range(10)))
     self.assertEqual(type(it._iterator), type(iter(range(10))))
 
-  def test_merged_iterator_parallel(self):
-    with futures.ThreadPoolExecutor() as thread_pool:
-      it = iter_utils.MergedIterator(
-          [test_utils.range_with_sleep(10, 0.6), range(10, 20)],
-          parallism=2,
-          thread_pool=thread_pool,
-      )
-      self.assertCountEqual(list(it), list(range(20)))
-      self.assertLen(thread_pool._threads, 2)
-      self.assertIsInstance(it._iterator, iter_utils.DequeueIterator)
+  def test_multiplex_iterator_single_iterator_with_iter_fn(self):
+    it = iter_utils.MultiplexIterator(
+        data_sources=[range(10)], iter_fn=iter_inc
+    )
+    self.assertEqual(list(it), list(range(1, 11)))
 
-  def test_merged_iterator_in_process(self):
-    it = iter_utils.MergedIterator([range(10), range(10, 20)], parallism=0)
+  def test_multiplex_iterator_parallel(self):
+    it = iter_utils.MultiplexIterator(
+        data_sources=[test_utils.range_with_sleep(10, 0.6), range(10, 20)],
+        iter_fn=iter_inc,
+        parallism=2,
+    )
+    self.assertCountEqual(list(it), list(range(1, 21)))
+    self.assertLen(it._thread_pool._threads, 2)
+    self.assertIsInstance(it._iterator, iter_utils.DequeueIterator)
+
+  def test_multiplex_iterator_in_process(self):
+    it = iter_utils.MultiplexIterator(
+        data_sources=[range(10), range(10, 20)], parallism=0
+    )
     self.assertCountEqual(list(it), list(range(20)))
     self.assertIsInstance(it._iterator, itt.chain)
+    self.assertIsNone(it._thread_pool)
+
+  def test_multiplex_iterator_raises(self):
+    it = iter_utils.MultiplexIterator(
+        data_sources=[test_utils.range_with_exc(10, 3)], parallism=1
+    )
+    with self.assertRaisesRegex(ValueError, 'range_with_exc'):
+      _ = list(it)
+    self.assertIsNotNone(it._thread_pool)
+    self.assertNotEmpty(it._thread_pool._threads)
+    self.assertTrue(all(not t.is_alive() for t in it._thread_pool._threads))
 
   def test_enqueue_dequeue_raises(self):
     q = iter_utils.IteratorQueue()
@@ -606,14 +629,12 @@ class IterUtilsTest(parameterized.TestCase):
 
   def test_piter_fn_only(self):
     n = 256
-
-    def foo(it):
-      for x in it:
-        yield x + 1
-
     with futures.ThreadPoolExecutor() as thread_pool:
       pit = iter_utils.piter_fn(
-          foo, input_iterable=range(n), parallism=8, thread_pool=thread_pool
+          iter_inc,
+          input_iterable=range(n),
+          parallism=8,
+          thread_pool=thread_pool,
       )
       actual = list(pit)
       self.assertCountEqual(list(range(1, n + 1)), actual)

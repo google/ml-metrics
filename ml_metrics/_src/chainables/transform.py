@@ -46,7 +46,6 @@ Following is an example of an evaluation pipeline where:
 from __future__ import annotations
 
 from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
-from concurrent import futures
 import copy
 import dataclasses
 import enum
@@ -109,28 +108,7 @@ class _IteratorState:
   agg_state: dict[MetricKey, Any] | None
 
 
-class _MergedIterator(types.Recoverable, iter_utils.MergedIterator[_ValueT]):
-  """An iterator that merges multiple iterables."""
-
-  def from_state(self, states: Sequence[io.ShardConfig]) -> Self:
-    data_sources = []
-    for data_source, ds_state in zip(self._data_sources, states, strict=True):
-      if not types.is_recoverable(data_source):
-        raise TypeError(f'Data source is not recoverable, got {data_source=}.')
-      data_sources.append(data_source.from_state(ds_state))
-    return self.__class__(data_sources, self._parallism)
-
-  @property
-  def state(self) -> list[io.ShardConfig]:
-    states = []
-    for iterator in self._iterators:
-      if not types.is_recoverable(iterator):
-        raise TypeError(f'Data source is not serializable, got {iterator=}.')
-      states.append(iterator.state)
-    return states
-
-
-class _RunnerIterator(types.Recoverable, Iterator[_ValueT]):
+class _RunnerIterator(iter_utils.MultiplexIterator[_ValueT]):
   """An iterator that returns the last value."""
   data_sources: Sequence[Iterable[_ValueT]]
   agg_state: dict[MetricKey, Any] | None
@@ -145,18 +123,17 @@ class _RunnerIterator(types.Recoverable, Iterator[_ValueT]):
       with_agg_state: bool = True,
       with_agg_result: bool = True,
       state: Any = None,
-      input_override: _MergedIterator[_ValueT] | None = None,
   ):
     self._runner = runner
     self._data_sources = data_sources
     self._ignore_error = ignore_error
     self._with_result = with_result
     self.agg_state = state
-    self._with_agg_state = state and (with_agg_state or with_agg_result)
+    self._with_agg = state and (with_agg_state or with_agg_result)
     self._with_agg_result = with_agg_result
     self._thread_pool = None
 
-    def iterate_fn(
+    def iter_fn(
         input_iterator: Iterable[tree.MapLikeTree | None] = (),
     ) -> Iterator[tree.MapLikeTree | None]:
       """Call a chain of functions in sequence."""
@@ -166,44 +143,14 @@ class _RunnerIterator(types.Recoverable, Iterator[_ValueT]):
         result = fn.iterate(result)
       yield from result
 
-    max_parallelism = len(data_sources) + self._runner.num_threads
-    if input_override is not None:
-      assert isinstance(input_override, _MergedIterator)
-      input_iterator = input_override
-    else:
-      thread_pool = self._get_thread_pool(max_parallelism)
-      input_iterator = _MergedIterator(
-          self._data_sources, self._runner.num_threads, thread_pool
-      )
-    self._input_iterator = input_iterator
-    if not self._runner.fns:
-      iterator = self._input_iterator
-    elif not self._runner.num_threads:
-      iterator = iterate_fn(self._input_iterator)
-    else:
-      iterator = iter_utils.piter_fn(
-          iterate_fn,
-          thread_pool=self._get_thread_pool(max_parallelism),
-          input_iterable=iter(self._input_iterator),
-          parallism=self._runner.num_threads,
-      )
-    self._iterator = iter(iterator)
     self._prev_ticker = time.time()
     self.batch_index = 0
-
-  def _get_thread_pool(
-      self, max_workers: int
-  ) -> futures.ThreadPoolExecutor | None:
-    if self._thread_pool is None and self._runner.num_threads:
-      self._thread_pool = futures.ThreadPoolExecutor(
-          max_workers=max_workers,
-          thread_name_prefix=f'piter_pool: "{self.name}"',
-      )
-    return self._thread_pool
-
-  @property
-  def name(self) -> str:
-    return self._runner.name
+    super().__init__(
+        data_sources=self._data_sources,
+        iter_fn=iter_fn,
+        parallism=self._runner.num_threads,
+        name=self._runner.name,
+    )
 
   @property
   def agg_result(self) -> tree.MapLikeTree[Any] | None:
@@ -212,29 +159,22 @@ class _RunnerIterator(types.Recoverable, Iterator[_ValueT]):
     return None
 
   def from_state(self, state: _IteratorState) -> _RunnerIterator:
-    input_iterator = self._input_iterator.from_state(state.input_states)
-    return _RunnerIterator(
-        self._runner,
-        data_sources=self._data_sources,
+    return super().from_state(
+        state.input_states,
+        runner=self._runner,
         ignore_error=self._ignore_error,
         with_result=self._with_result,
-        with_agg_state=self._with_agg_state,
+        with_agg_state=self._with_agg,
         with_agg_result=self._with_agg_result,
         state=state.agg_state,
-        input_override=input_iterator,
     )
 
   @property
   def state(self) -> _IteratorState:
-    input_states = self._input_iterator.state
-    return _IteratorState(input_states, agg_state=copy.deepcopy(self.agg_state))
-
-  def maybe_stop(self):
-    self._input_iterator.maybe_stop()
-    if isinstance(self._iterator, iter_utils.DequeueIterator):
-      self._iterator.maybe_stop()
-    if self._thread_pool is not None:
-      self._thread_pool.shutdown()
+    return _IteratorState(
+        copy.deepcopy(super().state),
+        agg_state=copy.deepcopy(self.agg_state),
+    )
 
   def __next__(self) -> _ValueT:
     if (ticker := time.time()) - self._prev_ticker > _LOGGING_INTERVAL_SECS:
@@ -243,19 +183,17 @@ class _RunnerIterator(types.Recoverable, Iterator[_ValueT]):
       )
       self._prev_ticker = ticker
     try:
-      batch_output = next(self._iterator)
+      batch_output = super().__next__()
       self.batch_index += 1
-      if self._with_agg_state:
-        self.agg_state = self._runner.update_state(
-            self.agg_state, batch_output
-        )
+      if self._with_agg:
+        self.agg_state = self._runner.update_state(self.agg_state, batch_output)
       logging.debug(
           'chainable: "%s" batch cnt %d.', self.name, self.batch_index
       )
       return batch_output if self._with_result else None
     except StopIteration as e:
       returned = None
-      if self._with_agg_state:
+      if self._with_agg:
         # This can collect the agg_state and the agg_result at the end of
         # the iteration and return them as the generator return value.
         agg_result = self.agg_result if self._with_agg_result else None
@@ -266,18 +204,7 @@ class _RunnerIterator(types.Recoverable, Iterator[_ValueT]):
           f' {self.batch_index} batches, returned a type of'
           f' {type(returned)}.',
       )
-      self.maybe_stop()
       raise StopIteration(returned) if returned else e
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.exception('chainable: exception when iterating "%s".', self.name)
-      self.maybe_stop()
-      raise e
-    except KeyboardInterrupt as e:
-      self.maybe_stop()
-      raise e
-
-  def __iter__(self):
-    return self
 
 
 @dataclasses.dataclass(frozen=True)

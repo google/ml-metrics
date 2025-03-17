@@ -68,6 +68,14 @@ class Recoverable(Protocol):
     """Recover from the state."""
 
 
+@runtime_checkable
+class Stoppable(Protocol):
+  """An object that can be stopped."""
+
+  def maybe_stop(self):
+    """Stops the concurrent threads if possible."""
+
+
 MaybeResolvable = Resolvable[_T] | _T
 
 

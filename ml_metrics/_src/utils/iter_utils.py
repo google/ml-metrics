@@ -265,35 +265,100 @@ class MergedSequences(Generic[_ValueT]):
       raise IndexError(f'Index {index} is out of range.') from None
 
 
-class MergedIterator(Iterable[_ValueT]):
+class MultiplexIterator(Iterator[_ValueT], types.Stoppable, types.Recoverable):
   """An iterator that merges multiple iterables."""
 
   def __init__(
       self,
-      data_sources: Sequence[Iterable[_ValueT]],
+      *,
+      data_sources: Sequence[Iterable[Any]],
+      iter_fn: Callable[[Iterable[Any]], Iterator[_ValueT]] | None = None,
       parallism: int = 0,
-      thread_pool: futures.ThreadPoolExecutor | None = None,
+      name: str = '',
   ):
+    self._name = name
     self._parallism = parallism
     self._data_sources = list(data_sources)
-    self._iterators = [iter(ds) for ds in data_sources]
-    if self._parallism:
-      ds_queue = piter_multiplex(
-          input_iterators=self._iterators,
-          thread_pool=thread_pool,
+    self._iter_fn = iter_fn
+    self._source_iterators = [iter(ds) for ds in data_sources]
+    self._thread_pool = None
+    input_iterator = None
+    if not parallism:
+      if len(self._source_iterators) == 1:
+        input_iterator = self._source_iterators[0]
+      elif self._source_iterators:
+        input_iterator = itt.chain(*self._source_iterators)
+      self._iterator = input_iterator
+      if iter_fn is not None:
+        self._iterator = _get_iterate_fn(iter_fn, self._iterator)
+      return
+
+    self._thread_pool = futures.ThreadPoolExecutor(
+        max_workers=parallism,
+        thread_name_prefix=f'multiplex_pool: "{self.name}"',
+    )
+    if len(self._source_iterators) > 1:
+      iterators = self._source_iterators
+      if iter_fn is not None:
+        iterators = [iter_fn(ds) for ds in iterators]
+      iter_q = piter_multiplex(
+          input_iterators=iterators,
+          thread_pool=self._thread_pool,
+          buffer_size=parallism * 3,
       )
-      self._iterator = iter(ds_queue)
-    elif len(self._iterators) == 1:
-      self._iterator = self._iterators[0]
+      self._iterator = iter(iter_q)
     else:
-      self._iterator = itt.chain(*self._iterators)
+      if self._source_iterators:
+        input_iterator = self._source_iterators[0]
+      iter_q = piter_fn(
+          iter_fn,
+          input_iterable=input_iterator,
+          thread_pool=self._thread_pool,
+          parallism=parallism,
+          buffer_size=parallism * 3,
+      )
+      self._iterator = iter(iter_q)
+
+  @property
+  def name(self) -> str:
+    return self._name
 
   def maybe_stop(self):
-    if isinstance(self._iterator, DequeueIterator):
+    if isinstance(self._iterator, types.Stoppable):
       self._iterator.maybe_stop()
+    if self._thread_pool is not None:
+      self._thread_pool.shutdown()
+
+  def from_state(self, states: Sequence[Any], **kwargs) -> Self:
+    data_sources = []
+    for data_source, ds_state in zip(self._data_sources, states, strict=True):
+      if not types.is_recoverable(data_source):
+        raise TypeError(f'Data source is not recoverable, got {data_source=}.')
+      data_sources.append(data_source.from_state(ds_state))
+    return self.__class__(data_sources=data_sources, **kwargs)
+
+  @property
+  def state(self) -> list[Any]:
+    states = []
+    for iterator in self._source_iterators:
+      if not types.is_recoverable(iterator):
+        raise TypeError(f'Data source is not serializable, got {iterator=}.')
+      states.append(iterator.state)
+    return states
+
+  def __next__(self):
+    try:
+      return next(self._iterator)
+    except StopIteration as e:
+      self.maybe_stop()
+      raise e
+    except BaseException as e:
+      logging.exception('chainable: exception when iterating "%s".', self.name)
+      self.maybe_stop()
+      raise e
 
   def __iter__(self):
-    return self._iterator
+    return self
 
 
 @dc.dataclass(slots=True, eq=False)
@@ -664,7 +729,7 @@ class _ThreadSafeIterator(Iterator[_ValueT]):
     return self
 
 
-class DequeueIterator(Iterator[_ValueT]):
+class DequeueIterator(Iterator[_ValueT], types.Stoppable):
   """An iterator that dequeues from an IteratorQueue."""
 
   def __init__(self, q: IterableQueue[_ValueT], *, num_steps: int = -1):
@@ -821,9 +886,11 @@ def _get_thread_pool(
 
 
 def _get_iterate_fn(
-    iter_fn: Callable[..., Iterable[_ValueT]],
+    iter_fn: Callable[..., Iterable[_ValueT]] | None,
     inputs: Iterable[_ValueT] | None,
 ) -> Iterable[_ValueT]:
+  assert iter_fn or inputs is not None, f'{iter_fn=}, {inputs=}'
+  iter_fn = iter_fn or iter
   return iter_fn(inputs) if inputs is not None else iter_fn()
 
 
@@ -862,7 +929,7 @@ def piter_multiplex(
 
 
 def piter_fn(
-    iterator_fn: Callable[..., Iterable[_ValueT]] | None = None,
+    iter_fn: Callable[..., Iterable[_ValueT]] | None = None,
     *,
     input_iterable: Iterable[Any] | None = None,
     thread_pool: futures.ThreadPoolExecutor | None,
@@ -872,32 +939,27 @@ def piter_fn(
   """Call a chain of functions in sequence concurrently with multithreads.
 
   Args:
-    iterator_fn: A generator function that takes an iterable as input.
-    input_iterable: The input iterators to be passed to the iterator_fn. More
-    thread_pool: The thread pool to be used.
-      than one input iterators are supported and will be iterated concurrently.
-    parallism: The maximum number of threads to be used for iterator_fn. If 0,
-      the iterator_fn will be called in process; If >= 1, the iterator_fn is
-      called concurrently.
+    iter_fn: A generator function that takes an iterable as input.
+    input_iterable: The input iterators to be passed to the iter_fn. More
+    thread_pool: The thread pool to be used. than one input iterators are
+      supported and will be iterated concurrently.
+    parallism: The maximum number of threads to be used for iter_fn. If 0, the
+      iter_fn will be called in process; If >= 1, the iter_fn is called
+      concurrently.
     buffer_size: The buffer size of the queue.
 
   Returns:
     An iterable that iterates through the chain of functions.
   """
-  if parallism:
-    if thread_pool is None:
-      raise ValueError('thread_pool required, got None.')
-    if input_iterable is not None:
-      input_iterable = _ThreadSafeIterator(input_iterable)
-    output_queue = IteratorQueue(
-        buffer_size, name='piter_fn_q', max_enqueuer=parallism
-    )
-    for _ in range(parallism):
-      it = _get_iterate_fn(iterator_fn, input_iterable)
-      thread_pool.submit(output_queue.enqueue_from_iterator, it)
-    return output_queue
-  # In process mode when max_parallism is 0.
-  return _get_iterate_fn(iterator_fn, input_iterable)
+  if not parallism:
+    return _get_iterate_fn(iter_fn, input_iterable)
+
+  if thread_pool is None:
+    raise ValueError('thread_pool required, got None.')
+  if input_iterable is not None:
+    input_iterable = _ThreadSafeIterator(input_iterable)
+  its = [_get_iterate_fn(iter_fn, input_iterable) for _ in range(parallism)]
+  return piter_multiplex(its, thread_pool, buffer_size)
 
 
 def piter(
