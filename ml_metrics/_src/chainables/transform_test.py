@@ -861,6 +861,11 @@ class TransformTest(parameterized.TestCase):
     self.assertLen(p.fns, 2)
     self.assertEqual({'a': [20.0], 'b': [20.0]}, it_p.agg_result)
 
+  def test_aggregate_empty_agg_raises_error(self):
+    t = transform.TreeTransform().apply(lambda x: x * 10).agg()
+    with self.assertRaisesRegex(ValueError, 'Empty aggregation, forgot to add'):
+      t.make()
+
   @parameterized.named_parameters([
       dict(
           testcase_name='agg_self',
@@ -1373,7 +1378,6 @@ class TransformTest(parameterized.TestCase):
             iterator=lazy_fns.trace(test_utils.NoLenIter)(input_iterator)
         )
         .apply(iter_utils.iterate_fn(lambda x: x + 1))
-        .aggregate(fn=MockAverageFn())
         .apply(iter_utils.iterate_fn(lambda x: x + 10))
         .aggregate(fn=MockAverageFn())
     )
@@ -1388,16 +1392,26 @@ class TransformTest(parameterized.TestCase):
     np.testing.assert_array_equal([np.nan], it.agg_result)
     _ = next(it)
     assert it.agg_state is not None
-    # First batch is [1, 2, 3] + 1 = [2, 3, 4], mean state is (sum=9, count=3).
-    self.assertEqual((9, 3), next(iter(it.agg_state.values())))
+    # First batch is [1, 2, 3] + 11 = [12, 13, 14], state is (sum=39, count=3).
+    self.assertEqual((39, 3), next(iter(it.agg_state.values())))
     np.testing.assert_array_equal([3.0 + 10], it.agg_result)
     # Exhausting the iterator is necessary to get the aggregate result.
     mit.last(it)
-    self.assertEqual((21, 6), next(iter(it.agg_state.values())))
+    self.assertEqual((81, 6), next(iter(it.agg_state.values())))
     self.assertEqual([13.5], it.agg_result)
 
     mit.last(result := actual_fn.iterate(test_utils.NoLenIter(input_iterator)))
     self.assertEqual([13.5], result.agg_result)
+
+  def test_multiple_aggregates_raises_error(self):
+    with self.assertRaisesRegex(ValueError, 'more than one aggregations'):
+      _ = (
+          transform.TreeTransform()
+          .apply(iter_utils.iterate_fn(lambda x: x + 1))
+          .aggregate(fn=MockAverageFn())
+          .apply(iter_utils.iterate_fn(lambda x: x + 10))
+          .aggregate(fn=MockAverageFn())
+      )
 
   def test_input_iterator_aggregate_incorrect_states_count_raises_error(self):
     input_iterator = [[1, 2, 3], [2, 3, 4]]
@@ -1407,7 +1421,6 @@ class TransformTest(parameterized.TestCase):
             iterator=lazy_fns.trace(test_utils.NoLenIter)(input_iterator)
         )
         .apply(iter_utils.iterate_fn(lambda x: x + 1))
-        .aggregate(fn=MockAverageFn())
         .apply(iter_utils.iterate_fn(lambda x: x + 10))
         .aggregate(fn=MockAverageFn())
     )
@@ -1428,9 +1441,6 @@ class TransformTest(parameterized.TestCase):
         )
         .apply(iter_utils.iterate_fn(lambda x: x + 1), output_keys='a')
         .assign('b', fn=iter_utils.iterate_fn(lambda x: x + 1), input_keys='a')
-        # aggregate is a new tranform.
-        .aggregate(fn=MockAverageFn(), input_keys='b')
-        # asign or apply after aggregate is a new tranform.
         .apply(iter_utils.iterate_fn(lambda x: x + 10))
         # aggregate is a new tranform.
         .aggregate(fn=MockAverageFn())
@@ -1438,7 +1448,7 @@ class TransformTest(parameterized.TestCase):
 
     transforms = t.flatten_transform()
     self.assertTrue(all(t is not None for t in transforms))
-    self.assertLen(transforms, 4)
+    self.assertLen(transforms, 2)
     self.assertSequenceEqual(transforms, t.flatten_transform())
     other_transforms = t.flatten_transform(remove_input_transform=True)
     self.assertTrue(all(t is not None for t in other_transforms))
@@ -1458,7 +1468,6 @@ class TransformTest(parameterized.TestCase):
     process = (
         transform.TreeTransform()
         .apply(iter_utils.iterate_fn(lambda x: x + 1))
-        .aggregate(fn=MockAverageFn())
         .apply(iter_utils.iterate_fn(lambda x: x + 10))
         .aggregate(fn=MockAverageFn())
     )
