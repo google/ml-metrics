@@ -283,8 +283,13 @@ class TransformRunner(aggregates.Aggregatable):
       if isinstance(node, AggregateTransform):
         if node.is_noop:
           raise ValueError('Empty aggregation, forgot to add aggregation?')
-        assert agg_node is None, f'{agg_node=}'
-        agg_node = node
+        if i == len(transforms) - 1:
+          assert agg_node is None, f'{agg_node=}'
+          agg_node = node
+        else:
+          raise ValueError(
+              f'Aggregation has to be the last node, it is at {i}th position.'
+          )
       else:
         fn_nodes.append(node)
 
@@ -693,9 +698,9 @@ class TreeTransform(Generic[TreeFnT]):
         input_state=shard,
     )
 
-  def data_source(self, iterator: Any = None) -> TreeTransform:
+  def data_source(self, data_source: Any = None, /) -> TreeTransform:
     return TreeTransform(
-        data_source_=iterator,
+        data_source_=data_source,
         name=self.name,
         num_threads=self.num_threads,
     )

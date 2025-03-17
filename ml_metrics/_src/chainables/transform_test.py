@@ -866,6 +866,11 @@ class TransformTest(parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, 'Empty aggregation, forgot to add'):
       t.make()
 
+  def test_aggregate_not_last_raises_error(self):
+    t = transform.TreeTransform().agg(fn=MockAverageFn()).apply(fn=lambda x: x)
+    with self.assertRaisesRegex(ValueError, 'Aggregation has to be the last'):
+      t.make()
+
   @parameterized.named_parameters([
       dict(
           testcase_name='agg_self',
@@ -1374,9 +1379,7 @@ class TransformTest(parameterized.TestCase):
     input_iterator = [[1, 2, 3], [2, 3, 4]]
     t = (
         transform.TreeTransform()
-        .data_source(
-            iterator=lazy_fns.trace(test_utils.NoLenIter)(input_iterator)
-        )
+        .data_source(lazy_fns.trace(test_utils.NoLenIter)(input_iterator))
         .apply(iter_utils.iterate_fn(lambda x: x + 1))
         .apply(iter_utils.iterate_fn(lambda x: x + 10))
         .aggregate(fn=MockAverageFn())
@@ -1417,9 +1420,7 @@ class TransformTest(parameterized.TestCase):
     input_iterator = [[1, 2, 3], [2, 3, 4]]
     t = (
         transform.TreeTransform()
-        .data_source(
-            iterator=lazy_fns.trace(test_utils.NoLenIter)(input_iterator)
-        )
+        .data_source(lazy_fns.trace(test_utils.NoLenIter)(input_iterator))
         .apply(iter_utils.iterate_fn(lambda x: x + 1))
         .apply(iter_utils.iterate_fn(lambda x: x + 10))
         .aggregate(fn=MockAverageFn())
@@ -1436,9 +1437,7 @@ class TransformTest(parameterized.TestCase):
     t = (
         transform.TreeTransform()
         # consecutive datasource, asign, and apply form one tranform.
-        .data_source(
-            iterator=lazy_fns.trace(test_utils.NoLenIter)(input_iterator)
-        )
+        .data_source(lazy_fns.trace(test_utils.NoLenIter)(input_iterator))
         .apply(iter_utils.iterate_fn(lambda x: x + 1), output_keys='a')
         .assign('b', fn=iter_utils.iterate_fn(lambda x: x + 1), input_keys='a')
         .apply(iter_utils.iterate_fn(lambda x: x + 10))
@@ -1463,7 +1462,7 @@ class TransformTest(parameterized.TestCase):
   def test_chain(self):
     input_iterator = [[1, 2, 3], [2, 3, 4]]
     read = transform.TreeTransform().data_source(
-        iterator=lazy_fns.trace(test_utils.NoLenIter)(input_iterator)
+        lazy_fns.trace(test_utils.NoLenIter)(input_iterator)
     )
     process = (
         transform.TreeTransform()
@@ -1494,7 +1493,7 @@ class TransformTest(parameterized.TestCase):
     inputs = [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
     p = (
         transform.TreeTransform.new(num_threads=num_threads)
-        .data_source(iterator=test_utils.NoLenIter(inputs))
+        .data_source(test_utils.NoLenIter(inputs))
         .apply(lambda x: x)
         .aggregate(fn=MockAverageFn())
     )
@@ -1505,7 +1504,7 @@ class TransformTest(parameterized.TestCase):
     inputs = [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
     p = (
         transform.TreeTransform()
-        .data_source(iterator=test_utils.NoLenIter(inputs))
+        .data_source(test_utils.NoLenIter(inputs))
         .aggregate(fn=MockAverageFn())
     )
     iterator = iter_utils.IteratorQueue(2)
