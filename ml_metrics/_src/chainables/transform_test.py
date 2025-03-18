@@ -322,11 +322,11 @@ class TransformTest(parameterized.TestCase):
         .apply(len, output_keys='b')
         .assign('c', fn=lambda x: x + 1, input_keys='b')
     )
-    self.assertEqual(p.output_keys, {'c', 'b'})
     p = p.aggregate(fn=MockAverageFn(), output_keys='c').add_aggregate(
         output_keys='d', fn=MockAverageFn()
     )
-    self.assertEqual(p.output_keys, {'c', 'd'})
+    self.assertEqual(p.output_keys, {'c', 'b'})
+    self.assertEqual(p.agg_output_keys, {'c', 'd'})
 
   def test_non_aggregate_call_with_iterator_raise_error(self):
     t = transform.TreeTransform().data_source(test_utils.NoLenIter(range(3)))
@@ -858,18 +858,21 @@ class TransformTest(parameterized.TestCase):
     )
     it_p = p.make().iterate([1, 2, 3])
     self.assertEqual([10, 20, 30], list(it_p))
-    self.assertLen(p.fns, 2)
+    self.assertLen(p.fns, 1)
+    self.assertLen(p.agg_fns, 2)
     self.assertEqual({'a': [20.0], 'b': [20.0]}, it_p.agg_result)
 
   def test_aggregate_empty_agg_raises_error(self):
     t = transform.TreeTransform().apply(lambda x: x * 10).agg()
-    with self.assertRaisesRegex(ValueError, 'Empty aggregation, forgot to add'):
-      t.make()
+    self.assertEmpty(t.make().agg_fns)
 
   def test_aggregate_not_last_raises_error(self):
-    t = transform.TreeTransform().agg(fn=MockAverageFn()).apply(fn=lambda x: x)
     with self.assertRaisesRegex(ValueError, 'Aggregation has to be the last'):
-      t.make()
+      _ = (
+          transform.TreeTransform()
+          .agg(fn=MockAverageFn())
+          .apply(fn=lambda x: x)
+      )
 
   @parameterized.named_parameters([
       dict(
@@ -1412,7 +1415,6 @@ class TransformTest(parameterized.TestCase):
           transform.TreeTransform()
           .apply(iter_utils.iterate_fn(lambda x: x + 1))
           .aggregate(fn=MockAverageFn())
-          .apply(iter_utils.iterate_fn(lambda x: x + 10))
           .aggregate(fn=MockAverageFn())
       )
 
@@ -1441,15 +1443,14 @@ class TransformTest(parameterized.TestCase):
         .apply(iter_utils.iterate_fn(lambda x: x + 1), output_keys='a')
         .assign('b', fn=iter_utils.iterate_fn(lambda x: x + 1), input_keys='a')
         .apply(iter_utils.iterate_fn(lambda x: x + 10))
-        # aggregate is a new tranform.
         .aggregate(fn=MockAverageFn())
     )
 
     transforms = t.flatten_transform()
     self.assertTrue(all(t is not None for t in transforms))
-    self.assertLen(transforms, 2)
+    self.assertLen(transforms, 1)
     self.assertSequenceEqual(transforms, t.flatten_transform())
-    other_transforms = t.flatten_transform(remove_input_transform=True)
+    other_transforms = t.flatten_transform()
     self.assertTrue(all(t is not None for t in other_transforms))
     self.assertEqual(transforms[0], other_transforms[0])
     self.assertTrue(

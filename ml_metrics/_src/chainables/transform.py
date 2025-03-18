@@ -265,13 +265,14 @@ class TransformRunner(aggregates.Aggregatable):
     # the aggregation node for the concrete function. Any node before it are
     # function nodes. There can only be one aggregation node.
     if recursive:
-      transforms = transform.flatten_transform(remove_input_transform=True)
+      transforms = transform.flatten_transform()
     else:
       transforms = [transform]
     fn_nodes = []
     data_source, agg_node = None, None
     name = ''
     for i, node in enumerate(transforms):
+      fn_nodes.append(node)
       name = node.name or name
       if node.data_source_ is not None:
         if i == 0:
@@ -280,18 +281,9 @@ class TransformRunner(aggregates.Aggregatable):
           raise ValueError(
               f'data_source has to be the first node, it is at {i}th position.'
           )
-      if isinstance(node, AggregateTransform):
-        if node.is_noop:
-          raise ValueError('Empty aggregation, forgot to add aggregation?')
-        if i == len(transforms) - 1:
-          assert agg_node is None, f'{agg_node=}'
-          agg_node = node
-        else:
-          raise ValueError(
-              f'Aggregation has to be the last node, it is at {i}th position.'
-          )
-      else:
-        fn_nodes.append(node)
+      if node.agg_fns:
+        assert agg_node is None, f'{agg_node=}'
+        agg_node = node
 
     # Reset the iterator_node and input_nodes if this is an aggregator.
     if mode == RunnerMode.AGGREGATE:
@@ -318,7 +310,7 @@ class TransformRunner(aggregates.Aggregatable):
     agg_fns, slice_fns = {}, []
     if agg_node:
       slice_fns = [slice_fn.maybe_make() for slice_fn in agg_node.slicers]
-      for agg_fn in agg_node.fns:
+      for agg_fn in agg_node.agg_fns:
         actual_agg_fn = agg_fn.maybe_make()
         if not isinstance(actual_agg_fn, aggregates.Aggregatable):
           raise ValueError(f'Not an aggregatable: {agg_fn}: {actual_agg_fn}')
@@ -602,6 +594,8 @@ class TreeTransform(Generic[TreeFnT]):
     data_source_: the input iterator, cannot coexist with the input_transform.
     input_transform: the transform that outputs the input of this transform.
     fns: the underlying routines of the transforms.
+    agg_fns: the underlying aggregate functions of the transforms.
+    slicers: the underlying slicers of the transforms.
     num_threads: maximum number of threads to run the transform.
     id: the id of the transform, unique for each transform.
     is_noop: whether the transform is a no-op, e.g., no function to execute.
@@ -611,7 +605,9 @@ class TreeTransform(Generic[TreeFnT]):
   name: str = ''
   data_source_: types.MaybeResolvable[Iterable[Any]] | None = None
   input_transform: TreeTransform | None = None
-  fns: tuple[TreeFnT, ...] = dataclasses.field(default_factory=tuple)
+  fns: tuple[TreeFnT, ...] = ()
+  agg_fns: tuple[TreeFnT, ...] = ()
+  slicers: tuple[tree_fns.Slicer, ...] = ()
   num_threads: int = _DEFAULT_NUM_THREADS
   _id: uuid.UUID = dataclasses.field(
       default_factory=uuid.uuid4, init=False, repr=False
@@ -643,7 +639,7 @@ class TreeTransform(Generic[TreeFnT]):
 
   @property
   def is_noop(self):
-    return not self.fns and self.data_source_ is None
+    return not self.agg_fns and not self.fns and self.data_source_ is None
 
   def __hash__(self):
     return hash(self._id)
@@ -699,6 +695,10 @@ class TreeTransform(Generic[TreeFnT]):
     )
 
   def data_source(self, data_source: Any = None, /) -> TreeTransform:
+    if not self.is_noop:
+      raise ValueError(
+          f'Cannot add a data source to a non-empty transform, got {self}.'
+      )
     return TreeTransform(
         data_source_=data_source,
         name=self.name,
@@ -718,21 +718,35 @@ class TreeTransform(Generic[TreeFnT]):
       result.update(itertools.chain(non_dict_keys, *dict_keys))
     return result
 
-  def _check_assign_keys(self, assign_keys: TreeMapKeys):
+  @property
+  def agg_output_keys(self) -> set[TreeMapKey]:
+    """Returns the output_keys (assign_keys for assign) of this transform."""
+    result = set()
+    for fn in self.agg_fns:
+      non_dict_keys, dict_keys = mit.partition(_is_dict, fn.output_keys)
+      result.update(itertools.chain(non_dict_keys, *dict_keys))
+    return result
+
+  def _check_assign_keys(
+      self,
+      assign_keys: TreeMapKeys,
+      exisiting_keys: set[TreeMapKeys] | None = None,
+  ):
     """Checks the assign keys are valid."""
     non_dict_keys, dict_keys = mit.partition(_is_dict, assign_keys)
     new_keys = set(itertools.chain(non_dict_keys, *dict_keys))
-    output_keys = self.output_keys
-    if conflicting_keys := new_keys.intersection(output_keys):
+    if exisiting_keys is None:
+      exisiting_keys = self.output_keys
+    if conflicting_keys := new_keys.intersection(exisiting_keys):
       raise KeyError(
           f'Duplicate output_keys: {conflicting_keys} from assignment of'
           f' {assign_keys}'
       )
-    all_keys = output_keys | new_keys
+    all_keys = exisiting_keys | new_keys
     if tree.Key.SELF in all_keys and len(all_keys) > 1:
       raise KeyError(
           'Cannot mix SELF with other keys as output keys, got'
-          f' {assign_keys=} all output keys so far: {output_keys}.'
+          f' {assign_keys=} all output keys so far: {exisiting_keys}.'
       )
 
   def filter(
@@ -826,14 +840,11 @@ class TreeTransform(Generic[TreeFnT]):
       disable_slicing: bool = False,
   ) -> AggregateTransform:
     """Create an aggregate transform on the previous transform."""
-    it_aggs = filter(
-        lambda t: isinstance(t, AggregateTransform), self.flatten_transform()
-    )
-    if agg := next(it_aggs, None):
-      raise ValueError(f'Cannot have more than one aggregations, has {agg}')
+    if self.agg_fns:
+      raise ValueError('Cannot have more than one aggregations.')
     if not fn:
       input_keys, output_keys = (), ()
-    return self._maybe_new_agg_transform().add_aggregate(
+    return self.add_aggregate(
         output_keys=output_keys,
         fn=fn,
         input_keys=input_keys,
@@ -863,70 +874,33 @@ class TreeTransform(Generic[TreeFnT]):
     )
     return self._maybe_new_transform(fn)
 
-  def flatten_transform(
-      self, remove_input_transform: bool = False
-  ) -> list[TreeTransform]:
+  def flatten_transform(self) -> list[TreeTransform]:
     """Flatten all the chain of transforms into a list."""
     if self.input_transform is None:
-      return [self]
-    current_transform = self
-    if remove_input_transform:
-      current_transform = current_transform.maybe_replace(input_transform=None)
-    return self.input_transform.flatten_transform(remove_input_transform) + [
-        current_transform
-    ]
+      return [] if self.is_noop else [self]
+    ancestors = self.input_transform.flatten_transform()
+    return ancestors + [self.maybe_replace(input_transform=None)]
 
   def _maybe_new_agg_transform(
       self,
       fn: tree_fns.TreeAggregateFn | None = None,
-  ) -> AggregateTransform:
+  ) -> TreeTransform:
     """Appends a new aggregate while optionally creates a new transform."""
-    fns = (fn,) if fn else ()
-    if isinstance(self, AggregateTransform):
-      if fn:
-        self._check_assign_keys(fn.output_keys)
-      return dataclasses.replace(self, fns=self.fns + fns)
-    elif self.is_noop:
-      # assert self.input_transform is None, f'got {self.input_transform=}'
-      return AggregateTransform(
-          fns=fns,
-          name=self.name,
-          num_threads=self.num_threads,
-          input_transform=self.input_transform,
-      )
-    else:
-      return AggregateTransform(
-          input_transform=self,
-          name=self.name,
-          fns=fns,
-          num_threads=self.num_threads,
-      )
+    if not fn:
+      return self
+    self._check_assign_keys(fn.output_keys, self.agg_output_keys)
+    agg_fns = self.agg_fns + (fn,)
+    return dataclasses.replace(self, agg_fns=agg_fns)
 
   def _maybe_new_transform(self, fn) -> TreeTransform:
     """Breaks apart the transform when this is an aggregate or source."""
-    if isinstance(self, AggregateTransform):
-      if self.name:
-        raise ValueError(
-            f'Cannot add assign/apply to a named transform {self.name}.'
-            'Separate the transforms and connect theme with `chain()`.'
-        )
-      return TreeTransform(
-          input_transform=self,
-          fns=(fn,),
-          num_threads=self.num_threads,
+    if not fn:
+      return self
+    if self.agg_fns:
+      raise ValueError(
+          f'Aggregation has to be the last node, attempting to add {fn}'
       )
-    return dataclasses.replace(self, fns=self.fns + (fn,))
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, eq=False)
-class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
-  """An AggregateTransform reduce rows.
-
-  Attributes:
-    input_transform: the transform that outputs the input of this transform.
-    fns: the underlying routines of the transforms.
-  """
-  slicers: tuple[tree_fns.Slicer, ...] = ()
+    return self.maybe_replace(fns=self.fns + (fn,))
 
   def add_aggregate(
       self,
@@ -1005,3 +979,6 @@ class AggregateTransform(TreeTransform[tree_fns.TreeAggregateFn]):
     if slicer.slice_name in set(slicer.slice_name for slicer in self.slicers):
       raise ValueError(f'Duplicate slice name {slicer.slice_name}.')
     return dataclasses.replace(self, slicers=self.slicers + (slicer,))
+
+# TODO: b/404264788 - remove this alias.
+AggregateTransform = TreeTransform
