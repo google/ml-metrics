@@ -392,9 +392,8 @@ class TransformTest(parameterized.TestCase):
     t3 = transform.TreeTransform.new(name='A').apply(
         fn=iter_utils.iterate_fn(lambda x: x + 1)
     )
-    t = t1.chain(t2).chain(t3)
-    with self.assertRaisesRegex(ValueError, 'Duplicate transform'):
-      t.named_transforms()
+    with self.assertRaisesRegex(ValueError, 'duplicate transform'):
+      _ = t1.chain(t2).chain(t3)
 
   def test_transform_equal(self):
     t = transform.TreeTransform()
@@ -1460,13 +1459,25 @@ class TransformTest(parameterized.TestCase):
         )
     )
 
-  def test_chain(self):
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='fused',
+          names=('', ''),
+          expected_transforms=[''],
+      ),
+      dict(
+          testcase_name='chain_unfused',
+          names=('a', 'b'),
+          expected_transforms=['a', 'b'],
+      ),
+  ])
+  def test_chain(self, names, expected_transforms):
     input_iterator = [[1, 2, 3], [2, 3, 4]]
-    read = transform.TreeTransform().data_source(
+    read = transform.TreeTransform(name=names[0]).data_source(
         lazy_fns.trace(test_utils.NoLenIter)(input_iterator)
     )
     process = (
-        transform.TreeTransform()
+        transform.TreeTransform(name=names[1])
         .apply(iter_utils.iterate_fn(lambda x: x + 1))
         .apply(iter_utils.iterate_fn(lambda x: x + 10))
         .aggregate(fn=MockAverageFn())
@@ -1475,6 +1486,8 @@ class TransformTest(parameterized.TestCase):
     actual_fn = t.make()
     self.assertEqual([13.5], actual_fn())
     self.assertEqual([13.5], actual_fn(input_iterator=input_iterator))
+    self.assertLen(t.flatten_transform(), len(expected_transforms))
+    self.assertEqual(expected_transforms, list(t.named_transforms()))
 
   @parameterized.named_parameters([
       dict(

@@ -651,32 +651,49 @@ class TreeTransform(Generic[TreeFnT]):
     filtered = {k: v for k, v in kwargs.items() if not _eq(getattr(self, k), v)}
     return dataclasses.replace(self, **filtered) if filtered else self
 
-  def chain(self, transform: TreeTransform):
-    """Chains self to the input of the first node in the other transform."""
-    transforms = transform.flatten_transform()
+  def chain(self, child: TreeTransform):
+    """Chains self with a child transform, fuses it when name is the same."""
+    if child.input_transform is not None or child.data_source_ is not None:
+      raise ValueError(
+          'Cannot fuse a transform with input_transform or data_source, got'
+          f' {child.input_transform=} and {child.data_source=}.'
+      )
+    if self.name == child.name:
+      return self._chain_and_fuse(child)
+
+    prev_transforms = set((t.name for t in self.flatten_transform()))
+    if child.name in prev_transforms:
+      raise ValueError(
+          f'Chaining duplicate transform name: {child.name}, previous'
+          f' transforms: {prev_transforms}.'
+      )
+    transforms = child.flatten_transform()
     input_transform = self
-    for transform in transforms:
-      input_transform = transform.maybe_replace(input_transform=input_transform)
+    for child in transforms:
+      input_transform = child.maybe_replace(input_transform=input_transform)
     return input_transform
+
+  def _chain_and_fuse(self, child: TreeTransform):
+    """Behave like Chain, but also fuse all the fns into one transform."""
+    if child.is_noop:
+      return self
+    if self.agg_output_keys.intersection(child.agg_output_keys):
+      raise ValueError(
+          'Cannot chain a transform with conflicting agg_output_keys'
+          f' got {self.agg_output_keys=} and {child.agg_output_keys=}.'
+      )
+    return self.maybe_replace(
+        fns=self.fns + child.fns,
+        agg_fns=self.agg_fns + child.agg_fns,
+        slicers=self.slicers + child.slicers,
+    )
 
   def named_transforms(self) -> dict[str, TreeTransform]:
     """Returns a dict of transforms with their names as the keys."""
-    result = {}
-    # Consecutive transforms with the same name will be considered as the same
-    # transform.
-    tracked = None
-    for transform in self.flatten_transform() + [TreeTransform()]:
-      if not tracked:
-        tracked = transform
-        continue
-      if transform.name != tracked.name:
-        if tracked.name in result:
-          raise ValueError(f'Duplicate transform {tracked.name}.')
-        result[tracked.name] = tracked
-        tracked = transform.maybe_replace(input_transform=None)
-      else:
-        tracked = transform.maybe_replace(input_transform=tracked)
-    return result
+    return {
+        t.name: t.maybe_replace(input_transform=None)
+        for t in self.flatten_transform()
+    }
 
   def make(
       self,
