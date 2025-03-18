@@ -739,7 +739,7 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
     _ = self.call(
         lazy_output_q.enqueue_from_iterator(lazy_iterable),
         return_exception=True,
-        ignore_result=True,
+        return_immediately=True,
     )
     # Wrap this queue to behave like a normal queue.
     return RemoteIteratorQueue(lazy_output_q, name=f'{name}@{self.address}')

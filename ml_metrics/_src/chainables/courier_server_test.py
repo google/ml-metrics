@@ -119,15 +119,32 @@ class CourierServerTest(parameterized.TestCase):
     result = client.maybe_make(pickler.dumps(lazy_fns.trace(len)([1, 2])))
     self.assertEqual(2, pickler.loads(result))
 
-  def test_maybe_make_ignore_result(self):
+  def test_maybe_make_return_immediately(self):
     client = courier.Client(self.server.address, call_timeout=1)
     start = time.time()
     result = client.maybe_make(
-        pickler.dumps(lazy_fns.trace(time.sleep)(0.5)), ignore_result=True
+        pickler.dumps(lazy_fns.trace(time.sleep)(0.5)), return_immediately=True
     )
     # Ignore result call should return immediately.
     self.assertLess(time.time() - start, 0.5)
     self.assertIsNone(pickler.loads(result))
+
+  def test_maybe_make_return_none(self):
+    class Foo:
+
+      def __init__(self):
+        self.x = 0
+
+      def __call__(self):
+        self.x += 1
+        return self.x
+
+    foo = lazy_fns.trace(Foo)(cache_result_=True)()  # cache_result_=True)
+    client = courier.Client(self.server.address, call_timeout=1)
+    result = client.maybe_make(pickler.dumps(foo), return_none=True)
+    self.assertIsNone(pickler.loads(result))
+    result = client.maybe_make(pickler.dumps(foo))
+    self.assertEqual(2, pickler.loads(result))
 
   def test_custom_setup(self):
     server = TestServer()

@@ -196,15 +196,39 @@ class CourierServer(metaclass=_CourierServerSingleton):
         maybe_lazy,
         return_exception: bool = False,
         compress: bool = False,
-        ignore_result: bool = False,
+        return_immediately: bool = False,
+        return_none: bool = False,
     ):
+      """Maybe make a lazy object.
+
+      Args:
+        maybe_lazy: The lazy object to be made.
+        return_exception: Whether to return the server-side exception when
+          exception is raised during the call.
+        compress: Whether to return the compressed result, this is useful to
+          lower the traffic size.
+        return_immediately: Whether to ignore the result and return immediately.
+        return_none: Whether to return None instead of the actual result. This
+          is useful to avoid expensive items to be pickled and sent back.
+
+      Returns:
+        The result of the maybe_make call.
+
+      Raises:
+        Exception: If return_exception is False and the call raises an
+          exception.
+      """
       self._last_heartbeat = time.time()
       try:
-        # ignore_result still honors other arguements compress and
+        # return_immediately still honors other arguements compress and
         # return_exception where optionally compress the result (None) and
         # returns the exception if threadpool.submit fails.
-        if ignore_result:
+        if return_immediately:
           self._thread_pool.submit(lazy_fns.maybe_make, maybe_lazy)
+          result = None
+        elif return_none:
+          # Skip return the actual result but still wait for finish.
+          _ = lazy_fns.maybe_make(maybe_lazy)
           result = None
         else:
           result = lazy_fns.maybe_make(maybe_lazy)
