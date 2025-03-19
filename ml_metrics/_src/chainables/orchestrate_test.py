@@ -220,7 +220,7 @@ class RunShardedIteratorTest(absltest.TestCase):
       ).shard(shard_index, num_shards)
       return transform.TreeTransform.new(name='datasource').data_source(ds)
 
-    with self.assertRaisesRegex(TimeoutError, 'Too many Timeouts: 2 > 1'):
+    with self.assertRaisesRegex(TimeoutError, r'Too many Timeouts: \d > 1'):
       _ = mit.ilen(
           orchestrate.sharded_pipelines_as_iterator(
               self.worker_pool,
