@@ -661,11 +661,19 @@ class TreeTransform(Generic[TreeFnT]):
     if self.name == child.name:
       return self._chain_and_fuse(child)
 
-    prev_transforms = set((t.name for t in self.flatten_transform()))
-    if child.name in prev_transforms:
+    prev_chains = self.flatten_transform()
+    prev_names = set((t.name for t in prev_chains))
+    if child.name in prev_names:
       raise ValueError(
-          f'Chaining duplicate transform name: {child.name}, previous'
-          f' transforms: {prev_transforms}.'
+          f'Chaining duplicate transform name "{child.name}", {prev_names=}.'
+      )
+    prev_agg_keys = set(
+        itertools.chain.from_iterable(t.agg_output_keys for t in prev_chains)
+    )
+    if dups := child.agg_output_keys.intersection(prev_agg_keys):
+      raise ValueError(
+          'Chaining transforms with duplicate aggregation output keys:'
+          f' {dups}'
       )
     transforms = child.flatten_transform()
     input_transform = self

@@ -392,7 +392,24 @@ class TransformTest(parameterized.TestCase):
     t3 = transform.TreeTransform.new(name='A').apply(
         fn=iter_utils.iterate_fn(lambda x: x + 1)
     )
-    with self.assertRaisesRegex(ValueError, 'duplicate transform'):
+    with self.assertRaisesRegex(ValueError, 'Chaining duplicate transform'):
+      _ = t1.chain(t2).chain(t3)
+
+  def test_transform_named_transforms_with_duplicate_agg_keys(self):
+    t1 = transform.TreeTransform.new(name='A').data_source(
+        test_utils.NoLenIter(range(3))
+    )
+    t2 = transform.TreeTransform.new(name='B').aggregate(
+        fn=lazy_fns.trace(MockAverageFn)()
+    )
+    t3 = (
+        transform.TreeTransform.new(name='C')
+        .apply(fn=iter_utils.iterate_fn(lambda x: x + 1))
+        .aggregate(fn=lazy_fns.trace(MockAverageFn)())
+    )
+    with self.assertRaisesRegex(
+        ValueError, 'Chaining transforms with duplicate aggregation output keys'
+    ):
       _ = t1.chain(t2).chain(t3)
 
   def test_transform_equal(self):
