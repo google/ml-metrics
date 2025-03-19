@@ -302,7 +302,7 @@ class CouierWorkerPoolGeneratorTest(absltest.TestCase):
           worker_pool.iterate(
               lazy_generators,
               generator_result_queue=generator_result_queue,
-              num_total_failures_threshold=0,
+              retry_threshold=0,
           )
       )
     self.assertEmpty(worker_pool.acquired_workers)
@@ -325,7 +325,7 @@ class CouierWorkerPoolGeneratorTest(absltest.TestCase):
           for result in self.worker_pool.iterate(
               tasks,
               generator_result_queue=generator_result_queue,
-              num_total_failures_threshold=0,
+              retry_threshold=0,
           )
       ]
     self.assertEmpty(self.worker_pool.acquired_workers)
@@ -345,7 +345,7 @@ class CouierWorkerPoolGeneratorTest(absltest.TestCase):
   #   generator_result_queue = queue.SimpleQueue()
   #   iterator = self.worker_pool.iterate(
   #       invalid_iterators,
-  #       num_total_failures_threshold=0,
+  #       retry_threshold=0,
   #       generator_result_queue=generator_result_queue,
   #   )
   #   with self.assertRaises(Exception):

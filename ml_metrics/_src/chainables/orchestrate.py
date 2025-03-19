@@ -63,8 +63,9 @@ def sharded_pipelines_as_iterator(
     *pipeline_args: The pipeline args.
     with_batch_output: Whether to return the batch output.
     result_queue: The queue to output the result.
-    retry_failures: Whether to retry when seeing failures.
-    retry_threshold: The threshold for the number of failures before giving up.
+    retry_failures: Whether to retry when seeing Timeout errors.
+    retry_threshold: The threshold for the number of Timeout errors before
+      giving up.
     num_shards: The number of shards to split the inputs as the datasource. This
       provides some control for the granularity of how much progress are lost
       when workers are dead.
@@ -144,11 +145,11 @@ def sharded_pipelines_as_iterator(
     )
     thread.start()
 
-  faiure_threshold = retry_threshold if retry_failures else 0
+  retry_threshold = retry_threshold if retry_failures else 0
   iterator = worker_pool.iterate(
       sharded_tasks,
       generator_result_queue=states_queue,
-      num_total_failures_threshold=faiure_threshold,
+      retry_threshold=retry_threshold,
       total_tasks=num_shards,
   )
   logging.info('chainable: iterator: %s', iterator)
@@ -504,7 +505,7 @@ def as_completed(
                 'chainable: deadline exceeded at %s, retrying task.',
                 task.server_name,
             )
-            tasks.append(task)
+            tasks.append(task.set(_exc=None))
           elif ignore_failures:
             logging.exception(
                 'chainable: task failed with exception: %s, task: %s', exc, task
@@ -521,7 +522,7 @@ def as_completed(
         )
         assert task.state is not None
         task.state.set_exception(TimeoutError(f'{task.server_name} timeout.'))
-        tasks.append(task)
+        tasks.append(task.set(_exc=None))
       else:
         still_running.append(task)
     running_tasks = still_running

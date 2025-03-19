@@ -22,6 +22,7 @@ from courier.python import testutil
 from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
+from ml_metrics._src.chainables import io
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import orchestrate
 from ml_metrics._src.chainables import transform
@@ -161,7 +162,9 @@ class RunShardedIteratorTest(absltest.TestCase):
   def setUp(self):
     super().setUp()
     self.servers = [
-        courier_server.PrefetchedCourierServer(f'server_{i}', clients=['host'])
+        courier_server.PrefetchedCourierServer(
+            f'server_sharded_{i}', clients=['host'], ignore_error=False
+        )
         for i in range(2)
     ]
     for s in self.servers:
@@ -191,6 +194,42 @@ class RunShardedIteratorTest(absltest.TestCase):
     self.assertIn('stats', results)
     self.assertIsInstance(results['stats'], rolling_stats.MeanAndVariance)
     self.assertEqual(results['stats'].count, total_numbers)
+
+  def test_iterator_with_exception(self):
+    def sharded_pipeline(shard_index: int, num_shards: int):
+      ds = io.SequenceDataSource(test_utils.SequenceWithExc(100, 12)).shard(
+          shard_index, num_shards
+      )
+      return transform.TreeTransform.new(name='datasource').data_source(ds)
+
+    with self.assertRaisesRegex(ValueError, 'SequenceWithExc'):
+      _ = mit.ilen(
+          orchestrate.sharded_pipelines_as_iterator(
+              self.worker_pool,
+              sharded_pipeline,
+              num_shards=self.worker_pool.num_workers + 1,
+              retry_failures=True,
+          )
+      )
+
+  def test_iterator_with_exception_retry_failures(self):
+    def sharded_pipeline(shard_index: int, num_shards: int):
+      # TimeoutError can be retried.
+      ds = io.SequenceDataSource(
+          test_utils.SequenceWithExc(100, 12, error_type=TimeoutError)
+      ).shard(shard_index, num_shards)
+      return transform.TreeTransform.new(name='datasource').data_source(ds)
+
+    with self.assertRaisesRegex(TimeoutError, 'Too many Timeouts: 2 > 1'):
+      _ = mit.ilen(
+          orchestrate.sharded_pipelines_as_iterator(
+              self.worker_pool,
+              sharded_pipeline,
+              num_shards=self.worker_pool.num_workers + 1,
+              retry_failures=True,
+              retry_threshold=1,
+          )
+      )
 
 
 class RunInterleavedTest(parameterized.TestCase):

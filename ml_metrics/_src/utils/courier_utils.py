@@ -78,6 +78,7 @@ class Task(FutureLike[_T]):
   worker: CourierClient | None = None
   state: futures.Future[Any] | None = None
   courier_method: str = 'maybe_make'
+  _exc: BaseException | None = None
 
   @classmethod
   def new(
@@ -113,8 +114,12 @@ class Task(FutureLike[_T]):
       return lazy_fns.maybe_unpickle(self.state.result())
 
   def exception(self) -> BaseException | None:
+    if self._exc is not None:
+      return self._exc
+
     if (state := self.state) is not None:
-      return state.exception()
+      object.__setattr__(self, '_exc', state.exception())
+      return self._exc
 
   @property
   def server_name(self) -> str:

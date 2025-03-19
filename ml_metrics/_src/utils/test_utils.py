@@ -66,16 +66,17 @@ class NoLenIter(Iterable):
 class SequenceWithExc:
   """A range that raises an exception at a specific value."""
 
-  def __init__(self, end: int, exc_i: int):
+  def __init__(self, end: int, exc_i: int, error_type=ValueError):
     self.end = end
     self.exc_i = exc_i
+    self.error_type = error_type
 
   def __len__(self):
     return self.end
 
   def __getitem__(self, i):
     if i == self.exc_i:
-      raise ValueError()
+      raise self.error_type(f'SequenceWithExc at {i}')
     return i
 
 

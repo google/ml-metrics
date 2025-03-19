@@ -507,7 +507,7 @@ class CourierClientTest(absltest.TestCase):
     def bad_generator(n, exc_i):
       for elem in range(n):
         if elem == exc_i:
-          raise TypeError('bad generator')
+          raise ValueError('bad generator')
         yield elem
 
     # The generator on the server ignores error and stops at the 1st exception.
@@ -522,8 +522,8 @@ class CourierClientTest(absltest.TestCase):
         result.append(x)
       return result
 
-    result = asyncio.run(run())
-    self.assertEqual(list(range(3)), result)
+    with self.assertRaisesRegex(ValueError, 'bad generator'):
+      _ = asyncio.run(run())
 
   def test_worker_heartbeat(self):
     # Server is not started, thus it is never alive.

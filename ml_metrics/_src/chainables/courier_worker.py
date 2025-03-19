@@ -427,7 +427,7 @@ class WorkerPool:
       task_iterator: Iterable[GeneratorTask | lazy_fns.LazyFn],
       *,
       generator_result_queue: queue.SimpleQueue[Any],
-      num_total_failures_threshold: int = _NUM_TOTAL_FAILURES_THRESHOLD,
+      retry_threshold: int = _NUM_TOTAL_FAILURES_THRESHOLD,
       total_tasks: int = 0,
   ) -> Iterator[Any]:
     """Iterates through the result of a generator if the iterator task."""
@@ -443,9 +443,10 @@ class WorkerPool:
     loop_thread = threading.Thread(target=event_loop.run_forever)
     loop_thread.start()
     running_tasks: list[GeneratorTask] = []
+    failed_tasks: list[GeneratorTask] = []
     tasks: list[GeneratorTask] = []
     running_workers: set[courier_utils.CourierClient] = set()
-    running_total, finished_tasks_cnt, total_failures_cnt = 0, 0, 0
+    running_total, finished_tasks_cnt, total_timeouts = 0, 0, 0
     batch_cnt, prev_batch_cnt = 0, 0
     exhausted = False
     while not exhausted or tasks or running_tasks:
@@ -484,22 +485,22 @@ class WorkerPool:
         yield output_queue.get()
 
       # Acquiring unfinished and failed tasks
-      failed_tasks, disconnected_tasks, still_running_tasks = [], [], []
+      new_failed_tasks, timeout_tasks, still_running_tasks = [], [], []
       for task in running_tasks:
         if task.done():
           if exc := task.exception():
             if isinstance(exc, TimeoutError) or is_timeout(exc):
               logging.warning(
-                  'chainable: task disconnected, worker: %s', task.worker
+                  'chainable: task timeout, worker: %s', task.worker
               )
-              disconnected_tasks.append(task)
+              timeout_tasks.append(task.set(_exc=None))
             else:
               logging.exception(
                   'chainable: task failed with exception: %s, task: %s',
                   task.exception(),
                   task,
               )
-              failed_tasks.append(task)
+              new_failed_tasks.append(task)
           else:
             finished_tasks_cnt += 1
         else:
@@ -507,70 +508,87 @@ class WorkerPool:
             still_running_tasks.append(task)
           else:
             logging.warning(
-                'chainable: worker disconnected, worker: %s', task.worker
+                'chainable: worker timeout, worker: %s', task.worker
             )
-            disconnected_tasks.append(task)
+            timeout_tasks.append(task.set(_exc=None))
       running_tasks = still_running_tasks
 
-      # Preemptively cancel task from the disconnected workers.
-      for task in disconnected_tasks:
+      # Preemptively cancel task from the timeout workers.
+      for task in timeout_tasks:
         if (state := task.state) is not None:
           state.cancel()
-      if failed_tasks or disconnected_tasks:
-        logging.info(
-            'chainable: %d tasks failed, %d tasks disconnected.',
-            len(failed_tasks),
-            len(disconnected_tasks),
-        )
-        tasks.extend(disconnected_tasks)
-        total_failures_cnt += len(failed_tasks)
-        if total_failures_cnt > num_total_failures_threshold:
+      if new_failed_tasks:
+        # Failed tasks likely caused by non-transient error, not to be retried.
+        logging.error('chainable: %d new failed task.', len(new_failed_tasks))
+        failed_tasks.extend(new_failed_tasks)
+      if timeout_tasks:
+        logging.info('chainable: %d tasks Timeout.', len(timeout_tasks))
+        tasks.extend(timeout_tasks)
+        total_timeouts += len(timeout_tasks)
+        if total_timeouts > retry_threshold:
           logging.exception(
-              'chainable: too many failures: %d > %d, stopping, '
+              'chainable: too many Timeout errors: %d > %d, stopping, '
               'last exception:\n %s.',
-              total_failures_cnt,
-              num_total_failures_threshold,
-              failed_tasks[-1].exception(),
+              total_timeouts,
+              retry_threshold,
+              timeout_tasks[-1].exception(),
           )
-          raise failed_tasks[-1].exception()
+          event_loop.call_soon_threadsafe(event_loop.stop)
+          loop_thread.join()
+          assert (e := timeout_tasks[-1].exception()) is not None
+          raise TimeoutError(
+              f'Too many Timeouts: {total_timeouts} > {retry_threshold}, last'
+              f' exception: {e.args[0]}'
+          )
         else:
-          tasks.extend(failed_tasks)
+          tasks.extend(timeout_tasks)
           logging.info(
-              'chainable: %d tasks failed, re-trying: %s.',
-              len(failed_tasks),
-              failed_tasks,
+              'chainable: %d tasks Timeout, re-trying: %s.',
+              len(timeout_tasks),
+              timeout_tasks,
           )
       running_workers = {task.worker for task in running_tasks if task.worker}
 
       if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SEC:
         logging.info(
             'chainable: async throughput: %.2f batches/s; progress:'
-            ' %d/%d/%d/%d (running/remaining/finished/total) with %d retries in'
-            ' %.2f secs.',
+            ' %d/%d/%d/%d/%d (running/remaining/failed/finished/total) with %d'
+            ' retries in %.2f secs.',
             (batch_cnt - prev_batch_cnt) / (ticker - prev_ticker),
             len(running_tasks),
             len(tasks),
+            len(failed_tasks),
             finished_tasks_cnt,
             total_tasks or running_total,
-            total_failures_cnt,
+            total_timeouts,
             ticker - prev_ticker,
         )
         prev_ticker, prev_batch_cnt = ticker, batch_cnt
 
     assert not running_tasks
-    assert exhausted and running_total == finished_tasks_cnt
+    assert exhausted and running_total == finished_tasks_cnt + len(failed_tasks)
     event_loop.call_soon_threadsafe(event_loop.stop)
     loop_thread.join()
     while not output_queue.empty():
       batch_cnt += 1
       yield output_queue.get()
     logging.info(
-        'chainable: finished running with %d/%d (finished/total) in %.2f'
-        ' secs, average throughput: %.2f/sec.',
+        'chainable: finished running with %d/%d/%d (finished/failed/total) in'
+        ' %.2f secs, average throughput: %.2f/sec.',
         finished_tasks_cnt,
+        len(failed_tasks),
         running_total,
         time.time() - start_time,
         batch_cnt / (time.time() - start_time),
     )
     if generator_result_queue:
       generator_result_queue.put(iter_utils.STOP_ITERATION)
+
+    if failed_tasks:
+      e = failed_tasks[-1].exception()
+      assert e is not None
+      e.add_note(
+          f'chainable: {len(failed_tasks)} tasks failed, search "Exception'
+          ' during enqueuing" for the actual exception.'
+      )
+      raise e
