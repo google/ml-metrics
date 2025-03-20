@@ -98,6 +98,12 @@ def sharded_pipelines_as_iterator(
   # Inference and aggregations.
   states_queue = queue.SimpleQueue()
   if calculate_agg_result:
+    agg_fn = define_pipeline(
+        *pipeline_args,
+        shard_index=0,
+        num_shards=num_shards,
+        **pipeline_kwargs,
+    ).make(mode=transform_lib.RunnerMode.AGGREGATE)
 
     def compute_result(
         states_queue: queue.SimpleQueue[
@@ -105,15 +111,6 @@ def sharded_pipelines_as_iterator(
         ],
         result_queue: queue.SimpleQueue[transform_lib.AggregateResult],
     ):
-      agg_fn = define_pipeline(
-          *pipeline_args,
-          shard_index=0,
-          num_shards=num_shards,
-          **pipeline_kwargs,
-      ).make(mode=transform_lib.RunnerMode.AGGREGATE)
-      if not agg_fn.has_agg:
-        raise ValueError('chainable: no aggregations found in the pipeline.')
-
       def iterate_agg_state():
         while True:
           try:
