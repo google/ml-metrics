@@ -231,17 +231,19 @@ class RunShardedIteratorTest(parameterized.TestCase):
       )
       return transform.TreeTransform.new(name='datasource').data_source(ds)
 
-    with self.assertRaisesRegex(ValueError, 'SequenceWithExc'):
+    with self.assertRaisesRegex(
+        ValueError, 'Task failed at 2/6 tasks: SequenceWithExc at 12'
+    ):
       _ = mit.ilen(
           orchestrate.sharded_pipelines_as_iterator(
               self.worker_pool,
               sharded_pipeline,
-              num_shards=self.worker_pool.num_workers + 1,
+              num_shards=self.worker_pool.num_workers + 4,
               retry_failures=True,
           )
       )
 
-  def test_iterator_with_exception_retry_failures(self):
+  def test_iterator_with_timeout_retry(self):
     def sharded_pipeline(shard_index: int, num_shards: int):
       # TimeoutError can be retried.
       ds = io.SequenceDataSource(
