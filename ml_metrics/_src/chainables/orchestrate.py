@@ -260,7 +260,7 @@ def _async_run_single_stage(
   worker_pool = resource.worker_pool
   if worker_pool and transform.data_source_ is not None:
     raise ValueError(
-        'chainable: input_iterator is not supported with worker_pool.'
+        'chainable: data_source is not supported with worker_pool.'
     )
   result_q = iter_utils.AsyncIteratorQueue(
       resource.buffer_size,

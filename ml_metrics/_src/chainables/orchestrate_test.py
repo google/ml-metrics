@@ -295,8 +295,8 @@ class RunInterleavedTest(parameterized.TestCase):
         },
     ) as runner:
       it_result = iter(runner.result_queue)
-    first_batch = mit.first(it_result)
-    cnt = mit.ilen(it_result) + 1
+      first_batch = mit.first(it_result)
+      cnt = mit.ilen(it_result) + 1
     if with_workers:
       assert master_server is not None
       self.assertTrue(master_server.has_started)
