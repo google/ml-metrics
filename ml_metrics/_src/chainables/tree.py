@@ -308,6 +308,8 @@ def _dfs_iter_tree(
       yield from _dfs_iter_tree(v, parent_key_path.at(Index(i)))
   elif parent_key_path:
     yield Key(parent_key_path)
+  elif data:
+    yield Key().SELF
 
 
 @dataclasses.dataclass

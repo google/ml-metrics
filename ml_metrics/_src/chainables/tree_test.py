@@ -154,6 +154,11 @@ class TreeMapViewTest(parameterized.TestCase):
     view = TreeMapView(data)
     self.assertEqual([], list(view))
 
+  def test_iter_with_scalar(self):
+    view = TreeMapView(10)
+    self.assertEqual([10], list(view.values()))
+    self.assertEqual([Key().SELF], list(view))
+
   def test_len(self):
     view = TreeMapView({'a': {'a1': np.array([1, 2])}, 'b': [{0: ['c', 'd']}]})
     self.assertLen(view, 3)
