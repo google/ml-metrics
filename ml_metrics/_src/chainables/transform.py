@@ -55,7 +55,7 @@ import time
 from typing import Any, Generic, Self, TypeVar
 import uuid
 
-from absl import logging
+from absl import logging as absl_logging
 from ml_metrics._src import types
 from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import io
@@ -63,6 +63,7 @@ from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
 from ml_metrics._src.chainables import tree_fns
 from ml_metrics._src.utils import iter_utils
+from ml_metrics._src.utils import logging
 import more_itertools as mit
 
 
@@ -143,7 +144,6 @@ class _RunnerIterator(iter_utils.MultiplexIterator[_ValueT]):
         result = fn.iterate(result)
       yield from result
 
-    self._prev_ticker = time.time()
     self.batch_index = 0
     super().__init__(
         data_sources=self._data_sources,
@@ -182,23 +182,20 @@ class _RunnerIterator(iter_utils.MultiplexIterator[_ValueT]):
     )
 
   def __next__(self) -> _ValueT:
-    if (ticker := time.time()) - self._prev_ticker > _LOGGING_INTERVAL_SECS:
-      logging.info(
-          'chainable: "%s" processed %d batch.', self.name, self.batch_index
-      )
-      self._prev_ticker = ticker
+    logging.log_every_n_seconds(
+        absl_logging.INFO,
+        f'"{self.name}" processed {self.batch_index} batch.',
+        _LOGGING_INTERVAL_SECS,
+    )
     try:
       batch_output = super().__next__()
       self.batch_index += 1
       if self._with_agg:
         self.agg_state = self._runner.update_state(self.agg_state, batch_output)
-      logging.debug(
-          'chainable: "%s" batch cnt %d.', self.name, self.batch_index
-      )
+      logging.debug(f'"{self.name}" batch cnt {self.batch_index}.')
       return batch_output if self._with_result else None
     except StopIteration as e:
       logging.info(
-          'chainable: %s',
           f'"{self.name}" iterator exhausted after {self.batch_index} batches.',
       )
       raise e
@@ -370,10 +367,10 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
             fn_state = agg_fn.merge_states([states_by_fn[key], fn_state])
           states_by_fn[key] = fn_state
       states_cnt += 1
-      logging.info('chainable: merged %d states.', states_cnt)
+      logging.info(f'merged {states_cnt} states.')
     if strict_states_cnt and states_cnt != strict_states_cnt:
       raise ValueError(
-          'chainable: unexpected number of aggregation states. Workers'
+          'unexpected number of aggregation states. Workers'
           f' might have partially crashed: got {states_cnt} states, '
           f'needs {strict_states_cnt}.'
       )
@@ -500,9 +497,7 @@ class _ChainedRunnerIterator(Iterable[_ValueT]):
         agg_result = self.agg_result if self._with_agg_result else None
         returned = AggregateResult(agg_result, agg_state=self.agg_state)
       name = ' '.join(it.name for it in self._iterators if it.name)
-      logging.info(
-          'chainable: "%s" iterator returned a %s', name, type(returned)
-      )
+      logging.info(f'"{name}" iterator returned a {type(returned)}')
       raise StopIteration(returned) if returned else e
 
   def __iter__(self) -> Iterator[_ValueT]:
@@ -591,7 +586,7 @@ class ChainedRunner(Iterable[_ValueT]):
     states = list(states)
     if strict_states_cnt and len(states) != strict_states_cnt:
       raise ValueError(
-          'chainable: unexpected number of aggregation states. Workers'
+          'unexpected number of aggregation states. Workers'
           f' might have partially crashed: got {len(states)} states, '
           f'needs {strict_states_cnt}.'
       )
