@@ -157,13 +157,16 @@ class RunAsCompletedTest(absltest.TestCase):
     self.assertEmpty(shared_worker_pool.acquired_workers)
 
 
-class RunShardedIteratorTest(absltest.TestCase):
+class RunShardedIteratorTest(parameterized.TestCase):
 
   def setUp(self):
     super().setUp()
     self.servers = [
         courier_server.PrefetchedCourierServer(
-            f'server_sharded_{i}', clients=['host'], ignore_error=False
+            f'server_sharded_{i}',
+            clients=['host'],
+            prefetch_size=1024,
+            ignore_error=False,
         )
         for i in range(2)
     ]
@@ -171,6 +174,32 @@ class RunShardedIteratorTest(absltest.TestCase):
       s.start()
     addrs = [s.address for s in self.servers]
     self.worker_pool = courier_worker.WorkerPool(addrs)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='with_agg_unfused',
+          fuse_aggregate=False,
+      ),
+      dict(
+          testcase_name='with_agg_fused',
+          fuse_aggregate=True,
+      ),
+  ])
+  def test_in_process(self, fuse_aggregate):
+    total_numbers, batch_size = 1_000_001, 1000
+    pipeline = test_utils.sharded_pipeline(
+        total_numbers=total_numbers,
+        batch_size=batch_size,
+        fuse_aggregate=fuse_aggregate,
+    )
+    it = pipeline.make().iterate()
+    num_batches = mit.ilen(it)
+    self.assertEqual(num_batches, math.ceil(total_numbers / batch_size))
+    result = it.agg_result
+    self.assertIsNotNone(result)
+    self.assertIn('stats', result)
+    self.assertIsInstance(result['stats'], rolling_stats.MeanAndVariance)
+    self.assertEqual(result['stats'].count, total_numbers)
 
   def test_iterator(self):
     results_queue = queue.SimpleQueue()
@@ -180,7 +209,7 @@ class RunShardedIteratorTest(absltest.TestCase):
             self.worker_pool,
             test_utils.sharded_pipeline,
             total_numbers=total_numbers,
-            num_shards=self.worker_pool.num_workers + 1,
+            num_shards=self.worker_pool.num_workers + 2,
             batch_size=batch_size,
             num_threads=1,
             result_queue=results_queue,
