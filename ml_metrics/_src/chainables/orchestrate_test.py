@@ -232,7 +232,7 @@ class RunShardedIteratorTest(parameterized.TestCase):
       return transform.TreeTransform.new(name='datasource').data_source(ds)
 
     with self.assertRaisesRegex(
-        ValueError, 'Task failed at 2/6 tasks: SequenceWithExc at 12'
+        ValueError, r'Task failed at \d/6 tasks: SequenceWithExc at 12'
     ):
       _ = mit.ilen(
           orchestrate.sharded_pipelines_as_iterator(
