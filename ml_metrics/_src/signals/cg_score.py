@@ -18,6 +18,7 @@ def complexity_gap_score(
     *,
     num_repetitions: int = 1,
     class_balance_ratio: float = 1.0,
+    random_seed: int = 0,
 ) -> types.NumbersT:
   """Calculates the Complexity Gap (CG) score for identifying influential instances.
 
@@ -27,6 +28,7 @@ def complexity_gap_score(
       num_repetitions: Number of times to repeat the CG score calculation.
       class_balance_ratio: Ratio for balancing classes during calculation (e.g.,
         1.0 for perfect balance).
+      random_seed: Random seed for reproducibility.
 
   Returns:
       A NumPy array containing the CG score for each data point.
@@ -40,6 +42,8 @@ def complexity_gap_score(
     return cg_scores
 
   data_by_label = _group_data_by_label(embeddings, labels)
+  if random_seed:
+    np.random.seed(random_seed)
 
   for _ in range(num_repetitions):
     for label, data in data_by_label.items():

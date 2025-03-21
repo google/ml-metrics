@@ -51,7 +51,7 @@ class CgScoreTest(absltest.TestCase):
     embeddings = np.array([[1, 2], [2, 3], [5, 4], [5, 4]])
     labels = np.array([1, 1, 1, 0])
     cg_scores = cg_score.complexity_gap_score(
-        labels, embeddings, num_repetitions=1
+        labels, embeddings, num_repetitions=1, random_seed=0
     )
     self.assertLen(cg_scores, 4)
     self.assertLess(cg_scores[0], cg_scores[3])
