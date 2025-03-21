@@ -64,8 +64,12 @@ class MockSequence:
     return len(self._data)
 
   def __getitem__(self, i):
-    self.ref_cnt += 1
-    return self._data[i.__index__()]
+    try:
+      result = self._data[i.__index__()]
+      self.ref_cnt += 1
+      return result
+    except:  # pylint: disable=try-except-raise
+      raise
 
 
 class IterUtilsTest(parameterized.TestCase):

@@ -41,6 +41,7 @@ _InputT = TypeVar('_InputT')
 _MAX_BATCH_SIZE = 4096
 _ITERATE_FN_MAX_THREADS = 256
 _IGNORE_ERROR_TYPES = (ValueError, TypeError)
+_RANDOM_ACCESS_BATCH_SIZE = 20
 
 
 class _QueueLike(Protocol[_ValueT]):
@@ -170,24 +171,57 @@ class SequenceArray(Sequence):
 
 
 class RandomAccessRangeIterator(Iterator[_ValueT]):
-  """An range like iterator that iterate through random accessible data."""
+  """An range like iterator that iterate through random accessible data.
+
+  The iterator can read ahead if the underlying data source supports random
+  access with slicing. If failed, it will fall back to single element random
+  access. The batch size will be increased exponentially if it succeeds. Upon
+  error even in single element batch, the iterator will skip the current index
+  and raise the error. So that the next call to `__next__` will try to read the
+  next index, making the error skippable.
+
+  Attributes:
+    data: The underlying data source.
+    start: The start index of the iteration.
+    stop: The stop index of the iteration.
+    i: The current index of the iteration.
+  """
 
   def __init__(
-      self, data: types.RandomAccessible[_ValueT], start: int, stop: int | None
+      self,
+      data: types.RandomAccessible[_ValueT],
+      start: int,
+      stop: int | None,
   ):
     self.data = data
     self.stop = len(data) if stop is None else stop
     self.start = start
     self.i = start
+    self._batch_size = 16
+    self._cache = collections.deque()
 
   def __next__(self):
-    if self.i == self.stop:
-      raise StopIteration()
-    try:
-      result = self.data[self.i]
-      return result
-    finally:
-      self.i += 1
+    while not self._cache and self.i < self.stop:
+      try:
+        batch_size = self._batch_size
+        if self._batch_size > 1:
+          batch_size = min(self.i + self._batch_size, self.stop) - self.i
+          self._cache.extend(self.data[self.i : self.i + batch_size])
+        else:
+          self._cache.append(self.data[self.i])
+        self.i += batch_size
+        self._batch_size = min(_RANDOM_ACCESS_BATCH_SIZE, self._batch_size * 2)
+      except Exception:  # pylint: disable=broad-exception-caught
+        # After falling back to single element batch, raise the exception and
+        # skip the index by one.
+        if self._batch_size == 1:
+          self.i += self._batch_size
+          raise
+        # Fall back to single element batch when there is an error.
+        self._batch_size = 1
+    if self._cache:
+      return self._cache.popleft()
+    raise StopIteration()
 
   def __iter__(self):
     return self
