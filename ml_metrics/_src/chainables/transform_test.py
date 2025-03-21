@@ -62,6 +62,11 @@ def _reduce_size(inputs):
   return result
 
 
+def _get_all_threads(iterators: list[transform._RunnerIterator]):
+  it_theads = (p._threads for it in iterators if (p := it._thread_pool))
+  return list(itertools.chain.from_iterable(it_theads))
+
+
 # TODO: b/318463291 - Improves test coverage.
 class MockAverageFn:
 
@@ -181,9 +186,9 @@ class TransformDataSourceTest(parameterized.TestCase):
     expected = list(range(512))
     it = p.make().iterate()
     self.assertCountEqual(expected, list(it))
-    assert it._thread_pool is not None
-    self.assertNotEmpty(it._thread_pool._threads)
-    self.assertTrue(all(not t.is_alive() for t in it._thread_pool._threads))
+    threads = _get_all_threads(it._iterators)
+    self.assertNotEmpty(threads)
+    self.assertTrue(all(not t.is_alive() for t in threads))
 
   def test_sharded_sequence_data_source_resume(self):
     ds = io.SequenceDataSource(range(3))
@@ -216,9 +221,9 @@ class TransformDataSourceTest(parameterized.TestCase):
     expected = [0, 1, 3]
     it = p.make().iterate(range(4), ignore_error=True)
     self.assertEqual(expected, list(it))
-    assert it._thread_pool is not None
-    self.assertNotEmpty(it._thread_pool._threads)
-    self.assertTrue(all(not t.is_alive() for t in it._thread_pool._threads))
+    threads = _get_all_threads(it._iterators)
+    self.assertNotEmpty(threads)
+    self.assertTrue(all(not t.is_alive() for t in threads))
 
   def test_sequence_data_source_assign_ignore_error(self):
     def foo(x):
@@ -235,9 +240,9 @@ class TransformDataSourceTest(parameterized.TestCase):
     expected = [{'a': 0, 'b': 0}, {'a': 1, 'b': 1}, {'a': 3, 'b': 3}]
     it = p.make().iterate(range(4), ignore_error=True)
     self.assertEqual(expected, list(it))
-    assert it._thread_pool is not None
-    self.assertNotEmpty(it._thread_pool._threads)
-    self.assertTrue(all(not t.is_alive() for t in it._thread_pool._threads))
+    threads = _get_all_threads(it._iterators)
+    self.assertNotEmpty(threads)
+    self.assertTrue(all(not t.is_alive() for t in threads))
 
   def test_mock_generator_bool_operator(self):
     ds = test_utils.NoLenIter(range(3))
@@ -303,7 +308,7 @@ class TransformTest(parameterized.TestCase):
         .data_source(test_utils.NoLenIter(range(3)))
         .apply(lambda x: x + 1)
     )
-    self.assertEqual(t.make().name, 'call')
+    self.assertEqual(t.make()._runners[0].name, 'call')
 
   def test_transform_call(self):
     t = (
@@ -1403,7 +1408,7 @@ class TransformTest(parameterized.TestCase):
         .apply(iter_utils.iterate_fn(lambda x: x + 10))
         .aggregate(fn=MockAverageFn())
     )
-    actual_fn: transform.TransformRunner = t.make()
+    actual_fn = t.make()
     self.assertEqual([13.5], actual_fn())
     self.assertEqual(
         [13.5], actual_fn(input_iterator=test_utils.NoLenIter(input_iterator))
@@ -1443,7 +1448,7 @@ class TransformTest(parameterized.TestCase):
         .apply(iter_utils.iterate_fn(lambda x: x + 10))
         .aggregate(fn=MockAverageFn())
     )
-    actual_fn: transform.TransformRunner = t.make()
+    actual_fn = t.make()
     with self.assertRaises(ValueError):
       # Exhausting the iterator is necessary to get the aggregate result.
       mit.last(state := actual_fn.iterate())
@@ -1501,6 +1506,9 @@ class TransformTest(parameterized.TestCase):
     )
     t = read.chain(process)
     actual_fn = t.make()
+    it = t.make().iterate()
+    self.assertLen(it._iterators, len(set(names)))
+    self.assertEqual([[12, 13, 14], [13, 14, 15]], list(it))
     self.assertEqual([13.5], actual_fn())
     self.assertEqual([13.5], actual_fn(input_iterator=input_iterator))
     self.assertLen(t.flatten_transform(), len(expected_transforms))
@@ -1547,19 +1555,20 @@ class TransformTest(parameterized.TestCase):
 
   def test_transform_maybe_stop(self):
     datasource = test_utils.range_with_sleep(256, 0.3)
-    p = (
-        transform.TreeTransform(num_threads=1)
-        .data_source(datasource)
-        .apply(lambda x: x)
+    p_ds = transform.TreeTransform(num_threads=1).data_source(datasource)
+    p_apply = transform.TreeTransform(name='apply', num_threads=1).apply(
+        lambda x: x
     )
+    p = p_ds.chain(p_apply)
 
     it = p.make().iterate()
     for x in it:
       if x == 2:
         it.maybe_stop()
-    assert it._thread_pool
-    self.assertTrue(all(not t.is_alive() for t in it._thread_pool._threads))
-    self.assertEqual([], list(it))
+    self.assertLen(it._iterators, 2)
+    threads = _get_all_threads(it._iterators)
+    self.assertNotEmpty(threads)
+    self.assertTrue(all(not t.is_alive() for t in threads))
 
 
 if __name__ == '__main__':

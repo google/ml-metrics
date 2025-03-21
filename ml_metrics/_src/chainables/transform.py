@@ -49,6 +49,7 @@ from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Se
 import copy
 import dataclasses
 import enum
+import functools
 import itertools
 import time
 from typing import Any, Generic, Self, TypeVar
@@ -67,7 +68,6 @@ import more_itertools as mit
 
 TreeMapKey = tree.TreeMapKey
 TreeMapKeys = tree.TreeMapKeys
-
 Fn = Callable[..., Any]
 FnT = TypeVar('FnT', Callable, aggregates.Aggregatable)
 TreeFnT = TypeVar('TreeFnT', bound=tree_fns.TreeFn)
@@ -105,13 +105,13 @@ class AggregateResult:
 @dataclasses.dataclass(frozen=True)
 class _IteratorState:
   input_states: list[io.ShardConfig]
-  agg_state: dict[MetricKey, Any] | None
+  agg_state: _AggState | None
 
 
 class _RunnerIterator(iter_utils.MultiplexIterator[_ValueT]):
   """An iterator that returns the last value."""
   data_sources: Sequence[Iterable[_ValueT]]
-  agg_state: dict[MetricKey, Any] | None
+  agg_state: _AggState
 
   def __init__(
       self,
@@ -121,17 +121,17 @@ class _RunnerIterator(iter_utils.MultiplexIterator[_ValueT]):
       ignore_error: bool,
       with_result: bool = True,
       with_agg_state: bool = True,
-      with_agg_result: bool = True,
       state: Any = None,
   ):
     self._runner = runner
     self._data_sources = data_sources
     self._ignore_error = ignore_error
     self._with_result = with_result
-    self.agg_state = state
-    self._with_agg = state and (with_agg_state or with_agg_result)
-    self._with_agg_result = with_agg_result
-    self._thread_pool = None
+    # Only keep the states relevant to the runner.
+    self.agg_state = {
+        k: v for k, v in state.items() if k.metrics in self._runner.agg_fns
+    }
+    self._with_agg = state and with_agg_state
 
     def iter_fn(
         input_iterator: Iterable[tree.MapLikeTree | None] = (),
@@ -153,10 +153,16 @@ class _RunnerIterator(iter_utils.MultiplexIterator[_ValueT]):
     )
 
   @property
-  def agg_result(self) -> tree.MapLikeTree[Any] | None:
-    if self.agg_state:
-      return self._runner.get_result(self.agg_state)
-    return None
+  def name(self) -> str:
+    return self._runner.name
+
+  @property
+  def has_agg(self) -> bool:
+    return self._runner.has_agg
+
+  @property
+  def agg_result(self) -> tree.TreeMapView:
+    return self._runner.get_result(self.agg_state or {})
 
   def from_state(self, state: _IteratorState) -> _RunnerIterator:
     return super().from_state(
@@ -165,7 +171,6 @@ class _RunnerIterator(iter_utils.MultiplexIterator[_ValueT]):
         ignore_error=self._ignore_error,
         with_result=self._with_result,
         with_agg_state=self._with_agg,
-        with_agg_result=self._with_agg_result,
         state=state.agg_state,
     )
 
@@ -192,19 +197,11 @@ class _RunnerIterator(iter_utils.MultiplexIterator[_ValueT]):
       )
       return batch_output if self._with_result else None
     except StopIteration as e:
-      returned = None
-      if self._with_agg:
-        # This can collect the agg_state and the agg_result at the end of
-        # the iteration and return them as the generator return value.
-        agg_result = self.agg_result if self._with_agg_result else None
-        returned = AggregateResult(agg_result, agg_state=self.agg_state)
       logging.info(
           'chainable: %s',
-          f'"{self.name}" iterator exhausted after'
-          f' {self.batch_index} batches, returned a type of'
-          f' {type(returned)}.',
+          f'"{self.name}" iterator exhausted after {self.batch_index} batches.',
       )
-      raise StopIteration(returned) if returned else e
+      raise e
 
 
 @dataclasses.dataclass(frozen=True)
@@ -220,6 +217,8 @@ class MetricKey:
   metrics: TreeMapKey | TreeMapKeys = ()
   slice: tree_fns.SliceKey = tree_fns.SliceKey()
 
+_AggState = dict[MetricKey, Any]
+
 
 def clear_cache():
   """Clear the cache for maybe_make."""
@@ -227,7 +226,7 @@ def clear_cache():
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class TransformRunner(aggregates.Aggregatable):
+class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
   """Combining multiple transforms into concrete functions.
 
   This class encapsulates all in-process logic of a TreeTransform.
@@ -256,41 +255,16 @@ class TransformRunner(aggregates.Aggregatable):
       cls,
       transform: TreeTransform,
       *,
-      recursive: bool,
       input_state: io.ShardConfig | None,
-      mode: RunnerMode = RunnerMode.DEFAULT,
+      agg_only: bool = False,
   ) -> Self:
     """Makes a TreeFn from a transform."""
-    # Flatten the transform into nodes and find the first aggregation node as
-    # the aggregation node for the concrete function. Any node before it are
-    # function nodes. There can only be one aggregation node.
-    if recursive:
-      transforms = transform.flatten_transform()
-    else:
-      transforms = [transform]
-    fn_nodes = []
-    data_source, agg_node = None, None
-    name = ''
-    for i, node in enumerate(transforms):
-      fn_nodes.append(node)
-      name = node.name or name
-      if node.data_source_ is not None:
-        if i == 0:
-          data_source = node.data_source_
-        else:
-          raise ValueError(
-              f'data_source has to be the first node, it is at {i}th position.'
-          )
-      if node.agg_fns:
-        assert agg_node is None, f'{agg_node=}'
-        agg_node = node
-
     # Reset the iterator_node and input_nodes if this is an aggregator.
-    if mode == RunnerMode.AGGREGATE:
-      data_source = None
-      fn_nodes = []
-      assert agg_node, 'Aggregation fn is required for "Aggregate" mode.'
-
+    if agg_only:
+      assert transform.agg_fns, 'Aggregation is required for "Aggregate" mode.'
+      transform = transform.maybe_replace(fns=(), data_source_=None)
+    name = transform.name or ''
+    data_source = transform.data_source_
     # Collect input_iterator.
     data_source = lazy_fns.maybe_make(data_source)
     if input_state is not None:
@@ -302,15 +276,12 @@ class TransformRunner(aggregates.Aggregatable):
             f' data source type: {type(data_source)}.'
         )
     # Collect all the input functions from the input nodes.
-    input_fns = list(
-        itertools.chain.from_iterable(node.fns for node in fn_nodes)
-    )
-    input_fns = [tree_fn.maybe_make() for tree_fn in input_fns]
+    input_fns = [tree_fn.maybe_make() for tree_fn in transform.fns]
     # Collect all the aggregation functions from the aggregation node.
     agg_fns, slice_fns = {}, []
-    if agg_node:
-      slice_fns = [slice_fn.maybe_make() for slice_fn in agg_node.slicers]
-      for agg_fn in agg_node.agg_fns:
+    if transform.agg_fns:
+      slice_fns = [slice_fn.maybe_make() for slice_fn in transform.slicers]
+      for agg_fn in transform.agg_fns:
         actual_agg_fn = agg_fn.maybe_make()
         if not isinstance(actual_agg_fn, aggregates.Aggregatable):
           raise ValueError(f'Not an aggregatable: {agg_fn}: {actual_agg_fn}')
@@ -332,15 +303,15 @@ class TransformRunner(aggregates.Aggregatable):
   def has_agg(self):
     return True if self.agg_fns else False
 
-  def create_state(self) -> dict[MetricKey, Any]:
+  def create_state(self) -> _AggState:
     return {
         MetricKey(key): tree_fn.create_state()
         for key, tree_fn in self.agg_fns.items()
     }
 
   def update_state(
-      self, state: dict[MetricKey, Any], inputs: tree.MapLikeTree[Any]
-  ) -> dict[MetricKey, Any]:
+      self, state: _AggState, inputs: tree.MapLikeTree[Any]
+  ) -> _AggState:
     """Updates the state by inputs."""
 
     # All aggregates operate on the same inputs.
@@ -377,9 +348,9 @@ class TransformRunner(aggregates.Aggregatable):
 
   def merge_states(
       self,
-      states: Iterable[dict[MetricKey, Any]],
+      states: Iterable[_AggState],
       strict_states_cnt: int = 0,
-  ) -> dict[MetricKey, Any]:
+  ) -> _AggState:
     """Merges multiple states into one.
 
     Args:
@@ -389,14 +360,15 @@ class TransformRunner(aggregates.Aggregatable):
     Returns:
       The merged state.
     """
+    # Iterate over the states and only merge states in the runner.
     states_by_fn = {}
     states_cnt = 0
     for state in states:
       for key, fn_state in state.items():
-        if key in states_by_fn:
-          agg_fn = self.agg_fns[key.metrics]
-          fn_state = agg_fn.merge_states([states_by_fn[key], fn_state])
-        states_by_fn[key] = fn_state
+        if agg_fn := self.agg_fns.get(key.metrics):
+          if key in states_by_fn:
+            fn_state = agg_fn.merge_states([states_by_fn[key], fn_state])
+          states_by_fn[key] = fn_state
       states_cnt += 1
       logging.info('chainable: merged %d states.', states_cnt)
     if strict_states_cnt and states_cnt != strict_states_cnt:
@@ -407,9 +379,7 @@ class TransformRunner(aggregates.Aggregatable):
       )
     return states_by_fn
 
-  def get_result(
-      self, state: dict[MetricKey, Any]
-  ) -> tree.MapLikeTree[Any] | None:
+  def get_result(self, state: _AggState) -> tree.TreeMapView:
     """Gets the result from the aggregation state."""
     result = tree.TreeMapView()
     for key, fn_state in state.items():
@@ -423,7 +393,7 @@ class TransformRunner(aggregates.Aggregatable):
         )
       outputs = tree.TreeMapView(outputs)[key.metrics]
       result = result.copy_and_set(flattened_keys, outputs)
-    return result.data
+    return result
 
   def _actual_inputs(self, inputs, data_source) -> list[Iterable[Any]]:
     """Selects the inputs when user provided one."""
@@ -457,10 +427,9 @@ class TransformRunner(aggregates.Aggregatable):
       *,
       with_result: bool = True,
       with_agg_state: bool = True,
-      with_agg_result: bool = True,
       state: Any = None,
       ignore_error: bool = False,
-  ) -> _RunnerIterator[Any]:
+  ) -> _RunnerIterator[_ValueT]:
     """An iterator runner that takes an data_source runs the transform.
 
     The iterator by default yields the output of all the input_functions before
@@ -472,8 +441,6 @@ class TransformRunner(aggregates.Aggregatable):
       data_source: the input iterator.
       with_result: whether to yield the output of running the input_functions.
       with_agg_state: whether to yield the aggregation state at the end of the
-        iteration.
-      with_agg_result: whether to yield the aggregation result at the end of the
         iteration.
       state: an optional initial aggregation state.
       ignore_error: whether to ignore the error when running the transform.
@@ -487,9 +454,202 @@ class TransformRunner(aggregates.Aggregatable):
         ignore_error=ignore_error,
         with_result=with_result,
         with_agg_state=with_agg_state,
+        state=state or self.create_state(),
+    )
+
+
+class _ChainedRunnerIterator(Iterable[_ValueT]):
+  """An iterator that runs a chain of transforms."""
+
+  def __init__(
+      self,
+      iterators: Iterable[_RunnerIterator[Any]],
+      with_result: bool,
+      with_agg_state: bool,
+      with_agg_result: bool,
+      state: Any = None,
+  ):
+    self._iterators = list(iterators)
+    assert all(isinstance(it, _RunnerIterator) for it in self._iterators)
+    self._with_result = with_result
+    self._prev_ticker = time.time()
+    self._with_agg = state and (with_agg_state or with_agg_result)
+    self._with_agg_result = with_agg_result
+
+  def maybe_stop(self):
+    for it in self._iterators:
+      if isinstance(it, types.Stoppable):
+        it.maybe_stop()
+
+  def named_iterators(
+      self, agg_only: bool = False
+  ) -> dict[str, _RunnerIterator[Any]]:
+    if agg_only:
+      return {r.name: r for r in self._iterators if r.has_agg}
+    return {r.name: r for r in self._iterators}
+
+  def __next__(self) -> _ValueT:
+    try:
+      batch_output = next(self._iterators[-1])
+      return batch_output if self._with_result else None
+    except StopIteration as e:
+      returned = None
+      if self._with_agg:
+        # This can collect the agg_state and the agg_result at the end of
+        # the iteration and return them as the generator return value.
+        agg_result = self.agg_result if self._with_agg_result else None
+        returned = AggregateResult(agg_result, agg_state=self.agg_state)
+      name = ' '.join(it.name for it in self._iterators if it.name)
+      logging.info(
+          'chainable: "%s" iterator returned a %s', name, type(returned)
+      )
+      raise StopIteration(returned) if returned else e
+
+  def __iter__(self) -> Iterator[_ValueT]:
+    return self
+
+  @property
+  def agg_result(self) -> tree.MapLikeTree[Any] | None:
+    its = self.named_iterators(agg_only=True)
+    if not its:
+      return None
+    it_agg_results = (it.agg_result.items() for it in its.values())
+    result = tree.TreeMapView()
+    return result.copy_and_update(
+        itertools.chain.from_iterable(it_agg_results)
+    ).data
+
+  @property
+  def agg_state(self) -> _AggState | None:
+    agg_iterators = self.named_iterators(agg_only=True)
+    if not agg_iterators:
+      return None
+
+    it_agg_states = (it.agg_state.items() for it in agg_iterators.values())
+    return dict(itertools.chain.from_iterable(it_agg_states))
+
+  @property
+  def state(self) -> dict[str, _IteratorState] | _IteratorState:
+    result = {it.name: it.state for it in self._iterators}
+    if len(result) == 1:
+      return next(iter(result.values()))
+    return result
+
+  def from_state(self, state: dict[str, _IteratorState] | _IteratorState):
+    if isinstance(state, _IteratorState):
+      assert len(self._iterators) == 1, f'{len(self._iterators)=}'
+      state = {it.name: state for it in self._iterators}
+    iterators = [it.from_state(state[it.name]) for it in self._iterators]
+    return _ChainedRunnerIterator(
+        iterators,
+        with_result=self._with_result,
+        with_agg_state=self._with_agg,
+        with_agg_result=self._with_agg_result,
+    )
+
+
+class ChainedRunner(Iterable[_ValueT]):
+  """A runner that runs a chain of transforms."""
+
+  def __init__(self, runners: list[TransformRunner]):
+    self._runners = runners
+    aggs_cnt = len([r for r in runners if r.has_agg])
+    assert len(self.named_aggs) == aggs_cnt, f'{self.named_aggs=}'
+
+  @functools.cached_property
+  def named_aggs(self) -> dict[str, TransformRunner]:
+    return {r.name: r for r in self._runners if r.has_agg}
+
+  @property
+  def data_source(self) -> Iterable[Any] | None:
+    return self._runners[0].data_source
+
+  @property
+  def has_agg(self) -> bool:
+    return True if self.named_aggs else False
+
+  @property
+  def agg_fns(self) -> dict[TreeMapKeys | TreeMapKey, tree_fns.TreeAggregateFn]:
+    it_agg_fns = (r.agg_fns.items() for r in self.named_aggs.values())
+    return dict(itertools.chain.from_iterable(it_agg_fns))
+
+  def create_state(self) -> _AggState:
+    it_state = (r.create_state().items() for r in self.named_aggs.values())
+    return dict(itertools.chain.from_iterable(it_state))
+
+  def update_state(self, state: _AggState, inputs: Any) -> _AggState | None:
+    """Updates the state by inputs."""
+    next(it := self.iterate([inputs], state=state))
+    return it.agg_state
+
+  def merge_states(
+      self,
+      states: Iterable[_AggState],
+      strict_states_cnt: int = 0,
+  ) -> _AggState:
+    """Merges multiple states into one."""
+    states = list(states)
+    if strict_states_cnt and len(states) != strict_states_cnt:
+      raise ValueError(
+          'chainable: unexpected number of aggregation states. Workers'
+          f' might have partially crashed: got {len(states)} states, '
+          f'needs {strict_states_cnt}.'
+      )
+    it_state = (
+        r.merge_states(states).items() for r in self.named_aggs.values()
+    )
+    return dict(itertools.chain.from_iterable(it_state))
+
+  def get_result(self, state: _AggState) -> tree.MapLikeTree[Any] | None:
+    it_result = itertools.chain.from_iterable(
+        agg_result.items()
+        for r in self.named_aggs.values()
+        if (agg_result := r.get_result(state))
+    )
+    return tree.TreeMapView().copy_and_update(it_result).data
+
+  def _actual_inputs(self, inputs, data_source) -> Iterable[Any] | None:
+    """Selects the inputs when user provided one."""
+    if inputs is not None and data_source is not None:
+      raise ValueError(
+          'Inputs or input_iterator cannot be set at the same time, got both'
+          f' for {self}'
+      )
+    if inputs is not None:
+      return io.SequenceDataSource([inputs])
+    return data_source
+
+  def iterate(
+      self,
+      data_source: Iterable[Any] | None = None,
+      *,
+      with_result: bool = True,
+      with_agg_state: bool = True,
+      with_agg_result: bool = True,
+      state: Any = None,
+      ignore_error: bool = False,
+  ) -> _ChainedRunnerIterator[Any]:
+    """An iterator runner that takes an data_source runs the transform."""
+    iterators = []
+    iterator = self._actual_inputs(None, data_source)
+    for r in self._runners:
+      iterator = r.iterate(
+          iterator,
+          with_agg_state=with_agg_state,
+          state=state if r.has_agg else None,
+          ignore_error=ignore_error,
+      )
+      iterators.append(iterator)
+    return _ChainedRunnerIterator(
+        iterators,
+        with_result=with_result,
+        with_agg_state=with_agg_state,
         with_agg_result=with_agg_result,
         state=state or self.create_state(),
     )
+
+  def __iter__(self):
+    return self.iterate()
 
   def __call__(
       self, inputs=None, *, input_iterator=None, ignore_error: bool = False
@@ -503,11 +663,9 @@ class TransformRunner(aggregates.Aggregatable):
           'Non-aggregate transform is not callable with iterator inputs, uses '
           '`iterate()` instead.'
       )
-    iter_result = _RunnerIterator(
-        self,
-        data_sources=self._actual_inputs(inputs, input_iterator),
+    iter_result = self.iterate(
+        data_source=self._actual_inputs(inputs, input_iterator),
         ignore_error=ignore_error,
-        state=self.create_state(),
     )
     result = mit.last(iter_result)
     if iter_result.agg_result is not None:
@@ -672,8 +830,7 @@ class TreeTransform(Generic[TreeFnT]):
     )
     if dups := child.agg_output_keys.intersection(prev_agg_keys):
       raise ValueError(
-          'Chaining transforms with duplicate aggregation output keys:'
-          f' {dups}'
+          f'Chaining transforms with duplicate aggregation output keys: {dups}'
       )
     transforms = child.flatten_transform()
     input_transform = self
@@ -710,14 +867,21 @@ class TreeTransform(Generic[TreeFnT]):
       # TODO: b/318463291 - deprecates runner mode in favor named transform.
       mode: RunnerMode = RunnerMode.DEFAULT,
       shard: io.ShardConfig | None = None,
-  ) -> TransformRunner:
+  ) -> ChainedRunner:
     """Makes the concrete function instance from the transform."""
-    return TransformRunner.from_transform(
-        self,
-        recursive=recursive,
-        mode=mode,
-        input_state=shard,
-    )
+    transforms = self.flatten_transform()
+    if not recursive:
+      transforms = [transforms[-1]]
+    agg_only = mode == RunnerMode.AGGREGATE
+    if agg_only:
+      transforms = [t for t in transforms if t.agg_fns]
+    runners = []
+    for transform in transforms:
+      runner = TransformRunner.from_transform(
+          transform, agg_only=agg_only, input_state=shard
+      )
+      runners.append(runner)
+    return ChainedRunner(runners)
 
   def data_source(self, data_source: Any = None, /) -> TreeTransform:
     if not self.is_noop:
