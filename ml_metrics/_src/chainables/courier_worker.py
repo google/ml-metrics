@@ -555,11 +555,9 @@ class WorkerPool:
     event_loop.call_soon_threadsafe(event_loop.stop)
     loop_thread.join()
     if failed_tasks:
-      assert (e := failed_tasks[-1].exception()) is not None
-      e.add_note('Search for "Exception during enqueuing".')
-      raise type(e)(
-          f'Task failed at {running_total}/{total_tasks} tasks: {e.args[0]}'
-      )
+      raise RuntimeError(
+          f'Task failed at {running_total}/{total_tasks} tasks.'
+      ) from failed_tasks[-1].exception()
 
     if total_timeouts > retry_threshold and timeout_tasks:
       assert (e := timeout_tasks[-1].exception()) is not None
