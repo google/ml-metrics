@@ -236,6 +236,20 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
     self.assertEqual(list(range(10)), actual)
     self.assertEqual(10, returned)
 
+  def test_batch_generator_with_timeout(self):
+    client = courier.Client(self.server.address, call_timeout=1)
+
+    def test_generator(n):
+      yield from range(n)
+      return n
+
+    client.init_generator(pickler.dumps(lazy_fns.trace(test_generator)(10)))
+    # Simulate the case where the generator is killed.
+    self.server._generator = None
+    states = pickler.loads(client.next_batch_from_generator(2))
+    assert len(states) == 1
+    self.assertIsInstance(states[-1], TimeoutError)
+
   def test_courier_exception_during_prefetch(self):
     client = courier.Client(self.server.address, call_timeout=1)
 

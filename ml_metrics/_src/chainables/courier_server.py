@@ -441,12 +441,15 @@ class PrefetchedCourierServer(CourierServer):
     def _next_batch_from_iterator(batch_size: int = 0) -> list[Any]:
       self._last_heartbeat = time.time()
       if self._generator is None:
-        raise TimeoutError(
+        e = TimeoutError(
             'Generator is not set, the worker might be killed previously, the'
             ' task normally will be restarted. This could be caused by worker'
             ' killed by the Borglet. Search for "chainable:.+retries" in the'
             ' log to see how persistent this is.'
         )
+        logging.exception('chainable: %s', e)
+        return [e]
+
       result = []
       try:
         result = self._generator.get_batch(batch_size, block=True)
