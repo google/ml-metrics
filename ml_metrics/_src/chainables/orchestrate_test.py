@@ -173,7 +173,7 @@ class RunShardedIteratorTest(parameterized.TestCase):
     for s in self.servers:
       s.start()
     addrs = [s.address for s in self.servers]
-    self.worker_pool = courier_worker.WorkerPool(addrs)
+    self.worker_pool = courier_worker.WorkerPool(addrs, iterate_batch_size=4096)
 
   @parameterized.named_parameters([
       dict(
