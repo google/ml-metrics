@@ -529,7 +529,6 @@ class WorkerPool:
         total_timeouts += len(timeout_tasks)
         if total_timeouts > retry_threshold:
           break
-        tasks.extend(timeout_tasks)
         logging.info(
             'chainable: %s',
             f'{len(timeout_tasks)} tasks Timeout, retrying: {timeout_tasks}',
