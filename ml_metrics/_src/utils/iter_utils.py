@@ -29,9 +29,9 @@ import queue
 import threading
 from typing import Any, Generic, Protocol, Self, TypeVar
 
-from absl import logging
 from ml_metrics._src import types
 from ml_metrics._src.utils import func_utils
+from ml_metrics._src.utils import logging
 import more_itertools as mit
 import numpy as np
 
@@ -41,7 +41,7 @@ _InputT = TypeVar('_InputT')
 _MAX_BATCH_SIZE = 4096
 _ITERATE_FN_MAX_THREADS = 256
 _IGNORE_ERROR_TYPES = (ValueError, TypeError)
-_RANDOM_ACCESS_BATCH_SIZE = 20
+_RANDOM_ACCESS_BATCH_SIZE = 64
 
 
 class _QueueLike(Protocol[_ValueT]):
@@ -387,7 +387,7 @@ class MultiplexIterator(Iterator[_ValueT], types.Stoppable, types.Recoverable):
       self.maybe_stop()
       raise e
     except BaseException as e:
-      logging.exception('chainable: exception when iterating "%s".', self.name)
+      logging.exception(f'exception when iterating "{self.name}".')
       self.maybe_stop()
       raise e
 
@@ -541,11 +541,10 @@ class IteratorQueue(IterableQueue[_ValueT]):
     return self._exhausted
 
   def _set_exhausted(self):
+    remaining = self._enqueue_start - self._enqueue_stop
+    with_exception = self.exception is not None
     logging.debug(
-        'chainable: "%s" dequeue exhausted with_exception=%s, remaining %d',
-        self.name,
-        self.exception is not None,
-        (self._enqueue_start - self._enqueue_stop),
+        f'"{self.name}" dequeue exhausted {with_exception=}, {remaining=}'
     )
     self._exhausted = True
     self._dequeue_lock.notify_all()
@@ -596,7 +595,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
       raise e
     except Exception as e:  # pylint: disable=broad-exception-caught
       e.add_note(f'Exception during dequeueing "{self.name}".')
-      logging.exception('chainable: "%s" dequeue failed.', self.name)
+      logging.exception(f'"{self.name}" dequeue failed.')
       raise e
     finally:
       self._states_lock.release()
@@ -629,7 +628,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
             break
           if result:
             _release_and_notify(self._dequeue_lock, notify=self._enqueue_lock)
-          logging.debug('chainable: "%s" dequeue empty, waiting', self.name)
+          logging.debug(f'"{self.name}" dequeue empty, waiting')
           if self._dequeue_lock.wait(timeout=self.timeout):
             continue
           raise TimeoutError(
@@ -642,9 +641,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
           raise e
     with self._enqueue_lock:
       self._enqueue_lock.notify()
-    logging.debug(
-        'chainable: %s', f'"{self.name}" dequeued {len(result)} batches'
-    )
+    logging.debug(f'"{self.name}" dequeued {len(result)} batches')
     return result
 
   def get(self) -> _ValueT:
@@ -654,12 +651,12 @@ class IteratorQueue(IterableQueue[_ValueT]):
         try:
           value = self.get_nowait()
           _release_and_notify(self._dequeue_lock, notify=self._enqueue_lock)
-          logging.debug('chainable: "%s" dequeued a %s', self.name, type(value))
+          logging.debug(f'"{self.name}" dequeued a {type(value)}')
           return value
         except (queue.Empty, asyncio.QueueEmpty) as e:
-          logging.debug('chainable: "%s" dequeue empty, waiting', self.name)
+          logging.debug(f'"{self.name}" dequeue empty, waiting')
           if self._dequeue_lock.wait(timeout=self.timeout):
-            logging.debug('chainable: "%s" dequeue retry', self.name)
+            logging.debug(f'"{self.name}" dequeue retry')
             continue
           raise TimeoutError(f'Dequeue timeout={self.timeout}secs.') from e
 
@@ -671,9 +668,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
       raise e
     with self._states_lock:
       self._progress.cnt += 1
-      logging.debug(
-          'chainable: "%s" enqueued cnt %d.', self.name, self._progress.cnt
-      )
+      logging.debug(f'"{self.name}" enqueued cnt {self._progress.cnt}.')
 
   def put(self, value: _ValueT) -> None:
     """Puts a value to the queue, waits for timeout if queue is full."""
@@ -684,7 +679,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
           _release_and_notify(self._enqueue_lock, notify=self._dequeue_lock)
           return
         except (queue.Full, asyncio.QueueFull) as e:
-          logging.debug('chainable: "%s" enqueue full, waiting', self.name)
+          logging.debug(f'"{self.name}" enqueue full, waiting')
           if self._enqueue_lock.wait(timeout=self.timeout):
             continue
           raise TimeoutError(f'Enqueue timeout={self.timeout}secs.') from e
@@ -699,18 +694,16 @@ class IteratorQueue(IterableQueue[_ValueT]):
     with self._states_lock:
       self._enqueue_stop += 1
       self._returned.extend(values)
+      remaining = self._enqueue_start - self._enqueue_stop
       logging.debug(
-          'chainable: "%s" enqueue stop, remaining %d/%d, with_exception=%s',
-          self.name,
-          self._enqueue_start - self._enqueue_stop,
-          self._max_enqueuer,
-          self.exception is not None,
+          f'"{self.name}" enqueue stop, {remaining=}/{self._max_enqueuer},'
+          f' with_exception={self.exception is not None}'
       )
       if self.enqueue_done:
         _release_and_notify(
             self._states_lock, notify=self._dequeue_lock, notify_all=True
         )
-        logging.debug('chainable: "%s" enqueue done, notify all', self.name)
+        logging.debug(f'"{self.name}" enqueue done, notify all')
 
   def stop_enqueue(self):
     self._run_enqueue = False
@@ -721,7 +714,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
       self._enqueue_lock.notify_all()
     with self._dequeue_lock:
       self._dequeue_lock.notify_all()
-    logging.info('chainable: Manual stopping "%s" enqueue.', self.name)
+    logging.info(f'"{self.name}" stopping enqueue.')
 
   def enqueue_from_iterator(self, iterator: Iterable[_ValueT]):
     """Iterates through a generator while enqueue its elements."""
@@ -737,12 +730,10 @@ class IteratorQueue(IterableQueue[_ValueT]):
       except Exception as e:  # pylint: disable=broad-exception-caught
         # Need to go pass this exception assuming the iterator can skip error.
         if self.ignore_error:
-          logging.exception(
-              'chainable: "%s" enqueue error ignored, stacktrace:', self.name
-          )
+          logging.exception(f'"{self.name}" enqueue error ignored, stacktrace:')
           continue
         e.add_note(f'Exception during enqueueing "{self.name}".')
-        logging.exception('chainable: "%s" enqueue failed.', self.name)
+        logging.exception(f'"{self.name}" enqueue failed.')
         self._exception = e
         self._stop_enqueue()
         raise e
@@ -829,22 +820,22 @@ class AsyncIteratorQueue(IteratorQueue[_ValueT], AsyncIterableQueue[_ValueT]):
 
   async def async_get_batch(self):
     """Gets a batch of elements from the queue."""
-    logging.debug('chainable: %s async dequeueing', self.name)
+    logging.debug(f'{self.name} async dequeueing')
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(
         self._thread_pool, _async_get_batch, self
     )
-    logging.debug('chainable: "%s" async dequeued %d', self.name, len(result))
+    logging.debug(f'"{self.name}" async dequeued {len(result)}')
     return result
 
   async def async_get(self):
     """Gets an element from the queue."""
-    logging.debug('chainable: %s async dequeueing', self.name)
+    logging.debug(f'{self.name} async dequeueing')
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(self._thread_pool, _async_get, self)
 
   async def async_put(self, value: _ValueT):
-    logging.debug('chainable: %s async enqueueing a %s', self.name, type(value))
+    logging.debug(f'{self.name} async enqueueing a {type(value)}')
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(self._thread_pool, self.put, value)
 
@@ -865,7 +856,7 @@ class AsyncIteratorQueue(IteratorQueue[_ValueT], AsyncIterableQueue[_ValueT]):
         return self._stop_enqueue(*e.args)
       except Exception as e:  # pylint: disable=broad-exception-caught
         e.add_note(f'Exception during async enqueueing {self.name}')
-        logging.exception('chainable: %s enqueue failed.', self.name)
+        logging.exception(f'{self.name} enqueue failed.')
         self._exception = e
         self._stop_enqueue()
         if self.ignore_error:
@@ -886,23 +877,18 @@ class _AsyncDequeueIterator:
   async def __anext__(self):
     if self._run_until_exhausted or self._cnt < self._num_steps:
       # AsyncIteratorQueue.get() can raise StopAsyncIteration.
+      name = getattr(self._iterator_queue, 'name', '')
       try:
         if not self._cache:
           self._cache.extend(await self._iterator_queue.async_get_batch())
       except StopAsyncIteration as e:
         logging.info(
-            'chainable: async iterator at %s exhausted after %d batches with'
-            ' %d returns',
-            getattr(self._iterator_queue, 'name', ''),
-            self._cnt,
-            len(e.args),
+            f'async iterator "{name}" exhausted after {self._cnt} batches'
+            f' with {len(e.args)} returns.'
         )
         raise e
       self._cnt += 1
-      name = getattr(self._iterator_queue, 'name', '')
-      logging.debug(
-          'chainable: %s', f'"{name}" async iter yield batch cnt: {self._cnt}'
-      )
+      logging.debug(f'"{name}" async iter yield batch cnt: {self._cnt}')
       return self._cache.popleft()
     else:
       raise StopAsyncIteration()
