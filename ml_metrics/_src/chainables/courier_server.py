@@ -263,8 +263,10 @@ class CourierServer(metaclass=_CourierServerSingleton):
         return
       if is_alive:
         self._heartbeats.register(sender_addr, self._last_heartbeat)
+        logging.info('chainable: notified alive=True from "%s"', sender_addr)
       else:
         self._heartbeats.unregister(sender_addr)
+        logging.info('chainable: notified alive=False from "%s"', sender_addr)
 
     assert self._server is not None, 'Server is not built.'
     self._server.Bind('maybe_make', pickled_maybe_make)
