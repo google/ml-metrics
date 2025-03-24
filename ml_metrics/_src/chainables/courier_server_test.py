@@ -21,6 +21,7 @@ from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import courier_utils
 from ml_metrics._src.utils import iter_utils
+from ml_metrics._src.utils import test_utils
 
 pickler = lazy_fns.pickler
 
@@ -248,6 +249,20 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
     self.server._generator = None
     states = pickler.loads(client.next_batch_from_generator(2))
     assert len(states) == 1
+    self.assertIsInstance(states[-1], TimeoutError)
+
+  def test_batch_generator_with_shutdown(self):
+    server = courier_server.PrefetchedCourierServer(prefetch_size=1)
+    server.start()
+    courier_worker.wait_until_alive(server.address, deadline_secs=12)
+    client = courier.Client(server.address, call_timeout=1)
+    # When the worker is shutdown, any exception is converted into a Timeout.
+    lazy_iter = lazy_fns.trace(test_utils.range_with_exc)(10, 2)
+    client.init_generator(pickler.dumps(lazy_iter))
+    # Simulate the case where the worker is shutdown.
+    server._shutdown_requested = True
+    states = pickler.loads(client.next_batch_from_generator(6))
+    assert len(states) == 1, states
     self.assertIsInstance(states[-1], TimeoutError)
 
   def test_courier_exception_during_prefetch(self):

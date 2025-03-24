@@ -121,6 +121,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
     try:
       signal.signal(signal.SIGINT, self.notify_shutdown)
       signal.signal(signal.SIGTERM, self.notify_shutdown)
+      signal.signal(signal.SIGABRT, self.notify_shutdown)
     except ValueError:
       logging.warning(
           'chainable: cannot register signal handler for %s, try constructing'
@@ -184,6 +185,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
       signum: not used, but is required for this to be a signal handler.
       frame: not used, but is required for this to be a signal handler.
     """
+    logging.warning('chainable: notify_shutdown signum=%s', signum)
     del signum, frame
     with self._shutdown_lock:
       self._shutdown_requested = True
@@ -233,11 +235,13 @@ class CourierServer(metaclass=_CourierServerSingleton):
         else:
           result = lazy_fns.maybe_make(maybe_lazy)
       except Exception as e:  # pylint: disable=broad-exception-caught
-        lazy_obj = f'{lazy_fns.pickler.loads(maybe_lazy)}'
+        if self._shutdown_requested:
+          e = TimeoutError('Shutdown requested, the worker is shutting down.')
         if not return_exception:
           raise e
         result = e
         if isinstance(e, (ValueError, TypeError, RuntimeError)):
+          lazy_obj = f'{lazy_fns.pickler.loads(maybe_lazy)}'
           logging.exception('chainable: maybe_make exception for %s.', lazy_obj)
       try:
         result = pickler.dumps(result, compress=compress)
@@ -263,8 +267,10 @@ class CourierServer(metaclass=_CourierServerSingleton):
         return
       if is_alive:
         self._heartbeats.register(sender_addr, self._last_heartbeat)
+        logging.info('chainable: notified alive=True from "%s"', sender_addr)
       else:
         self._heartbeats.unregister(sender_addr)
+        logging.info('chainable: notified alive=False from "%s"', sender_addr)
 
     assert self._server is not None, 'Server is not built.'
     self._server.Bind('maybe_make', pickled_maybe_make)
@@ -458,6 +464,10 @@ class PrefetchedCourierServer(CourierServer):
           self._tx_stats = (ticker, bytes_sent + len(result), num_txs + 1)
       except Exception as e:  # pylint: disable=broad-exception-caught
         if not iter_utils.is_stop_iteration(e):
+          if self._shutdown_requested:
+            e = TimeoutError('Shutdown requested, the worker is shutting down.')
+            logging.exception('chainable: %s', e)
+            return [e]
           logging.exception('chainable: exception when flushing generator.')
       # The sequence of the result will always end with an exception.
       # Any non-StopIteration means the generator crashed.

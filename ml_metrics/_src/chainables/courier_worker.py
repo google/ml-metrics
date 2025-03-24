@@ -502,14 +502,11 @@ class WorkerPool:
               new_failed_tasks.append(task)
           else:
             finished_tasks_cnt += 1
+        elif task.is_alive:
+          still_running_tasks.append(task)
         else:
-          if task.is_alive:
-            still_running_tasks.append(task)
-          else:
-            logging.warning(
-                'chainable: worker timeout, worker: %s', task.worker
-            )
-            timeout_tasks.append(task.set(_exc=None))
+          logging.warning('chainable: worker timeout, worker: %s', task.worker)
+          timeout_tasks.append(task.set(_exc=None))
       running_tasks = still_running_tasks
       # Preemptively cancel task from the timeout workers.
       for task in timeout_tasks:
