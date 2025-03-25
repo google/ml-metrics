@@ -25,12 +25,13 @@ import threading
 import time
 from typing import Any, NamedTuple, TypeVar
 
-from absl import logging
+from absl import logging as absl_logging
 from ml_metrics._src import types
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import courier_utils
 from ml_metrics._src.utils import iter_utils
+from ml_metrics._src.utils import logging
 
 _HRTBT_INTERVAL_SECS = 15
 _LOGGING_INTERVAL_SEC = 30
@@ -302,17 +303,16 @@ class WorkerPool:
         workers = self.workers
         # Proceed if reached minimum number of workers.
         if len(workers) >= minimum_num_workers:
-          logging.info('chainable: pool connected %d workers', len(workers))
+          logging.info(f'pool connected {len(workers)} workers')
           return
         logging.log_every_n_seconds(
-            logging.INFO,
-            'chainable: waiting for workers, connected %d / %d minimum workers',
+            absl_logging.INFO,
+            f'waiting for workers, connected {len(workers)}/'
+            f'{minimum_num_workers} minimum workers',
             _LOGGING_INTERVAL_SEC,
-            len(workers),
-            minimum_num_workers,
         )
       except Exception as e:  # pylint: disable=broad-exception-caught
-        logging.warning('chainable: exception when connecting: %s', type(e))
+        logging.warning(f'exception when connecting: {type(e)}, {e}')
       time.sleep(0)
     unconnected_workers = list(set(self.all_workers) - set(self.workers))
     unconnected_worker_strs = ', '.join(str(w) for w in unconnected_workers[:3])
@@ -388,18 +388,16 @@ class WorkerPool:
   def shutdown(self, blocking: bool = False):
     """Attempting to shut down workers."""
     while blocking and len(self.workers) < self.num_workers:
+      remaining = self.num_workers - len(self.workers)
       logging.info(
-          'chainable: shutting down %d workers, remaining %d workers are not'
-          ' connected, retrying.',
-          self.num_workers,
-          self.num_workers - len(self.workers),
+          f'shutting down {self.num_workers} workers, remaining'
+          f' {remaining} workers are not connected, retrying.'
       )
       time.sleep(6)
+    remaining = len(self.all_workers) - len(self.workers)
     logging.info(
-        'chainable: shutting down %d workers, remaining %d workers are not'
-        ' connected, needs to be manually shutdown.',
-        len(self.workers),
-        len(self.all_workers) - len(self.workers),
+        f'shutting down {len(self.workers)} workers, {remaining=} workers are'
+        ' not connected, needs to be manually shutdown.',
     )
     states = [worker.shutdown() for worker in self.all_workers]
     time.sleep(0.1)
@@ -446,7 +444,7 @@ class WorkerPool:
     tasks: list[GeneratorTask] = []
     timeout_tasks: list[GeneratorTask] = []
     running_workers: set[courier_utils.CourierClient] = set()
-    running_total, finished_tasks_cnt, total_timeouts = 0, 0, 0
+    running_total, finished_cnt, timeout_cnt = 0, 0, 0
     batch_cnt, prev_batch_cnt = 0, 0
     exhausted = False
     while not exhausted or tasks or running_tasks:
@@ -464,9 +462,7 @@ class WorkerPool:
             exhausted = True
         if tasks:
           task = tasks.pop().set(worker=worker)
-          logging.info(
-              'chainable: submitting task to worker %s', worker.address
-          )
+          logging.info(f'submitting task to worker {worker.address}')
           aiter_until_complete = iterate_until_complete(
               worker.async_iterate(
                   task, generator_result_queue=generator_result_queue
@@ -489,23 +485,19 @@ class WorkerPool:
         if task.done():
           if exc := task.exception():
             if isinstance(exc, TimeoutError) or is_timeout(exc):
-              logging.warning(
-                  'chainable: task timeout, worker: %s', task.worker
-              )
+              logging.warning(f'task timeout, worker: {task.worker}')
               timeout_tasks.append(task.set(_exc=None))
             else:
               logging.exception(
-                  'chainable: task failed with exception: %s, task: %s',
-                  task.exception(),
-                  task,
+                  f'task failed with exception: {task.exception()}, {task=}'
               )
               new_failed_tasks.append(task)
           else:
-            finished_tasks_cnt += 1
+            finished_cnt += 1
         elif task.is_alive:
           still_running_tasks.append(task)
         else:
-          logging.warning('chainable: worker timeout, worker: %s', task.worker)
+          logging.warning(f'worker timeout, worker: {task.worker}')
           timeout_tasks.append(task.set(_exc=None))
       running_tasks = still_running_tasks
       # Preemptively cancel task from the timeout workers.
@@ -514,38 +506,31 @@ class WorkerPool:
           state.cancel()
       if new_failed_tasks:
         # Failed tasks likely caused by non-transient error, not to be retried.
-        logging.error(
-            'chainable: %s', f'{len(new_failed_tasks)} new failed tasks.'
-        )
+        logging.error(f'{len(new_failed_tasks)} new failed tasks.')
         # Return at first failure.
         failed_tasks.extend(new_failed_tasks)
         break
       if timeout_tasks:
-        logging.info('chainable: %d tasks Timeout.', len(timeout_tasks))
+        logging.info(f'{len(timeout_tasks)} tasks Timeout.')
         tasks.extend(timeout_tasks)
-        total_timeouts += len(timeout_tasks)
-        if total_timeouts > retry_threshold:
+        timeout_cnt += len(timeout_tasks)
+        if timeout_cnt > retry_threshold:
           break
         logging.info(
-            'chainable: %s',
-            f'{len(timeout_tasks)} tasks Timeout, retrying: {timeout_tasks}',
+            f'{len(timeout_tasks)} tasks Timeout, retrying: {timeout_tasks}'
         )
 
       running_workers = {task.worker for task in running_tasks if task.worker}
 
       if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SEC:
+        delta_time, delta_cnt = ticker - prev_ticker, batch_cnt - prev_batch_cnt
+        failed_cnt, total_cnt = len(failed_tasks), total_tasks or running_total
+        running_cnt = len(running_tasks)
         logging.info(
-            'chainable: async throughput: %.2f batches/s; progress:'
-            ' %d/%d/%d/%d/%d (running/remaining/failed/finished/total) with %d'
-            ' retries in %.2f secs.',
-            (batch_cnt - prev_batch_cnt) / (ticker - prev_ticker),
-            len(running_tasks),
-            len(tasks),
-            len(failed_tasks),
-            finished_tasks_cnt,
-            total_tasks or running_total,
-            total_timeouts,
-            ticker - prev_ticker,
+            f'async throughput: {delta_cnt / delta_time:.2f} batches/s;'
+            f' progress: {running_cnt}/{failed_cnt}/{finished_cnt}/{total_cnt}'
+            f' (running/failed/finished/total) with {timeout_cnt} retries'
+            f' in {delta_time:.2f} secs.',
         )
         prev_ticker, prev_batch_cnt = ticker, batch_cnt
 
@@ -556,10 +541,10 @@ class WorkerPool:
           f'Task failed at {running_total}/{total_tasks} tasks.'
       ) from failed_tasks[-1].exception()
 
-    if total_timeouts > retry_threshold and timeout_tasks:
+    if timeout_cnt > retry_threshold and timeout_tasks:
       assert (e := timeout_tasks[-1].exception()) is not None
       raise TimeoutError(
-          f'Too many Timeouts: {total_timeouts} > {retry_threshold}, last'
+          f'Too many Timeouts: {timeout_cnt} > {retry_threshold}, last'
           f' error: {e.args[0]}'
       )
 
@@ -567,14 +552,10 @@ class WorkerPool:
       batch_cnt += 1
       yield output_queue.get()
 
+    delta_time = time.time() - start_time
     logging.info(
-        'chainable: finished running with %d/%d/%d (finished/failed/total) in'
-        ' %.2f secs, average throughput: %.2f/sec.',
-        finished_tasks_cnt,
-        len(failed_tasks),
-        running_total,
-        time.time() - start_time,
-        batch_cnt / (time.time() - start_time),
+        f'iterate finished with {finished_cnt}/{running_total} (finished/total)'
+        f' in {delta_time:.2f}s, throughput: {batch_cnt / delta_time:.2f}/s.'
     )
     if generator_result_queue:
       generator_result_queue.put(iter_utils.STOP_ITERATION)

@@ -23,7 +23,7 @@ import itertools as itt
 from typing import TypeVar
 import weakref
 
-from absl import logging
+from ml_metrics._src.utils import logging
 import more_itertools as mit
 
 
@@ -118,7 +118,7 @@ def lru_cache(
       if not cache_insert_ and key in cache_:
         result = cache_[key]
       else:
-        logging.debug('chainable: cache miss %s: %s, %s', fn, args, kwargs)
+        logging.debug(f'cache miss {fn}: {args}, {kwargs}')
         result = fn(*args, **kwargs)
         cache_[key] = result
       result_new = None
@@ -163,7 +163,7 @@ class SingletonMeta(type):
     obj = super(SingletonMeta, cls).__call__(*args, **kwargs)
     if (ref := cls._instances.get(obj, None)) and (result := ref()) is not None:
       return result
-    logging.info('%s', f'chainable: singleton {cls.__name__}, {obj}')
+    logging.info(f'chainable: singleton {cls.__name__}, {obj}')
     cls._instances[obj] = weakref.ref(obj)
     return obj
 

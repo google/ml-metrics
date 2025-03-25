@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Courier server that can run a chainable."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -22,13 +23,13 @@ import time
 from typing import Any, Iterable, TypeVar
 import weakref
 
-from absl import logging
 import courier
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
 from ml_metrics._src.utils import courier_utils
 from ml_metrics._src.utils import func_utils
 from ml_metrics._src.utils import iter_utils
+from ml_metrics._src.utils import logging
 
 
 _T = TypeVar('_T')
@@ -124,9 +125,8 @@ class CourierServer(metaclass=_CourierServerSingleton):
       signal.signal(signal.SIGABRT, self.notify_shutdown)
     except ValueError:
       logging.warning(
-          'chainable: cannot register signal handler for %s, try constructing'
-          ' Server from the main thread.',
-          self,
+          f'cannot register signal handler for {self}, try constructing Server'
+          ' from the main thread.'
       )
 
   def __str__(self):
@@ -164,10 +164,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
     for client in self._clients:
       client.send_heartbeat(self.address, is_alive=is_alive)
       logging.info(
-          'chainable: notify alive=%s from "%s" to "%s"',
-          is_alive,
-          self.address,
-          client.address,
+          f'notify {is_alive=} from "{self.address}" to "{client.address}"'
       )
 
   @property
@@ -185,7 +182,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
       signum: not used, but is required for this to be a signal handler.
       frame: not used, but is required for this to be a signal handler.
     """
-    logging.warning('chainable: notify_shutdown signum=%s', signum)
+    logging.warning(f'notify_shutdown {signum=}')
     del signum, frame
     with self._shutdown_lock:
       self._shutdown_requested = True
@@ -222,6 +219,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
       """
       self._last_heartbeat = time.time()
       try:
+        maybe_lazy = lazy_fns.maybe_unpickle(maybe_lazy)
         # return_immediately still honors other arguements compress and
         # return_exception where optionally compress the result (None) and
         # returns the exception if threadpool.submit fails.
@@ -241,8 +239,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
           raise e
         result = e
         if isinstance(e, (ValueError, TypeError, RuntimeError)):
-          lazy_obj = f'{lazy_fns.pickler.loads(maybe_lazy)}'
-          logging.exception('chainable: maybe_make exception for %s.', lazy_obj)
+          logging.exception(f'maybe_make exception for {maybe_lazy}.')
       try:
         result = pickler.dumps(result, compress=compress)
         with self._tx_stats_lock:
@@ -250,11 +247,8 @@ class CourierServer(metaclass=_CourierServerSingleton):
           self._tx_stats = (ticker, bytes_sent + len(result), num_txs + 1)
         return result
       except TypeError as e:
-        lazy_obj = f'{lazy_fns.pickler.loads(maybe_lazy)}'
         logging.exception(
-            'chainable: maybe_make pickle error for %s from %s',
-            type(result),
-            lazy_obj,
+            f'maybe_make pickle error for {type(result)} from {maybe_lazy}'
         )
         raise e
 
@@ -298,7 +292,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
         assert self._server is not None, 'Server is not built.'
         if self._shutdown_callback is not None:
           self._shutdown_callback()
-        logging.info('chainable: Shutting down server %s', self)
+        logging.info(f'Shutting down server {self}')
         self._server.Stop()
         self._server = None
 
@@ -311,7 +305,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
     with self._shutdown_lock:
       while not self._shutdown_requested:
         if time.time() - self._last_heartbeat > self.auto_shutdown_secs:
-          logging.info('chainable: no ping after %ds.', self.auto_shutdown_secs)
+          logging.info(f'no ping after {self.auto_shutdown_secs}s.')
           self._shutdown_requested = True
           break
         self._shutdown_lock.wait(_HRTBT_INTERVAL_SECS)
@@ -319,7 +313,6 @@ class CourierServer(metaclass=_CourierServerSingleton):
           ticker, bytes_sent, num_txs = self._tx_stats
           delta_time = time.time() - ticker
           logging.info(
-              'chainable: %s',
               f'"{self.address}" tx stats: {bytes_sent} bytes,'
               f' {num_txs} requests in {delta_time:.2f} seconds,'
               f' ({bytes_sent / delta_time:.2f} bytes/sec,'
@@ -364,13 +357,13 @@ def shutdown_all(*, block: bool = True):
   servers = [
       (s, s.address) for s in CourierServer.all_instances if s.has_started
   ]
-  logging.info('chainable: shutting down %d servers.', len(servers))
+  logging.info(f'shutting down {len(servers)} servers.')
   for server, _ in servers:
     server.stop()
   if block:
     for server, address in servers:
       server.stop().join()
-      logging.info('chainable: server %s stopped.', address)
+      logging.info(f'server {address} stopped.')
 
 
 class PrefetchedCourierServer(CourierServer):
@@ -424,8 +417,7 @@ class PrefetchedCourierServer(CourierServer):
         )
       if self._generator is not None and not self._generator.exhausted:
         logging.warning(
-            'chainable: A new generator is initialized while the previous one'
-            ' is not exhausted.'
+            'A new generator is initialized while the previous is unexhausted.'
         )
         self._generator.stop_enqueue()
         if self._enqueue_thread:
@@ -453,7 +445,7 @@ class PrefetchedCourierServer(CourierServer):
             ' killed by the Borglet. Search for "chainable:.+retries" in the'
             ' log to see how persistent this is.'
         )
-        logging.exception('chainable: %s', e)
+        logging.exception(f'{e}')
         return [e]
 
       result = []
@@ -466,9 +458,9 @@ class PrefetchedCourierServer(CourierServer):
         if not iter_utils.is_stop_iteration(e):
           if self._shutdown_requested:
             e = TimeoutError('Shutdown requested, the worker is shutting down.')
-            logging.exception('chainable: %s', e)
+            logging.exception(f'{e}')
             return [e]
-          logging.exception('chainable: exception when flushing generator.')
+
       # The sequence of the result will always end with an exception.
       # Any non-StopIteration means the generator crashed.
       if not self._generator:
