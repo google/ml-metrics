@@ -454,18 +454,18 @@ class PrefetchedCourierServer(CourierServer):
         with self._tx_stats_lock:
           ticker, bytes_sent, num_txs = self._tx_stats
           self._tx_stats = (ticker, bytes_sent + len(result), num_txs + 1)
-      except Exception as e:  # pylint: disable=broad-exception-caught
-        if not iter_utils.is_stop_iteration(e):
+      except Exception:  # pylint: disable=broad-exception-caught
+        # The sequence of the result will always end with an exception.
+        # Any non-StopIteration means the generator crashed. The exception
+        # is then appended to the result list and returned in one batch below.
+        pass
+
+      if not self._generator:
+        if e := self._generator.exception:
           if self._shutdown_requested:
             e = TimeoutError('Shutdown requested, the worker is shutting down.')
-            logging.exception(f'{e}')
-            return [e]
-
-      # The sequence of the result will always end with an exception.
-      # Any non-StopIteration means the generator crashed.
-      if not self._generator:
-        if self._generator.exception:
-          result.append(self._generator.exception)
+          logging.exception(f'Exception during next batch call: {e}')
+          result.append(e)
         else:
           result.append(StopIteration(*self._generator.returned))
       return result
