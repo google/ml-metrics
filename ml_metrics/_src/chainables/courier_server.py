@@ -422,7 +422,7 @@ class PrefetchedCourierServer(CourierServer):
             'A new generator is initialized while the previous is unexhausted.'
         )
         self._generator.stop_enqueue()
-        if self._enqueue_thread:
+        if self._enqueue_thread and self._enqueue_thread.is_alive():
           self._enqueue_thread.join()
       self._generator = iter_utils.IteratorQueue(
           self.prefetch_size,
@@ -463,10 +463,10 @@ class PrefetchedCourierServer(CourierServer):
         pass
 
       if not self._generator:
-        if e := self._generator.exception:
+        if (e := self._generator.exception) is not None:
           if self._shutdown_requested:
             e = TimeoutError('Shutdown requested, cannot get next batch.')
-          logging.exception(f'Exception during next batch call: {e}')
+          logging.exception(f'Exception during next batch call: {type(e)}: {e}')
           result.append(e)
         else:
           result.append(StopIteration(*self._generator.returned))
