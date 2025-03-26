@@ -53,7 +53,7 @@ def _as_generator_task(
 ) -> GeneratorTask:
   if isinstance(task, GeneratorTask):
     return task
-  return GeneratorTask.new(task)
+  return GeneratorTask.new(task, courier_method='next_batch_from_generator')
 
 
 MaybeDoneTasks = NamedTuple(
@@ -448,7 +448,7 @@ class WorkerPool:
     batch_cnt, prev_batch_cnt = 0, 0
     exhausted = False
     while not exhausted or tasks or running_tasks:
-      workers = list(set(self.idle_workers()) - running_workers)
+      workers: list[Worker] = list(set(self.idle_workers()) - running_workers)
       # TODO: b/311207032 - Prefer proven workers before shuffling.
       random.shuffle(workers)
       for worker in workers:
