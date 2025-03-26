@@ -251,6 +251,17 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
     assert len(states) == 1
     self.assertIsInstance(states[-1], TimeoutError)
 
+  def test_init_generator_with_shutdown(self):
+    server = courier_server.PrefetchedCourierServer(prefetch_size=1)
+    server.start()
+    courier_worker.wait_until_alive(server.address, deadline_secs=12)
+    client = courier.Client(server.address, call_timeout=1)
+    server._shutdown_requested = True
+    # When the worker is shutdown, any exception is converted into a Timeout.
+    lazy_iter = lazy_fns.trace(test_utils.range_with_exc)(10, 8)
+    state = client.init_generator(pickler.dumps(lazy_iter))
+    self.assertIsInstance(state, TimeoutError)
+
   def test_batch_generator_with_shutdown(self):
     server = courier_server.PrefetchedCourierServer(prefetch_size=1)
     server.start()

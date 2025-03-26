@@ -410,6 +410,8 @@ class PrefetchedCourierServer(CourierServer):
 
     def pickled_init_iterator(maybe_lazy):
       self._last_heartbeat = time.time()
+      if self._shutdown_requested:
+        return TimeoutError('Shutdown requested, cannot take new generator.')
       result = lazy_fns.maybe_make(maybe_lazy)
       if not isinstance(result, Iterable):
         raise TypeError(
@@ -463,7 +465,7 @@ class PrefetchedCourierServer(CourierServer):
       if not self._generator:
         if e := self._generator.exception:
           if self._shutdown_requested:
-            e = TimeoutError('Shutdown requested, the worker is shutting down.')
+            e = TimeoutError('Shutdown requested, cannot get next batch.')
           logging.exception(f'Exception during next batch call: {e}')
           result.append(e)
         else:

@@ -692,7 +692,8 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
       init_state = self.call(
           *task.args, courier_method='init_generator', **task.kwargs
       )
-      assert await asyncio.wrap_future(init_state) is None
+      if (init_state := await asyncio.wrap_future(init_state)) is not None:
+        raise init_state
       exhausted = False
       while not exhausted:
         output_state = self.next_batch_from_generator(self.iterate_batch_size)
