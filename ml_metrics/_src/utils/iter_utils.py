@@ -705,15 +705,15 @@ class IteratorQueue(IterableQueue[_ValueT]):
         )
         logging.debug(f'"{self.name}" enqueue done, notify all')
 
-  def stop_enqueue(self):
+  def stop_enqueue(self, exc: Exception | None = None):
     self._run_enqueue = False
     with self._states_lock:
       self._enqueue_stop = self._enqueue_start = self._max_enqueuer
-      self._exception = StopIteration()
+      self._exception = exc or StopIteration()
     with self._enqueue_lock:
       self._enqueue_lock.notify_all()
     with self._dequeue_lock:
-      self._dequeue_lock.notify_all()
+      self._set_exhausted()
     logging.info(f'"{self.name}" stopping enqueue.')
 
   def enqueue_from_iterator(self, iterator: Iterable[_ValueT]):

@@ -421,7 +421,12 @@ class PrefetchedCourierServer(CourierServer):
         logging.warning(
             'A new generator is initialized while the previous is unexhausted.'
         )
-        self._generator.stop_enqueue()
+        self._generator.stop_enqueue(
+            TimeoutError(
+                'A new generator is initialized while the previous is'
+                ' unexhausted.'
+            )
+        )
         if self._enqueue_thread and self._enqueue_thread.is_alive():
           self._enqueue_thread.join()
       self._generator = iter_utils.IteratorQueue(

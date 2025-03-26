@@ -387,6 +387,11 @@ class IterUtilsTest(parameterized.TestCase):
     self.assertGreaterEqual(len(result), num_examples)
     self.assertLess(len(result), 10)
 
+  def test_enqueue_stop_enqueue_before_dequeue(self):
+    q = iter_utils.IteratorQueue()
+    q.stop_enqueue()
+    self.assertTrue(q.exhausted)
+
   @parameterized.named_parameters([
       dict(
           testcase_name='no_op',
