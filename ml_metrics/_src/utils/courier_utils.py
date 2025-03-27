@@ -430,6 +430,11 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
       heartbeat_threshold_secs: The threshold to consider the worker alive.
       iterate_batch_size: The batch size to use when iterating an iterator.
     """
+    if heartbeat_threshold_secs <= 2 * _HRTBT_INTERVAL_SECS:
+      logging.warning(
+          'heartbeat_threshold_secs should be larger than'
+          f' {2 * _HRTBT_INTERVAL_SECS}.'
+      )
     self.address = address
     self.max_parallelism = max_parallelism
     self.heartbeat_threshold_secs = heartbeat_threshold_secs
@@ -456,8 +461,7 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
   def _last_heartbeat(self) -> float:
     return self._client_heartbeat
 
-  @_last_heartbeat.setter
-  def _last_heartbeat(self, value: float):
+  def _update_last_heartbeat(self, value: float):
     self._client_heartbeat = max(value, self._client_heartbeat)
 
   def _refresh_clients(self):
@@ -465,8 +469,7 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
     logging.debug(f'refresh courier client at {self.address}')
     self._client = courier.Client(self.address, call_timeout=self.call_timeout)
     self._heartbeat_client = courier.Client(
-        self.address,
-        call_timeout=self.heartbeat_threshold_secs,
+        self.address, call_timeout=_HRTBT_INTERVAL_SECS
     )
 
   @property
@@ -568,7 +571,7 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
       if state_and_time.state.done():
         try:
           if not state_and_time.state.exception():
-            self._last_heartbeat = state_and_time.time
+            self._update_last_heartbeat(state_and_time.time)
         except futures.CancelledError:
           # The actual exception will be caught on the callsite.
           time.sleep(0)

@@ -184,10 +184,6 @@ class Worker(courier_utils.CourierClient):
     server_heartbeat = courier_server.client_heartbeat(self.address)
     return max(self._client_heartbeat, server_heartbeat)
 
-  @_last_heartbeat.setter
-  def _last_heartbeat(self, value: float):
-    self._client_heartbeat = max(value, self._client_heartbeat)
-
   @property
   def worker_pool(self) -> WorkerPool | None:
     return self._worker_pool
