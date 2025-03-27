@@ -25,12 +25,12 @@ import threading
 import time
 from typing import Any, Generic, NamedTuple, Protocol, Self, TypeVar
 
+from absl import logging
 import courier
 from ml_metrics._src import types
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import func_utils
 from ml_metrics._src.utils import iter_utils
-from ml_metrics._src.utils import logging
 
 
 _HRTBT_INTERVAL_SECS = 30
@@ -262,11 +262,12 @@ class RemoteIteratorQueue(iter_utils.AsyncIterableQueue[_T]):
     return cls(RemoteObject.new(q, worker=server_addr), name=name)
 
   def get(self):
-    logging.debug(f'remote queue "{self.name}" get')
+    logging.debug('chainable: %s', f'remote queue "{self.name}" get')
     return self._queue.get().result_()
 
   async def async_get(self):
     logging.debug(
+        'chainable: %s',
         f'remote queue "{self.name}" async_get',
     )
     return await self._queue.get().async_result_()
@@ -274,6 +275,7 @@ class RemoteIteratorQueue(iter_utils.AsyncIterableQueue[_T]):
   def get_batch(self):
     result = self._queue.get_batch().result_()
     logging.debug(
+        'chainable: %s',
         f'remote queue "{self.name}" get {len(result)} elems',
     )
     return result
@@ -281,6 +283,7 @@ class RemoteIteratorQueue(iter_utils.AsyncIterableQueue[_T]):
   async def async_get_batch(self):
     result = await self._queue.get_batch().async_result_()
     logging.debug(
+        'chainable: %s',
         f'remote queue "{self.name}" async get {len(result)} elems',
     )
     return result
@@ -432,8 +435,9 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
     """
     if heartbeat_threshold_secs <= 2 * _HRTBT_INTERVAL_SECS:
       logging.warning(
+          'chainable: %s',
           'heartbeat_threshold_secs should be larger than'
-          f' {2 * _HRTBT_INTERVAL_SECS}.'
+          f' {2 * _HRTBT_INTERVAL_SECS}.',
       )
     self.address = address
     self.max_parallelism = max_parallelism
@@ -466,7 +470,7 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
 
   def _refresh_clients(self):
     assert self.address, f'empty address: "{self.address}"'
-    logging.debug(f'refresh courier client at {self.address}')
+    logging.debug('chainable: %s', f'refresh courier client at {self.address}')
     self._client = courier.Client(self.address, call_timeout=self.call_timeout)
     self._heartbeat_client = courier.Client(
         self.address, call_timeout=_HRTBT_INTERVAL_SECS
@@ -710,6 +714,7 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
             generator_result_queue.put(returned := stop_iteration.value)
             output_batch = output_batch[:-1]
             logging.info(
+                'chainable: %s',
                 f'worker "{self.address}" generator exhausted after'
                 f' {batch_cnt} batches with return type {type(returned)}',
             )
@@ -720,7 +725,9 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
           yield elem
           batch_cnt += 1
     except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.exception(f'exception when iterating task: {task}')
+      logging.exception(
+          'chainable: %s', f'exception when iterating task: {task}'
+      )
       raise e
     finally:
       generator_state.cancel()

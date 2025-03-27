@@ -23,13 +23,13 @@ import time
 from typing import Any, Iterable, TypeVar
 import weakref
 
+from absl import logging
 import courier
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform
 from ml_metrics._src.utils import courier_utils
 from ml_metrics._src.utils import func_utils
 from ml_metrics._src.utils import iter_utils
-from ml_metrics._src.utils import logging
 
 
 _T = TypeVar('_T')
@@ -125,8 +125,9 @@ class CourierServer(metaclass=_CourierServerSingleton):
       signal.signal(signal.SIGABRT, self.notify_shutdown)
     except ValueError:
       logging.warning(
+          'chainable: %s',
           f'cannot register signal handler for {self}, try constructing Server'
-          ' from the main thread.'
+          ' from the main thread.',
       )
 
   def __str__(self):
@@ -164,7 +165,8 @@ class CourierServer(metaclass=_CourierServerSingleton):
     for client in self._clients:
       client.send_heartbeat(self.address, is_alive=is_alive)
       logging.info(
-          f'notify {is_alive=} from "{self.address}" to "{client.address}"'
+          'chainable: %s',
+          f'notify {is_alive=} from "{self.address}" to "{client.address}"',
       )
 
   @property
@@ -182,7 +184,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
       signum: not used, but is required for this to be a signal handler.
       frame: not used, but is required for this to be a signal handler.
     """
-    logging.warning(f'notify_shutdown {signum=}')
+    logging.warning('chainable: %s', f'notify_shutdown {signum=}')
     del signum, frame
     with self._shutdown_lock:
       self._shutdown_requested = True
@@ -239,7 +241,9 @@ class CourierServer(metaclass=_CourierServerSingleton):
           raise e
         result = e
         if isinstance(e, (ValueError, TypeError, RuntimeError)):
-          logging.exception(f'maybe_make exception for {maybe_lazy}.')
+          logging.exception(
+              'chainable: %s', f'maybe_make exception for {maybe_lazy}.'
+          )
       try:
         result = pickler.dumps(result, compress=compress)
         with self._tx_stats_lock:
@@ -248,7 +252,8 @@ class CourierServer(metaclass=_CourierServerSingleton):
         return result
       except TypeError as e:
         logging.exception(
-            f'maybe_make pickle error for {type(result)} from {maybe_lazy}'
+            'chainable: %s',
+            f'maybe_make pickle error for {type(result)} from {maybe_lazy}',
         )
         raise e
 
@@ -261,10 +266,14 @@ class CourierServer(metaclass=_CourierServerSingleton):
         return
       if is_alive:
         self._heartbeats.register(sender_addr, self._last_heartbeat)
-        logging.info(f'notified alive=True from "{sender_addr}"')
+        logging.info(
+            'chainable: %s', f'notified alive=True from "{sender_addr}"'
+        )
       else:
         self._heartbeats.unregister(sender_addr)
-        logging.info(f'notified alive=False from "{sender_addr}"')
+        logging.info(
+            'chainable: %s', f'notified alive=False from "{sender_addr}"'
+        )
 
     assert self._server is not None, 'Server is not built.'
     self._server.Bind('maybe_make', pickled_maybe_make)
@@ -292,7 +301,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
         assert self._server is not None, 'Server is not built.'
         if self._shutdown_callback is not None:
           self._shutdown_callback()
-        logging.info(f'Shutting down server {self}')
+        logging.info('chainable: %s', f'Shutting down server {self}')
         self._server.Stop()
         self._server = None
 
@@ -305,7 +314,9 @@ class CourierServer(metaclass=_CourierServerSingleton):
     with self._shutdown_lock:
       while not self._shutdown_requested:
         if time.time() - self._last_heartbeat > self.auto_shutdown_secs:
-          logging.info(f'no ping after {self.auto_shutdown_secs}s.')
+          logging.info(
+              'chainable: %s', f'no ping after {self.auto_shutdown_secs}s.'
+          )
           self._shutdown_requested = True
           break
         self._shutdown_lock.wait(_HRTBT_INTERVAL_SECS)
@@ -313,6 +324,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
           ticker, bytes_sent, num_txs = self._tx_stats
           delta_time = time.time() - ticker
           logging.info(
+              'chainable: %s',
               f'"{self.address}" tx stats: {bytes_sent} bytes,'
               f' {num_txs} requests in {delta_time:.2f} seconds,'
               f' ({bytes_sent / delta_time:.2f} bytes/sec,'
@@ -357,13 +369,13 @@ def shutdown_all(*, block: bool = True):
   servers = [
       (s, s.address) for s in CourierServer.all_instances if s.has_started
   ]
-  logging.info(f'shutting down {len(servers)} servers.')
+  logging.info('chainable: %s', f'shutting down {len(servers)} servers.')
   for server, _ in servers:
     server.stop()
   if block:
     for server, address in servers:
       server.stop().join()
-      logging.info(f'server {address} stopped.')
+      logging.info('chainable: %s', f'server {address} stopped.')
 
 
 class PrefetchedCourierServer(CourierServer):
@@ -419,7 +431,8 @@ class PrefetchedCourierServer(CourierServer):
         )
       if self._generator is not None and not self._generator.exhausted:
         logging.warning(
-            'A new generator is initialized while the previous is unexhausted.'
+            'chainable: %s',
+            'A new generator is initialized while the previous is unexhausted.',
         )
         self._generator.stop_enqueue(
             TimeoutError(
@@ -452,7 +465,7 @@ class PrefetchedCourierServer(CourierServer):
             ' killed by the Borglet. Search for "chainable:.+retries" in the'
             ' log to see how persistent this is.'
         )
-        logging.exception(f'{e}')
+        logging.exception('chainable: %s', f'{e}')
         return [e]
 
       result = []
@@ -471,7 +484,10 @@ class PrefetchedCourierServer(CourierServer):
         if (e := self._generator.exception) is not None:
           if self._shutdown_requested:
             e = TimeoutError('Shutdown requested, cannot get next batch.')
-          logging.exception(f'Exception during next batch call: {type(e)}: {e}')
+          logging.exception(
+              'chainable: %s',
+              f'Exception during next batch call: {type(e)}: {e}',
+          )
           result.append(e)
         else:
           result.append(StopIteration(*self._generator.returned))

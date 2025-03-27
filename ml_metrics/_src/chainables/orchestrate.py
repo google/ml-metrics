@@ -27,6 +27,7 @@ import threading
 import time
 from typing import Any
 
+from absl import logging
 from ml_metrics._src import types
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
@@ -34,7 +35,6 @@ from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import transform as transform_lib
 from ml_metrics._src.utils import courier_utils
 from ml_metrics._src.utils import iter_utils
-from ml_metrics._src.utils import logging
 
 
 _MASTER = 'master'
@@ -95,7 +95,7 @@ def sharded_pipelines_as_iterator(
       )
       for i in range(num_shards)
   )
-  logging.info(f'distributed on {num_shards} shards')
+  logging.info('chainable: %s', f'distributed on {num_shards} shards')
   # Inference and aggregations.
   states_queue = queue.SimpleQueue()
   if calculate_agg_result:
@@ -125,7 +125,8 @@ def sharded_pipelines_as_iterator(
             yield state.agg_state
             continue
           logging.error(
-              f'unexpected accumulator type {type(state)} during aggregation.'
+              'chainable: %s',
+              f'unexpected accumulator type {type(state)} during aggregation.',
           )
 
       merged_state = agg_fn.merge_states(iterate_agg_state())
@@ -149,7 +150,7 @@ def sharded_pipelines_as_iterator(
       retry_threshold=retry_threshold,
       total_tasks=num_shards,
   )
-  logging.info(f'iterator: {iterator}')
+  logging.info('chainable: %s', f'iterator: {iterator}')
   yield from iterator
 
 
@@ -195,7 +196,9 @@ class RunnerState:
     self.event_loop.call_soon_threadsafe(self.event_loop.stop)
     self.event_loop_thread.join()
     stage_names = ','.join(f'"{s.name}"' for s in self.stages)
-    logging.info(f'pipeline with stages {stage_names} finished.')
+    logging.info(
+        'chainable: %s', f'pipeline with stages {stage_names} finished.'
+    )
     return result
 
   @property
@@ -267,13 +270,17 @@ def _async_run_single_stage(
   )
 
   def iterate_with_worker_pool():
-    logging.info(f'"{transform.name}" started with worker pool')
+    logging.info(
+        'chainable: %s', f'"{transform.name}" started with worker pool'
+    )
     assert master_server is not None
     assert worker_pool is not None
     input_iterator = None
     if input_queue is not None:
       if not master_server.has_started:
-        logging.debug(f'starting master {master_server.address}')
+        logging.debug(
+            'chainable: %s', f'starting master {master_server.address}'
+        )
         master_server.start(daemon=True)
       client_to_server = courier_utils.CourierClient(
           master_server.address, call_timeout=resource.timeout
@@ -324,7 +331,9 @@ def _async_run_single_stage(
               event_loop,
           )
           iterating[worker] = state
-          logging.info(f'iterating with {len(iterating)} workers.')
+          logging.info(
+              'chainable: %s', f'iterating with {len(iterating)} workers.'
+          )
 
       # Check the states of the workers, release when done or crashed.
       for worker, state in copy.copy(iterating).items():
@@ -333,23 +342,26 @@ def _async_run_single_stage(
           worker.release()
           if exc := state.exception():
             logging.exception(
-                f'worker {worker} failed with exception: {type(exc)}, {exc}'
+                'chainable: %s',
+                f'worker {worker} failed with exception: {type(exc)}, {exc}',
             )
             worker_exceptions.append(exc)
           logging.info(
+              'chainable: %s',
               f'worker {worker} released, remains {len(iterating)},'
-              f' "{result_q.name}" enqueue_done={result_q.enqueue_done}'
+              f' "{result_q.name}" enqueue_done={result_q.enqueue_done}',
           )
       if time.time() - ticker > _LOGGING_INTERVAL_SECS:
         delta_cnt, cnt = result_q.progress.cnt - cnt, result_q.progress.cnt
         delta_time, ticker = time.time() - ticker, time.time()
         logging.info(
+            'chainable: %s',
             f'{transform.name} async_iter processed {cnt} with througput:'
             f' {delta_cnt / delta_time:.2f} batches/sec',
         )
       time.sleep(0)
     if worker_exceptions:
-      logging.error(f'{len(worker_exceptions)} workers failed')
+      logging.error('chainable: %s', f'{len(worker_exceptions)} workers failed')
       raise ExceptionGroup('Workers failed with exceptions:', worker_exceptions)
 
     # Merge the intermediate aggregation states as aggregation result if there
@@ -361,7 +373,10 @@ def _async_run_single_stage(
         if agg_result.agg_state is not None:
           agg_states.append(agg_result.agg_state)
       agg_fn = transform.make(mode=transform_lib.RunnerMode.AGGREGATE)
-      logging.debug(f'{transform.name} merging {len(agg_states)} agg states.')
+      logging.debug(
+          'chainable: %s',
+          f'{transform.name} merging {len(agg_states)} agg states.',
+      )
       agg_state = agg_fn.merge_states(agg_states)
       agg_result = agg_fn.get_result(agg_state)
       result_q.returned.clear()
@@ -370,16 +385,20 @@ def _async_run_single_stage(
               agg_state=agg_state, agg_result=agg_result
           )
       )
-      logging.debug(f'{transform.name} merged {len(agg_states)} agg states.')
+      logging.debug(
+          'chainable: %s',
+          f'{transform.name} merged {len(agg_states)} agg states.',
+      )
 
     delta_time = time.time() - start_time
     logging.info(
+        'chainable: %s',
         f'remote {transform.name} done in {delta_time:.2f} secs, throughput:'
         f' {result_q.progress.cnt / delta_time:.2f} batches/sec',
     )
 
   def iterate_in_process():
-    logging.info(f'"{transform.name}" started in process')
+    logging.info('chainable: %s', f'"{transform.name}" started in process')
     start_time = time.time()
     input_iterator = None
     if input_queue is not None:
@@ -390,6 +409,7 @@ def _async_run_single_stage(
     result_q.enqueue_from_iterator(iterator)
     delta_time = time.time() - start_time
     logging.info(
+        'chainable: %s',
         f'local {transform.name} done in {delta_time:.2f} secs, throughput:'
         f' {result_q.progress.cnt / delta_time:.2f} batches/sec',
     )
@@ -415,6 +435,7 @@ def run_pipeline_interleaved(
   resources = resources or {}
   if master_server is not None:
     logging.info(
+        'chainable: %s',
         f'resolved master addr: {master_server.address}',
     )
   thread_pool = futures.ThreadPoolExecutor()
@@ -484,12 +505,14 @@ def as_completed(
           preferred.discard(task.worker)
           if isinstance(exc, TimeoutError) or courier_worker.is_timeout(exc):
             logging.warning(
+                'chainable: %s',
                 f'deadline exceeded at {task.server_name}, retrying task.',
             )
             tasks.append(task.set(_exc=None))
           elif ignore_failures:
             logging.exception(
-                f'task failed with exception: {exc}, task: {task}'
+                'chainable: %s',
+                f'task failed with exception: {exc}, task: {task}',
             )
           else:
             raise exc
@@ -498,6 +521,7 @@ def as_completed(
           yield task.result()
       elif not task.is_alive:
         logging.warning(
+            'chainable: %s',
             f'Worker {task.server_name} disconnected.',
         )
         assert task.state is not None

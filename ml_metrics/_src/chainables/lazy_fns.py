@@ -29,10 +29,10 @@ import operator
 from typing import Any, Self, TypeVar
 import uuid
 
+from absl import logging
 import cloudpickle as pickle
 from ml_metrics._src import types
 from ml_metrics._src.utils import func_utils
-from ml_metrics._src.utils import logging
 
 
 _KeyT = TypeVar('_KeyT')
@@ -64,11 +64,13 @@ def _maybe_lru_cache(maxsize: int):
       if x.cache_result:
         try:
           result = lazy_obj_cache[x]
-          logging.debug(f'cache hit: {x}, got a {type(result)}')
+          logging.debug(
+              'chainable: %s', f'cache hit: {x}, got a {type(result)}'
+          )
           return result
         except KeyError as e:
           if isinstance(x, LazyFn):
-            logging.info(f'cache miss: {x}')
+            logging.info('chainable: %s', f'cache miss: {x}')
             result = fn(x)
             lazy_obj_cache[x] = result
             return result
@@ -561,6 +563,7 @@ def trace(
   """
   if use_cache:
     logging.warning(
+        'chainable: %s',
         '`use_cache` is deprecated, please directly use `cache_result_` at the'
         ' callsite. E.g., trace(Model)(path="", cache_result_=True).'
         f'traced value: {value}',
