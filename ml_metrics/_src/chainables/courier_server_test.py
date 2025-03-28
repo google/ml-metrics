@@ -270,13 +270,15 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
     # When the worker is shutdown, any exception is converted into a Timeout.
     lazy_iter = lazy_fns.trace(test_utils.range_with_exc)(10, 8)
     client.init_generator(pickler.dumps(lazy_iter))
-    # Simulate the case where the worker is shutdown.
-    server._shutdown_requested = True
     states = pickler.loads(client.next_batch_from_generator(6))
     self.assertEqual([0, 1, 2, 3, 4, 5], states)
-    states = pickler.loads(client.next_batch_from_generator(6))
+    # Simulate the case where the worker is shutdown.
+    future = client.futures.next_batch_from_generator(6)
+    server._shutdown_requested = True
+    states = pickler.loads(future.result())
     self.assertLen(states, 1)
     self.assertIsInstance(states[-1], TimeoutError)
+    server.stop().join()
 
   def test_courier_exception_during_prefetch(self):
     client = courier.Client(self.server.address, call_timeout=1)
