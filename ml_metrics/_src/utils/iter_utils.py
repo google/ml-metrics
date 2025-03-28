@@ -41,7 +41,7 @@ _InputT = TypeVar('_InputT')
 _MAX_BATCH_SIZE = 4096
 _ITERATE_FN_MAX_THREADS = 256
 _IGNORE_ERROR_TYPES = (ValueError, TypeError)
-_RANDOM_ACCESS_BATCH_SIZE = 64
+_RANDOM_ACCESS_BATCH_SIZE = 20
 
 
 class _QueueLike(Protocol[_ValueT]):
@@ -706,6 +706,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
     """Stops enqueueing and records the returned values."""
     with self._states_lock:
       self._enqueue_stop += 1
+      self._enqueue_stop = min(self._enqueue_stop, self._enqueue_start)
       self._returned.extend(values)
       remaining = self._enqueue_start - self._enqueue_stop
       logging.debug(
@@ -721,15 +722,34 @@ class IteratorQueue(IterableQueue[_ValueT]):
             'chainable: %s', f'"{self.name}" enqueue done, notify all'
         )
 
-  def stop_enqueue(self, exc: Exception | None = None):
+  def maybe_stop(self, exc: Exception | None = None):
+    """Stops the producer and optionally terminates the consumer.
+
+    When non-StopIteration exception is provided, this will also mark itself
+    exhausted so that any consumer will be terminated immediately.
+
+    Args:
+      exc: The exception to be raised by the consumer, the queue will be
+        teriminated immediately if this is not StopIteration.
+
+    Returns:
+      None.
+    """
+    exc = exc or StopIteration()
     self._run_enqueue = False
     with self._states_lock:
       self._enqueue_stop = self._enqueue_start = self._max_enqueuer
-      self._exception = exc or StopIteration()
+      assert self.enqueue_done
+      if not is_stop_iteration(exc):
+        self._exception = exc
     with self._enqueue_lock:
       self._enqueue_lock.notify_all()
     with self._dequeue_lock:
-      self._set_exhausted()
+      if not is_stop_iteration(exc):
+        # Immeidately terminate the consumer side for enqueue error.
+        self._set_exhausted()
+      else:
+        self._dequeue_lock.notify_all()
     logging.info('chainable: %s', f'"{self.name}" stopping enqueue.')
 
   def enqueue_from_iterator(self, iterator: Iterable[_ValueT]):
@@ -785,7 +805,7 @@ class DequeueIterator(Iterator[_ValueT], types.Stoppable):
 
   def maybe_stop(self):
     assert isinstance(self._iterator_queue, IteratorQueue)
-    self._iterator_queue.stop_enqueue()
+    self._iterator_queue.maybe_stop()
 
   def __next__(self) -> _ValueT:
     if not self._run_until_exhausted and self._cnt == self._num_steps:

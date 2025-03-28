@@ -428,7 +428,7 @@ class PrefetchedCourierServer(CourierServer):
             'chainable: %s',
             'A new generator is initialized while the previous is unexhausted.',
         )
-        self._generator.stop_enqueue(
+        self._generator.maybe_stop(
             TimeoutError(
                 'A new generator is initialized while the previous is'
                 ' unexhausted.'

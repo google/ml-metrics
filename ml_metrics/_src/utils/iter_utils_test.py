@@ -382,15 +382,30 @@ class IterUtilsTest(parameterized.TestCase):
       )
       while iterator._queue.qsize() < num_examples:
         time.sleep(0)
-      iterator.stop_enqueue()
+      iterator.maybe_stop()
       result = iterator.get_batch(block=True)
     self.assertGreaterEqual(len(result), num_examples)
     self.assertLess(len(result), 10)
 
-  def test_enqueue_stop_enqueue_before_dequeue(self):
+  def test_enqueue_maybe_stop_with_error(self):
     q = iter_utils.IteratorQueue()
-    q.stop_enqueue()
+    q._start_enqueue()
+    q.put(3)
+    q.maybe_stop(ValueError())
     self.assertTrue(q.exhausted)
+    actual = []
+    with self.assertRaises(ValueError):
+      actual.extend(q)
+    self.assertEmpty(actual)
+
+  def test_enqueue_maybe_stop(self):
+    q = iter_utils.IteratorQueue()
+    q._start_enqueue()
+    q.put(3)
+    q.maybe_stop()
+    self.assertFalse(q.exhausted)
+    actual = list(q)
+    self.assertEqual([3], actual)
 
   @parameterized.named_parameters([
       dict(
