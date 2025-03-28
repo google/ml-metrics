@@ -424,6 +424,10 @@ class PrefetchedCourierServer(CourierServer):
       self._last_heartbeat = time.time()
       if self._shutdown_requested:
         return TimeoutError('Shutdown requested, cannot take new generator.')
+
+      start_time = time.time()
+      maybe_lazy = lazy_fns.maybe_unpickle(maybe_lazy)
+      logging.info('chainable: %s', f'Initializing generator for {maybe_lazy}')
       result = lazy_fns.maybe_make(maybe_lazy)
       if not isinstance(result, Iterable):
         raise TypeError(
@@ -453,6 +457,11 @@ class PrefetchedCourierServer(CourierServer):
           daemon=True,
       )
       self._enqueue_thread.start()
+      delta_time = time.time() - start_time
+      logging.info(
+          'chainable: %s',
+          f'Generator loaded in {delta_time:.2f}s for {maybe_lazy}',
+      )
       with self._shutdown_lock:
         self._shutdown_lock.notify_all()
 
