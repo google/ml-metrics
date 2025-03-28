@@ -83,16 +83,6 @@ class CourierServer(metaclass=_CourierServerSingleton):
   server_name: str | None
   port: int | None
   auto_shutdown_secs: float
-  _states_lock: threading.Lock
-  _server: courier.Server | None
-  _thread: threading.Thread | None
-  _last_heartbeat: float
-  _shutdown_lock: threading.Condition
-  _shutdown_requested: bool
-  _heartbeats: HeartbeatRegistry
-  _shutdown_callback: Callable[..., None] | None
-  _clients: list[courier_utils.CourierClient]
-  _thread_pool: futures.ThreadPoolExecutor
 
   def __init__(
       self,
@@ -104,14 +94,14 @@ class CourierServer(metaclass=_CourierServerSingleton):
   ):
     self.server_name = server_name
     self.port = port
-    self._server = None
-    self._thread = None
+    self._server: courier.Server | None = None
+    self._thread: threading.Thread | None = None
     self._last_heartbeat = 0.0
     self._shutdown_lock = threading.Condition()
     self._shutdown_requested = False
     self._states_lock = threading.Lock()
     self._heartbeats = HeartbeatRegistry()
-    self._shutdown_callback = None
+    self._shutdown_callback: Callable[..., None] | None = None
     self._tx_stats_lock = threading.Lock()
     self._tx_stats = (time.time(), 0, 0)
     self.auto_shutdown_secs = auto_shutdown_secs
@@ -466,7 +456,6 @@ class PrefetchedCourierServer(CourierServer):
         self._shutdown_lock.notify_all()
 
     def _next_batch_from_iterator(batch_size: int = 0) -> list[Any]:
-      self._last_heartbeat = time.time()
       if self._generator is None:
         e = TimeoutError(
             'Generator is not set, the worker might be killed previously, the'
@@ -503,10 +492,12 @@ class PrefetchedCourierServer(CourierServer):
       return result
 
     def next_batch_from_iterator(batch_size: int | bytes = 0) -> bytes:
+      self._last_heartbeat = time.time()
       batch_size = lazy_fns.maybe_make(batch_size)
       return pickler.dumps(_next_batch_from_iterator(batch_size))
 
     def next_from_iterator() -> bytes:
+      self._last_heartbeat = time.time()
       return pickler.dumps(_next_batch_from_iterator(batch_size=1)[0])
 
     assert self._server is not None, 'Server is not built.'
