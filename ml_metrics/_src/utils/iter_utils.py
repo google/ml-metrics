@@ -41,7 +41,7 @@ _InputT = TypeVar('_InputT')
 _MAX_BATCH_SIZE = 4096
 _ITERATE_FN_MAX_THREADS = 256
 _IGNORE_ERROR_TYPES = (ValueError, TypeError)
-_RANDOM_ACCESS_BATCH_SIZE = 20
+_RANDOM_ACCESS_BATCH_SIZE = 64
 
 
 class _QueueLike(Protocol[_ValueT]):
@@ -170,15 +170,14 @@ class SequenceArray(Sequence):
     return result
 
 
-class RandomAccessRangeIterator(Iterator[_ValueT]):
+class _RangeIterator(Iterator[_ValueT]):
   """An range like iterator that iterate through random accessible data.
 
   The iterator can read ahead if the underlying data source supports random
-  access with slicing. If failed, it will fall back to single element random
-  access. The batch size will be increased exponentially if it succeeds. Upon
-  error even in single element batch, the iterator will skip the current index
-  and raise the error. So that the next call to `__next__` will try to read the
-  next index, making the error skippable.
+  access with slicing. If failed, it will be decreased exponentially until to
+  single element batch. Upon error even in single element batch, the iterator
+  will skip the current index and raise the error. So that the next call to
+  `__next__` will try to read the next index, making the error skippable.
 
   Attributes:
     data: The underlying data source.
@@ -192,12 +191,13 @@ class RandomAccessRangeIterator(Iterator[_ValueT]):
       data: types.RandomAccessible[_ValueT],
       start: int,
       stop: int | None,
+      max_batch_size: int,
   ):
     self.data = data
     self.stop = len(data) if stop is None else stop
     self.start = start
     self.i = start
-    self._batch_size = 16
+    self._batch_size = max_batch_size
     self._cache = collections.deque()
 
   def __next__(self):
@@ -210,30 +210,24 @@ class RandomAccessRangeIterator(Iterator[_ValueT]):
         else:
           self._cache.append(self.data[self.i])
         self.i += batch_size
-        self._batch_size = min(_RANDOM_ACCESS_BATCH_SIZE, self._batch_size * 2)
-      except Exception:  # pylint: disable=broad-exception-caught
+      except Exception as e:  # pylint: disable=broad-exception-caught
         # After falling back to single element batch, raise the exception and
         # skip the index by one.
         if self._batch_size == 1:
           self.i += self._batch_size
           raise
-        # Fall back to single element batch when there is an error.
-        self._batch_size = 1
+        # Fall back to smaller batch size when there is an error.
+        self._batch_size = max(int(self._batch_size // 4), 1)
+        logging.warning(
+            'chainable: %s',
+            f'Fall back to smaller {self._batch_size=} due to error: {e}.',
+        )
     if self._cache:
       return self._cache.popleft()
     raise StopIteration()
 
   def __iter__(self):
     return self
-
-
-def index_slice(
-    data: types.RandomAccessible[_ValueT],
-    start: int = 0,
-    stop: int | None = None,
-) -> Iterator[_ValueT]:
-  """Slices a sequence that supports random access."""
-  return RandomAccessRangeIterator(data, start, stop)
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -249,14 +243,30 @@ _SliceT = Any
 class MergedSequences(Generic[_ValueT]):
   """Merges multiple sequences into a single sequence."""
 
-  def __init__(self, sequences: Iterable[types.RandomAccessible[_ValueT]]):
+  def __init__(
+      self,
+      sequences: Iterable[types.RandomAccessible[_ValueT]],
+      max_batch_size: int = 0,
+  ):
     self._sequences = list(sequences)
     self._seq_idxs = [0]
     self._seq_idxs.extend(itt.accumulate(map(len, self._sequences), op.add))
+    self._max_batch_size = max_batch_size or _RANDOM_ACCESS_BATCH_SIZE
 
   @property
   def sequences(self) -> list[types.RandomAccessible[_ValueT]]:
     return self._sequences
+
+  def _index_slice(
+      self,
+      seq_idx: int,
+      start: int = 0,
+      stop: int | None = None,
+  ) -> Iterator[_ValueT]:
+    """Slices a sequence that supports random access."""
+    return _RangeIterator(
+        self._sequences[seq_idx], start, stop, self._max_batch_size
+    )
 
   def __len__(self) -> int:
     return self._seq_idxs[-1]
@@ -280,13 +290,13 @@ class MergedSequences(Generic[_ValueT]):
     if start.seq_idx == len(self._sequences):
       return iter(())
     if start.seq_idx == stop.seq_idx:
-      return index_slice(self._sequences[start.seq_idx], start.idx, stop.idx)
+      return self._index_slice(start.seq_idx, start.idx, stop.idx)
     # Chain multiple sequences together with correct slices.
-    sequences = [index_slice(self._sequences[start.seq_idx], start.idx, None)]
+    sequences = [self._index_slice(start.seq_idx, start.idx, None)]
     for i_seq in range(start.seq_idx + 1, stop.seq_idx):
-      sequences.append(index_slice(self._sequences[i_seq]))
+      sequences.append(self._index_slice(i_seq))
     if stop.idx:
-      sequences.append(index_slice(self._sequences[stop.seq_idx], 0, stop.idx))
+      sequences.append(self._index_slice(stop.seq_idx, 0, stop.idx))
     return itt.chain.from_iterable(sequences)
 
   def __getitem__(self, index: int | Any) -> _ValueT | Iterator[_ValueT]:
@@ -297,6 +307,9 @@ class MergedSequences(Generic[_ValueT]):
       return self._sequences[multi_idx.seq_idx][multi_idx.idx]
     except IndexError:
       raise IndexError(f'Index {index} is out of range.') from None
+
+  def __iter__(self):
+    return self.slice(slice(None))
 
 
 class MultiplexIterator(Iterator[_ValueT], types.Stoppable, types.Recoverable):

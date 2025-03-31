@@ -135,7 +135,7 @@ class IterUtilsTest(parameterized.TestCase):
     self.assertEqual([R(0, 0), R(1, 0)], iter_utils.iterate_fn(foo)([0, 1]))
 
   def test_iterate_ignore_error(self):
-    it = iter_utils.index_slice(test_utils.SequenceWithExc(5, 3))
+    it = iter_utils.MergedSequences([test_utils.SequenceWithExc(5, 3)])
     it = map(lambda x: x, it)
     # 0, 1, 2, 3, 4, ignore 3, got 0, 1, 2, 4
     actual = list(iter_utils.iter_ignore_error(it))
@@ -167,11 +167,13 @@ class IterUtilsTest(parameterized.TestCase):
     with self.assertRaisesRegex(ValueError, 'not in array'):
       a.index(10)
 
-  def test_index_slice(self):
+  def test_range_iterator(self):
     seq = MockSequence(range(10))
-    a = iter_utils.index_slice(seq, 3, 5)
+    a = iter_utils._RangeIterator(seq, 3, 5, 2)
     self.assertEqual(list(a), [3, 4])
     self.assertEqual(2, seq.ref_cnt)
+    # The batch size should fall back to 1 since MockSequence is not sliceable.
+    self.assertEqual(1, a._batch_size)
 
   @parameterized.named_parameters([
       dict(
@@ -634,12 +636,10 @@ class IterUtilsTest(parameterized.TestCase):
 
   def test_iterator_queue_ignore_error_with_skippable_input(self):
     q = iter_utils.IteratorQueue(ignore_error=True)
+    data_source = iter_utils.MergedSequences([test_utils.SequenceWithExc(4, 2)])
     with futures.ThreadPoolExecutor() as thread_pool:
       f = thread_pool.submit(list, q)
-      thread_pool.submit(
-          q.enqueue_from_iterator,
-          iter_utils.index_slice(test_utils.SequenceWithExc(4, 2)),
-      )
+      thread_pool.submit(q.enqueue_from_iterator, data_source)
       self.assertEqual([0, 1, 3], f.result())
 
   def test_iterator_queue_ignore_error_with_non_skippable_input(self):
