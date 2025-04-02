@@ -242,7 +242,7 @@ class UnboundesSamplerTest(absltest.TestCase):
     sampler_1.merge(sampler_2)
     self.assertEqual(['a', 'b', 'c', 'b'], sampler_1.result())
 
-  def test_with_transform(self):
+  def test_with_transform_without_input_keys(self):
     t = transform.TreeTransform().agg(
         fn=rolling_stats.UnboundedSampler().as_agg_fn(),
         output_keys='samples',
@@ -250,9 +250,23 @@ class UnboundesSamplerTest(absltest.TestCase):
     it = t.make().iterate([['a', 'b'], ['c']])
     _ = mit.last(it)
     metric_key = transform.MetricKey(metrics=('samples',))
-    expected_state = rolling_stats.UnboundedSampler(_samples=['a', 'b', 'c'])
+    expected_state = rolling_stats.UnboundedSampler(
+        _samples=(['a', 'b', 'c'],), _multi_input=False
+    )
     self.assertEqual(expected_state, it.agg_state[metric_key])
     self.assertEqual(['a', 'b', 'c'], it.agg_result['samples'])
+
+  def test_with_transform_with_input_keys(self):
+    t = transform.TreeTransform().agg(
+        fn=rolling_stats.UnboundedSampler().as_agg_fn(),
+        output_keys=('a', 'b'),
+        input_keys=('a', 'b'),
+    )
+    inputs = [{'a': [0, 1], 'b': [10]}, {'a': [2, 3], 'b': [20]}]
+    it = t.make().iterate(inputs)
+    _ = mit.last(it)
+    self.assertEqual([0, 1, 2, 3], it.agg_result['a'])
+    self.assertEqual([10, 20], it.agg_result['b'])
 
 
 class FixedSizeSampleTest(parameterized.TestCase):

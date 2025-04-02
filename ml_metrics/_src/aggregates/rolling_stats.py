@@ -34,24 +34,37 @@ _T = TypeVar('_T')
 class UnboundedSampler(base.CallableMetric, base.HasAsAggFn):
   """Stores all the inputs in memory."""
 
-  _samples: list[Any] = dataclasses.field(default_factory=list)
+  _samples: tuple[list[Any], ...] = ()
+  _multi_input: bool = True
 
   @property
-  def samples(self) -> list[Any]:
+  def samples(self) -> tuple[list[Any], ...]:
     return self._samples
+
+  @property
+  def multi_input(self) -> bool:
+    return self._multi_input
 
   def as_agg_fn(self) -> base.AggregateFn:
     return base.as_agg_fn(self.__class__)
 
-  def new(self, inputs: Iterable[Any]) -> Self:
-    return self.__class__(_samples=list(inputs))
+  def new(self, *inputs: tuple[Iterable[Any], ...]) -> Self:
+    multi_input = len(inputs) != 1
+    samples = tuple(list(input_) for input_ in inputs)
+    return self.__class__(_samples=samples, _multi_input=multi_input)
 
   def merge(self, other: Self) -> Self:
-    self._samples.extend(other.samples)
+    if not self._samples:
+      self._samples = tuple([] for _ in other.samples)
+      self._multi_input = other.multi_input
+    for samples, others in zip(self._samples, other.samples, strict=True):
+      samples.extend(others)
     return self
 
-  def result(self) -> list[Any]:
-    return self._samples
+  def result(self) -> tuple[list[Any], ...] | list[Any]:
+    if self._multi_input:
+      return self._samples
+    return self._samples[0]
 
 
 @dataclasses.dataclass(slots=True)
