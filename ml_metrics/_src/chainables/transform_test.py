@@ -1570,6 +1570,14 @@ class TransformTest(parameterized.TestCase):
     self.assertNotEmpty(threads)
     self.assertTrue(all(not t.is_alive() for t in threads))
 
+  def test_transform_len(self):
+    inputs = [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
+    p = (
+        transform.TreeTransform()
+        .data_source(test_utils.NoLenIter(inputs))
+    )
+    self.assertLen(p.make().iterate(total=len(inputs)), len(inputs))
+
 
 if __name__ == '__main__':
   absltest.main()

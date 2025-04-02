@@ -467,6 +467,7 @@ class _ChainedRunnerIterator(Iterable[_ValueT]):
       with_agg_state: bool,
       with_agg_result: bool,
       state: Any = None,
+      total: int = 0,
   ):
     self._iterators = list(iterators)
     assert all(isinstance(it, _RunnerIterator) for it in self._iterators)
@@ -474,6 +475,7 @@ class _ChainedRunnerIterator(Iterable[_ValueT]):
     self._prev_ticker = time.time()
     self._with_agg = state and (with_agg_state or with_agg_result)
     self._with_agg_result = with_agg_result
+    self._total = total
 
   def maybe_stop(self):
     for it in self._iterators:
@@ -506,6 +508,9 @@ class _ChainedRunnerIterator(Iterable[_ValueT]):
 
   def __iter__(self) -> Iterator[_ValueT]:
     return self
+
+  def __len__(self) -> int:
+    return self._total
 
   @property
   def agg_result(self) -> tree.MapLikeTree[Any] | None:
@@ -627,6 +632,7 @@ class ChainedRunner(Iterable[_ValueT]):
       with_agg_result: bool = True,
       state: Any = None,
       ignore_error: bool = False,
+      total: int | None = 0,
   ) -> _ChainedRunnerIterator[Any]:
     """An iterator runner that takes an data_source runs the transform."""
     iterators = []
@@ -645,6 +651,7 @@ class ChainedRunner(Iterable[_ValueT]):
         with_agg_state=with_agg_state,
         with_agg_result=with_agg_result,
         state=state or self.create_state(),
+        total=total,
     )
 
   def __iter__(self):
