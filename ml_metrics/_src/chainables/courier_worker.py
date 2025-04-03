@@ -381,6 +381,10 @@ class WorkerPool:
     return self._workers
 
   @property
+  def addresses(self) -> list[str]:
+    return [worker.address for worker in self._workers]
+
+  @property
   def num_workers(self):
     return len(self._workers)
 

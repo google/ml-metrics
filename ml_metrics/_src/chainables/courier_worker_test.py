@@ -188,6 +188,9 @@ class CourierWorkerPoolTest(parameterized.TestCase):
     for x in workerpool_params:
       self.assertEqual(getattr(worker, x), workerpool_params[x])
 
+  def test_worker_pool_addresses(self):
+    self.assertEqual([self.server.address], self.worker_pool.addresses)
+
   def test_worker_pool_call(self):
     actual = self.worker_pool.call_and_wait('echo')
     self.assertEmpty(self.worker_pool.acquired_workers)
