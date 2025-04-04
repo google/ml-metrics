@@ -91,6 +91,24 @@ class HistogramTest(parameterized.TestCase):
     np.testing.assert_equal(actual.hist, expected_histogram)
     np.testing.assert_allclose(actual.bin_edges, expected_bin_edges)
 
+  def test_histogram_simple_with_bin_edges(self):
+    bins = (0, 0.2, 0.4, 0.6, 0.8, 1)
+    input_1 = (0, 1, 0, 1, 1, 1, 0, 1)
+    input_2 = (0.2, 0.8, 0.5, -0.1, 0.5, 0.8, 0.2, 1.1)
+    histogram = rolling_stats.Histogram(bins=bins)
+    histogram.add(input_1)
+    histogram.add(input_2)
+    actual = histogram.result()
+    expected_histogram = (
+        # Input values in each bin:
+        3,  # (0, 0, 0)
+        2,  # (0.2, 0.2)
+        2,  # (0.5, 0.5)
+        0,  # (),
+        7,  # (0.8, 0.8, 1, 1, 1, 1, 1)
+    )
+    np.testing.assert_equal(actual.hist, expected_histogram)
+
   def test_histogram_one_large_batch(self):
     np.random.seed(seed=0)
 

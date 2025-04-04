@@ -167,7 +167,7 @@ HistogramResult = collections.namedtuple(
 )
 
 
-@dataclasses.dataclass(slots=True)
+@dataclasses.dataclass(slots=True, kw_only=True)
 class Histogram(base.CallableMetric, base.HasAsAggFn):
   """Computes the Histogram of the inputs.
 
@@ -180,14 +180,16 @@ class Histogram(base.CallableMetric, base.HasAsAggFn):
       the bin ranges are [0, 1), [1, 2), [2, 3), ... [8, 9), [9, 10].
   """
 
-  range: tuple[float, float]
-  bins: int = dataclasses.field(default=10, kw_only=True)
+  range: tuple[float, float] | None = None
+  bins: int | Iterable[float] = dataclasses.field(default=10, kw_only=True)
   _hist: np.ndarray = dataclasses.field(default_factory=lambda: np.empty(0))
   _bin_edges: np.ndarray = dataclasses.field(
       default_factory=lambda: np.empty(0)
   )
 
   def __post_init__(self):
+    if not isinstance(self.bins, int):
+      self.bins = tuple(self.bins)
     if not self._hist.size and not self._bin_edges.size:
       self._hist, self._bin_edges = np.histogram(
           a=(), bins=self.bins, range=self.range
@@ -203,7 +205,7 @@ class Histogram(base.CallableMetric, base.HasAsAggFn):
     return self._bin_edges
 
   def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(self.__class__, self.range, bins=self.bins)
+    return base.as_agg_fn(self.__class__, range=self.range, bins=self.bins)
 
   def new(
       self, inputs: types.NumbersT, weights: types.NumbersT | None = None
