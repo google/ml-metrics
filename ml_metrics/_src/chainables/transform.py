@@ -1028,10 +1028,10 @@ class TreeTransform(Generic[TreeFnT]):
   # TODO: b/356633410 - support rebatching.
   def aggregate(
       self,
-      output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      *,
       fn: types.MaybeResolvable[aggregates.Aggregatable] | None = None,
+      *,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+      output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       disable_slicing: bool = False,
   ) -> AggregateTransform:
     """Create an aggregate transform on the previous transform."""
@@ -1046,9 +1046,21 @@ class TreeTransform(Generic[TreeFnT]):
         disable_slicing=disable_slicing,
     )
 
-  def agg(self, **kwargs) -> AggregateTransform:
+  def agg(
+      self,
+      fn: types.MaybeResolvable[aggregates.Aggregatable] | None = None,
+      *,
+      input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+      output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+      disable_slicing: bool = False,
+  ) -> AggregateTransform:
     """Alias for aggregate."""
-    return self.aggregate(**kwargs)
+    return self.aggregate(
+        fn,
+        input_keys=input_keys,
+        output_keys=output_keys,
+        disable_slicing=disable_slicing,
+    )
 
   def apply(
       self,
