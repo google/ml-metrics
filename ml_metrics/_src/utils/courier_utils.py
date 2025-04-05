@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import collections
 from collections.abc import AsyncIterator, Iterable, Iterator
 from concurrent import futures
 import dataclasses as dc
@@ -36,6 +37,32 @@ from ml_metrics._src.utils import iter_utils
 _HRTBT_INTERVAL_SECS = 30
 _HRTBT_THRESHOLD_SECS = 360
 _T = TypeVar('_T')
+
+
+class WorkerRegistry(collections.UserDict[str, float]):
+  """A singleton class to track the clients of a server."""
+
+  def __init__(self, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self._lock = threading.Lock()
+
+  def __setitem__(self, key, item):
+    raise TypeError(f'Cannot assign {item} to {key=}, use register() instead.')
+
+  def get(self, key: str, default: float = 0.0) -> float:
+    """Get the heartbeat of a client."""
+    with self._lock:
+      return self.data.get(key, default)
+
+  def register(self, address: str, time_: float):
+    """Register a new client."""
+    with self._lock:
+      self.data[address] = max(self.data.get(address, 0), time_)
+
+  def unregister(self, address: str):
+    """Unregister a client."""
+    with self._lock:
+      self.data.pop(address, None)
 
 
 class FutureLike(Protocol[_T]):

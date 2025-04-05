@@ -565,6 +565,20 @@ class CourierClientTest(absltest.TestCase):
       if time.time() - ticker > 10:
         self.fail('Server is not shutdown after 10 seconds.')
 
+  def test_client_registry(self):
+    registry = courier_utils.WorkerRegistry()
+    registry.register('a', 1.0)
+    registry.register('b', 2.0)
+    registry.register('a', 3.0)
+    registry.register('c', 4.0)
+    registry.unregister('b')
+    self.assertEqual(registry.data, {'a': 3.0, 'c': 4.0})
+
+  def test_client_registry_direct_set_raises(self):
+    registry = courier_utils.WorkerRegistry()
+    with self.assertRaisesRegex(TypeError, r'use register\(\) instead'):
+      registry['a'] = 1.0
+
 
 if __name__ == '__main__':
   absltest.main()

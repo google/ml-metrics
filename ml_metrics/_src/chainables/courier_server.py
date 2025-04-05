@@ -35,36 +35,33 @@ from ml_metrics._src.utils import iter_utils
 _T = TypeVar('_T')
 _WeakRefDict = weakref.WeakKeyDictionary[_T, weakref.ref[_T]]
 
-pickler = lazy_fns.pickler
 _HRTBT_INTERVAL_SECS = 60
 _THREAD_POOL = futures.ThreadPoolExecutor()
 
+# Thread-safe registry of workers that are alive notified either by servers or
+# clients. The registry should not be mutated by any other means. Assign to
+# _worker_registry directly will raise TypeError.
+_worker_registry = courier_utils.WorkerRegistry()
 
-class HeartbeatRegistry:
-  """A singleton class to track the clients of a server."""
 
-  _clients: dict[str, float]
+def worker_heartbeat(address: str) -> float:
+  """Check the last heartbeat of from all servers created by CourierServer."""
+  return _worker_registry.get(address)
 
-  def __init__(self):
-    self._clients = {}
 
-  def get(self, address: str):
-    """Get the last heartbeat of a client."""
-    return self._clients.get(address, None)
+def worker_registry() -> courier_utils.WorkerRegistry:
+  """Get the worker registry."""
+  return _worker_registry
 
-  def update(self, address: str, time_: float):
-    """Update the heartbeat of any existing client."""
-    if address in self._clients:
-      self._clients[address] = max(self._clients.get(address, 0), time_)
-    raise ValueError(f'address {address} is not registered.')
 
-  def register(self, address: str, time_: float):
-    """Register a new client."""
-    self._clients[address] = time_
+def _register_worker(address: str, time_: float):
+  """Register a new worker."""
+  _worker_registry.register(address, time_)
 
-  def unregister(self, address: str):
-    """Unregister a client."""
-    self._clients.pop(address, None)
+
+def _unregister_worker(address: str):
+  """Unregister a worker."""
+  _worker_registry.unregister(address)
 
 
 class _CourierServerSingleton(func_utils.SingletonMeta):
@@ -100,7 +97,6 @@ class CourierServer(metaclass=_CourierServerSingleton):
     self._shutdown_lock = threading.Condition()
     self._shutdown_requested = False
     self._states_lock = threading.Lock()
-    self._heartbeats = HeartbeatRegistry()
     self._shutdown_callback: Callable[..., None] | None = None
     self._tx_stats_lock = threading.Lock()
     self._tx_stats = (time.time(), 0, 0)
@@ -138,9 +134,6 @@ class CourierServer(metaclass=_CourierServerSingleton):
 
   def __del__(self):
     self.notify_shutdown()
-
-  def client_heartbeat(self, client_addrs: str) -> float:
-    return self._heartbeats.get(client_addrs) or 0.0
 
   @property
   def address(self) -> str:
@@ -235,7 +228,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
               'chainable: %s', f'maybe_make exception for {maybe_lazy}.'
           )
       try:
-        result = pickler.dumps(result, compress=compress)
+        result = lazy_fns.pickler.dumps(result, compress=compress)
         with self._tx_stats_lock:
           ticker, bytes_sent, num_txs = self._tx_stats
           self._tx_stats = (ticker, bytes_sent + len(result), num_txs + 1)
@@ -248,19 +241,19 @@ class CourierServer(metaclass=_CourierServerSingleton):
         raise e
 
     def pickled_cache_info():
-      return pickler.dumps(lazy_fns.cache_info())
+      return lazy_fns.pickler.dumps(lazy_fns.cache_info())
 
     def heartbeat(sender_addr: str = '', is_alive: bool = True) -> None:
       self._last_heartbeat = time.time()
       if not sender_addr:
         return
       if is_alive:
-        self._heartbeats.register(sender_addr, self._last_heartbeat)
+        _register_worker(sender_addr, self._last_heartbeat)
         logging.info(
             'chainable: %s', f'notified alive=True from "{sender_addr}"'
         )
       else:
-        self._heartbeats.unregister(sender_addr)
+        _unregister_worker(sender_addr)
         logging.info(
             'chainable: %s', f'notified alive=False from "{sender_addr}"'
         )
@@ -344,14 +337,6 @@ class CourierServer(metaclass=_CourierServerSingleton):
     self.notify_shutdown()
     assert self._thread is not None
     return self._thread
-
-
-def client_heartbeat(address: str) -> float:
-  """Check the last heartbeat of from all servers created by CourierServer."""
-  heartbeats = (
-      obj.client_heartbeat(address) for obj in CourierServer.all_instances
-  )
-  return max(heartbeats, default=0.0)
 
 
 def shutdown_all(*, block: bool = True):
@@ -494,11 +479,11 @@ class PrefetchedCourierServer(CourierServer):
     def next_batch_from_iterator(batch_size: int | bytes = 0) -> bytes:
       self._last_heartbeat = time.time()
       batch_size = lazy_fns.maybe_make(batch_size)
-      return pickler.dumps(_next_batch_from_iterator(batch_size))
+      return lazy_fns.pickler.dumps(_next_batch_from_iterator(batch_size))
 
     def next_from_iterator() -> bytes:
       self._last_heartbeat = time.time()
-      return pickler.dumps(_next_batch_from_iterator(batch_size=1)[0])
+      return lazy_fns.pickler.dumps(_next_batch_from_iterator(batch_size=1)[0])
 
     assert self._server is not None, 'Server is not built.'
     super().set_up()

@@ -180,7 +180,7 @@ class Worker(courier_utils.CourierClient):
 
   @property
   def _last_heartbeat(self) -> float:
-    server_heartbeat = courier_server.client_heartbeat(self.address)
+    server_heartbeat = courier_server.worker_heartbeat(self.address)
     return max(self._client_heartbeat, server_heartbeat)
 
   @property
