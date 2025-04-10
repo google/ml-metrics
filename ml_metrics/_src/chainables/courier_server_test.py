@@ -281,6 +281,26 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
       self.assertEqual(list(range(6)), actual)
     self.assertRegex(cm.output[0], '.*Traceback.*')
 
+  def test_init_generator_lock(self):
+
+    def delayed_generator(n):
+      time.sleep(1)
+      return range(n)
+
+    client = courier.Client(self.server.address)
+    generator = pickler.dumps(lazy_fns.trace(delayed_generator)(10))
+    state1 = client.futures.init_generator(generator)
+    while not self.server._generator_lock.locked():
+      time.sleep(0)
+    generator = pickler.dumps(lazy_fns.trace(range)(10))
+    state2 = client.futures.init_generator(generator)
+    # The second init_generator call have to wait until the first one finishes.
+    self.assertFalse(state2.done())
+    self.assertIsNone(state1.result())
+    self.assertIsNotNone(self.server._generator)
+    self.assertFalse(state2.done())
+    self.assertIsNone(state2.result())
+
 
 if __name__ == '__main__':
   absltest.main()

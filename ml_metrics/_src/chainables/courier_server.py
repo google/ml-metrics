@@ -352,6 +352,7 @@ class PrefetchedCourierServer(CourierServer):
     self._enqueue_thread = None
     self._generator = None
     self._ignore_error = ignore_error
+    self._generator_lock = threading.Lock()
 
   def __hash__(self) -> int:
     return super().__hash__()
@@ -371,43 +372,42 @@ class PrefetchedCourierServer(CourierServer):
       if self._shutdown_requested:
         return TimeoutError('Shutdown requested, cannot take new generator.')
 
-      start_time = time.time()
-      maybe_lazy = lazy_fns.maybe_unpickle(maybe_lazy)
-      logging.info('chainable: %s', f'Initializing generator for {maybe_lazy}')
-      result = lazy_fns.maybe_make(maybe_lazy)
-      if not isinstance(result, Iterable):
-        raise TypeError(
-            f'The {result} is not a generator, but a {type(result)}.'
+      with self._generator_lock:
+        if self._generator is not None and not self._generator.exhausted:
+          logging.warning(
+              'chainable: %s',
+              'A generator is requested while the previous is unexhausted.',
+          )
+          self._generator.maybe_stop(
+              TimeoutError(
+                  'A generator is requested while the previous is unexhausted.'
+              )
+          )
+          if self._enqueue_thread and self._enqueue_thread.is_alive():
+            self._enqueue_thread.join()
+          self._generator = None
+        start_time = time.time()
+        maybe_lazy = lazy_fns.maybe_unpickle(maybe_lazy)
+        logging.info('chainable: %s', f'Initializing generator: {maybe_lazy}')
+        result = lazy_fns.maybe_make(maybe_lazy)
+        if not isinstance(result, Iterable):
+          raise TypeError(f'{result} is not a generator, but a {type(result)}.')
+        self._generator = iter_utils.IteratorQueue(
+            self.prefetch_size,
+            ignore_error=self._ignore_error,
+            name=f'prefetch_queue@{self.address}',
         )
-      if self._generator is not None and not self._generator.exhausted:
-        logging.warning(
+        self._enqueue_thread = threading.Thread(
+            target=self._generator.enqueue_from_iterator,
+            args=(result,),
+            daemon=True,
+        )
+        self._enqueue_thread.start()
+        delta_time = time.time() - start_time
+        logging.info(
             'chainable: %s',
-            'A new generator is initialized while the previous is unexhausted.',
+            f'Generator loaded in {delta_time:.2f}s for {maybe_lazy}',
         )
-        self._generator.maybe_stop(
-            TimeoutError(
-                'A new generator is initialized while the previous is'
-                ' unexhausted.'
-            )
-        )
-        if self._enqueue_thread and self._enqueue_thread.is_alive():
-          self._enqueue_thread.join()
-      self._generator = iter_utils.IteratorQueue(
-          self.prefetch_size,
-          ignore_error=self._ignore_error,
-          name=f'prefetch_queue@{self.address}',
-      )
-      self._enqueue_thread = threading.Thread(
-          target=self._generator.enqueue_from_iterator,
-          args=(result,),
-          daemon=True,
-      )
-      self._enqueue_thread.start()
-      delta_time = time.time() - start_time
-      logging.info(
-          'chainable: %s',
-          f'Generator loaded in {delta_time:.2f}s for {maybe_lazy}',
-      )
       with self._shutdown_lock:
         self._shutdown_lock.notify_all()
 
