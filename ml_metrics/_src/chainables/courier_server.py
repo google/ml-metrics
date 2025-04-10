@@ -49,6 +49,10 @@ class _CourierServerSingleton(func_utils.SingletonMeta):
     return super().all_instances
 
 
+def _pickled_cache_info():
+  return lazy_fns.pickler.dumps(lazy_fns.cache_info())
+
+
 class CourierServer(metaclass=_CourierServerSingleton):
   """Courier server that runs a chainable."""
 
@@ -146,95 +150,96 @@ class CourierServer(metaclass=_CourierServerSingleton):
       self._shutdown_requested = True
       self._shutdown_lock.notify_all()
 
+  def _return_pickled(self, value: Any, compress: bool = False):
+    """Return the pickled value."""
+    try:
+      result = lazy_fns.pickler.dumps(value, compress=compress)
+      with self._tx_stats_lock:
+        ticker, bytes_sent, num_txs = self._tx_stats
+        self._tx_stats = (ticker, bytes_sent + len(result), num_txs + 1)
+      return result
+    except TypeError as e:
+      logging.exception(
+          'chainable: %s',
+          f'maybe_make pickle error for {type(value)} from {value}',
+      )
+      raise e
+
+  def _maybe_make(
+      self,
+      maybe_lazy,
+      return_exception: bool = False,
+      compress: bool = False,
+      return_immediately: bool = False,
+      return_none: bool = False,
+  ):
+    """Maybe make a lazy object.
+
+    Args:
+      maybe_lazy: The lazy object to be made.
+      return_exception: Whether to return the server-side exception when
+        exception is raised during the call.
+      compress: Whether to return the compressed result, this is useful to lower
+        the traffic size.
+      return_immediately: Whether to ignore the result and return immediately.
+      return_none: Whether to return None instead of the actual result. This is
+        useful to avoid expensive items to be pickled and sent back.
+
+    Returns:
+      The result of the maybe_make call.
+
+    Raises:
+      Exception: If return_exception is False and the call raises an
+        exception.
+    """
+    self._last_heartbeat = time.time()
+    try:
+      maybe_lazy = lazy_fns.maybe_unpickle(maybe_lazy)
+      # return_immediately still honors other arguements compress and
+      # return_exception where optionally compress the result (None) and
+      # returns the exception if threadpool.submit fails.
+      if return_immediately:
+        self._thread_pool.submit(lazy_fns.maybe_make, maybe_lazy)
+        result = None
+      elif return_none:
+        # Skip return the actual result but still wait for finish.
+        _ = lazy_fns.maybe_make(maybe_lazy)
+        result = None
+      else:
+        result = lazy_fns.maybe_make(maybe_lazy)
+    except Exception as e:  # pylint: disable=broad-exception-caught
+      if self._shutdown_requested:
+        e = TimeoutError('Shutdown requested, the worker is shutting down.')
+      if not return_exception:
+        raise e
+      result = e
+      if isinstance(e, (ValueError, TypeError, RuntimeError)):
+        logging.exception(
+            'chainable: %s', f'maybe_make exception for {maybe_lazy}.'
+        )
+    return self._return_pickled(result, compress=compress)
+
+  def _heartbeat(self, sender_addr: str = '', is_alive: bool = True) -> None:
+    self._last_heartbeat = time.time()
+    if not sender_addr:
+      return
+    if is_alive:
+      # Assign the heartbeat directly as server side heartbeat precededs the
+      # client side one.
+      courier_utils.worker_registry().register(
+          sender_addr, self._last_heartbeat
+      )
+    else:
+      courier_utils.worker_registry().unregister(sender_addr)
+
   def set_up(self) -> None:
     """Set up (e.g. binding to methods) at server build time."""
-
-    def pickled_maybe_make(
-        maybe_lazy,
-        return_exception: bool = False,
-        compress: bool = False,
-        return_immediately: bool = False,
-        return_none: bool = False,
-    ):
-      """Maybe make a lazy object.
-
-      Args:
-        maybe_lazy: The lazy object to be made.
-        return_exception: Whether to return the server-side exception when
-          exception is raised during the call.
-        compress: Whether to return the compressed result, this is useful to
-          lower the traffic size.
-        return_immediately: Whether to ignore the result and return immediately.
-        return_none: Whether to return None instead of the actual result. This
-          is useful to avoid expensive items to be pickled and sent back.
-
-      Returns:
-        The result of the maybe_make call.
-
-      Raises:
-        Exception: If return_exception is False and the call raises an
-          exception.
-      """
-      self._last_heartbeat = time.time()
-      try:
-        maybe_lazy = lazy_fns.maybe_unpickle(maybe_lazy)
-        # return_immediately still honors other arguements compress and
-        # return_exception where optionally compress the result (None) and
-        # returns the exception if threadpool.submit fails.
-        if return_immediately:
-          self._thread_pool.submit(lazy_fns.maybe_make, maybe_lazy)
-          result = None
-        elif return_none:
-          # Skip return the actual result but still wait for finish.
-          _ = lazy_fns.maybe_make(maybe_lazy)
-          result = None
-        else:
-          result = lazy_fns.maybe_make(maybe_lazy)
-      except Exception as e:  # pylint: disable=broad-exception-caught
-        if self._shutdown_requested:
-          e = TimeoutError('Shutdown requested, the worker is shutting down.')
-        if not return_exception:
-          raise e
-        result = e
-        if isinstance(e, (ValueError, TypeError, RuntimeError)):
-          logging.exception(
-              'chainable: %s', f'maybe_make exception for {maybe_lazy}.'
-          )
-      try:
-        result = lazy_fns.pickler.dumps(result, compress=compress)
-        with self._tx_stats_lock:
-          ticker, bytes_sent, num_txs = self._tx_stats
-          self._tx_stats = (ticker, bytes_sent + len(result), num_txs + 1)
-        return result
-      except TypeError as e:
-        logging.exception(
-            'chainable: %s',
-            f'maybe_make pickle error for {type(result)} from {maybe_lazy}',
-        )
-        raise e
-
-    def pickled_cache_info():
-      return lazy_fns.pickler.dumps(lazy_fns.cache_info())
-
-    def heartbeat(sender_addr: str = '', is_alive: bool = True) -> None:
-      self._last_heartbeat = time.time()
-      if not sender_addr:
-        return
-      if is_alive:
-        # Assign the heartbeat directly as server side heartbeat precededs the
-        # client side one.
-        courier_utils.worker_registry().register(
-            sender_addr, self._last_heartbeat
-        )
-      else:
-        courier_utils.worker_registry().unregister(sender_addr)
-
     assert self._server is not None, 'Server is not built.'
-    self._server.Bind('maybe_make', pickled_maybe_make)
-    self._server.Bind('heartbeat', heartbeat)
+    self._server.Bind('maybe_make', self._maybe_make)
+    self._server.Bind('heartbeat', self._heartbeat)
     self._server.Bind('shutdown', self.notify_shutdown)
     self._server.Bind('clear_cache', transform.clear_cache)
-    self._server.Bind('cache_info', pickled_cache_info)
+    self._server.Bind('cache_info', _pickled_cache_info)
 
   def build_server(self) -> courier.Server:
     """Build and run a courier server."""
@@ -375,90 +380,86 @@ class PrefetchedCourierServer(CourierServer):
           )
           e = TimeoutError('A generator is stopped before exhausted.')
           self._generator.maybe_stop(e)
-          if self._enqueue_thread and self._enqueue_thread.is_alive():
+          if self._enqueue_thread:
             self._enqueue_thread.join()
         self._generator = None
+
+  def _init_iterator(self, maybe_lazy):
+    """Initialize the iterator."""
+    self._last_heartbeat = time.time()
+    if self._shutdown_requested:
+      return TimeoutError('Shutdown requested, cannot take new generator.')
+
+    self._reset_iterator()
+    with self._generator_lock:
+      start_time = time.time()
+      maybe_lazy = lazy_fns.maybe_unpickle(maybe_lazy)
+      logging.info('chainable: %s', f'Initializing generator: {maybe_lazy}')
+      result = lazy_fns.maybe_make(maybe_lazy)
+      if not isinstance(result, Iterable):
+        raise TypeError(f'{result} is not a generator, but a {type(result)}.')
+      self._generator = iter_utils.IteratorQueue(
+          self.prefetch_size,
+          ignore_error=self._ignore_error,
+          name=f'prefetch_queue@{self.address}',
+      )
+      self._enqueue_thread = threading.Thread(
+          target=self._generator.enqueue_from_iterator,
+          args=(result,),
+          daemon=True,
+      )
+      self._enqueue_thread.start()
+      delta_time = time.time() - start_time
+      logging.info(
+          'chainable: %s',
+          f'Generator loaded in {delta_time:.2f}s for {maybe_lazy}',
+      )
+    with self._shutdown_lock:
+      self._shutdown_lock.notify_all()
+
+  def _next_batch(self, batch_size: int = 0) -> bytes:
+    """Get the next batch from the iterator."""
+    self._last_heartbeat = time.time()
+    if self._generator is None:
+      e = TimeoutError(
+          'Generator is not set, the worker might be killed previously, the'
+          ' task normally will be restarted. This could be caused by worker'
+          ' killed by the Borglet. Search for "chainable:.+retries" in the'
+          ' log to see how persistent this is.'
+      )
+      logging.exception('chainable: %s', f'{e}')
+      return lazy_fns.pickler.dumps([e])
+
+    result = []
+    try:
+      batch_size = lazy_fns.maybe_make(batch_size)
+      result = self._generator.get_batch(batch_size, block=True)
+    except Exception:  # pylint: disable=broad-exception-caught
+      # The sequence of the result will always end with an exception.
+      # Any non-StopIteration means the generator crashed. The exception
+      # is then appended to the result list and returned in one batch below.
+      pass
+
+    if not self._generator:
+      if (e := self._generator.exception) is not None:
+        if self._shutdown_requested:
+          e = TimeoutError('Shutdown requested, cannot get next batch.')
+        logging.exception(
+            'chainable: %s',
+            f'Exception during next batch call: {type(e)}: {e}',
+        )
+        result.append(e)
+      else:
+        result.append(StopIteration(*self._generator.returned))
+    return self._return_pickled(result)
 
   def set_up(self) -> None:
     """Set up (e.g. binding to methods) at server build time."""
 
-    def init_iterator(maybe_lazy):
-      self._last_heartbeat = time.time()
-      if self._shutdown_requested:
-        return TimeoutError('Shutdown requested, cannot take new generator.')
-
-      self._reset_iterator()
-      with self._generator_lock:
-        start_time = time.time()
-        maybe_lazy = lazy_fns.maybe_unpickle(maybe_lazy)
-        logging.info('chainable: %s', f'Initializing generator: {maybe_lazy}')
-        result = lazy_fns.maybe_make(maybe_lazy)
-        if not isinstance(result, Iterable):
-          raise TypeError(f'{result} is not a generator, but a {type(result)}.')
-        self._generator = iter_utils.IteratorQueue(
-            self.prefetch_size,
-            ignore_error=self._ignore_error,
-            name=f'prefetch_queue@{self.address}',
-        )
-        self._enqueue_thread = threading.Thread(
-            target=self._generator.enqueue_from_iterator,
-            args=(result,),
-            daemon=True,
-        )
-        self._enqueue_thread.start()
-        delta_time = time.time() - start_time
-        logging.info(
-            'chainable: %s',
-            f'Generator loaded in {delta_time:.2f}s for {maybe_lazy}',
-        )
-      with self._shutdown_lock:
-        self._shutdown_lock.notify_all()
-
-    def _next_batch_from_iterator(batch_size: int = 0) -> list[Any]:
-      if self._generator is None:
-        e = TimeoutError(
-            'Generator is not set, the worker might be killed previously, the'
-            ' task normally will be restarted. This could be caused by worker'
-            ' killed by the Borglet. Search for "chainable:.+retries" in the'
-            ' log to see how persistent this is.'
-        )
-        logging.exception('chainable: %s', f'{e}')
-        return [e]
-
-      result = []
-      try:
-        result = self._generator.get_batch(batch_size, block=True)
-        with self._tx_stats_lock:
-          ticker, bytes_sent, num_txs = self._tx_stats
-          self._tx_stats = (ticker, bytes_sent + len(result), num_txs + 1)
-      except Exception:  # pylint: disable=broad-exception-caught
-        # The sequence of the result will always end with an exception.
-        # Any non-StopIteration means the generator crashed. The exception
-        # is then appended to the result list and returned in one batch below.
-        pass
-
-      if not self._generator:
-        if (e := self._generator.exception) is not None:
-          if self._shutdown_requested:
-            e = TimeoutError('Shutdown requested, cannot get next batch.')
-          logging.exception(
-              'chainable: %s',
-              f'Exception during next batch call: {type(e)}: {e}',
-          )
-          result.append(e)
-        else:
-          result.append(StopIteration(*self._generator.returned))
-      return result
-
-    def next_batch_from_iterator(batch_size: int | bytes = 0) -> bytes:
-      self._last_heartbeat = time.time()
-      batch_size = lazy_fns.maybe_make(batch_size)
-      return lazy_fns.pickler.dumps(_next_batch_from_iterator(batch_size))
-
     assert self._server is not None, 'Server is not built.'
     super().set_up()
-    self._server.Bind('init_generator', init_iterator)
-    self._server.Bind('next_batch_from_generator', next_batch_from_iterator)
+    self._server.Bind('init_generator', self._init_iterator)
+    self._server.Bind('next_batch_from_generator', self._next_batch)
     self._server.Bind('reset_iterator', self._reset_iterator)
 
 
