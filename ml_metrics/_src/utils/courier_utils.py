@@ -39,7 +39,7 @@ _HRTBT_THRESHOLD_SECS = 360
 _T = TypeVar('_T')
 
 
-class WorkerRegistry(collections.UserDict[str, float]):
+class WorkerRegistry(collections.UserDict[str, float | None]):
   """A singleton class to track the clients of a server."""
 
   def __init__(self, *args, **kwargs):
@@ -52,17 +52,45 @@ class WorkerRegistry(collections.UserDict[str, float]):
   def get(self, key: str, default: float = 0.0) -> float:
     """Get the heartbeat of a client."""
     with self._lock:
-      return self.data.get(key, default)
+      if (result := self.data.get(key, default)) is None:
+        # None means the client has pronounced dead.
+        return 0
+
+      return result
+
+  def refresh(self, address: str, time_: float):
+    """Update the heartbeat of a client."""
+    with self._lock:
+      last_time = self.data.get(address, 0)
+      # Cannot update the worker that is already dead.
+      if last_time is not None:
+        self.data[address] = max(last_time, time_)
+    if last_time is not None and last_time == 0:
+      logging.info('chainable: %s', f'first contact to "{address}"')
 
   def register(self, address: str, time_: float):
     """Register a new client."""
     with self._lock:
-      self.data[address] = max(self.data.get(address, 0), time_)
+      self.data[address] = time_
+    logging.info('chainable: %s', f'registering worker "{address}"')
 
   def unregister(self, address: str):
     """Unregister a client."""
     with self._lock:
-      self.data.pop(address, None)
+      # Set to None as the worker has pronouced dead.
+      self.data[address] = None
+    logging.info('chainable: %s', f'unregistering worker "{address}"')
+
+
+# Thread-safe registry of workers that are alive notified either by servers or
+# clients. The registry should not be mutated by any other means. Assign to
+# _worker_registry directly will raise TypeError.
+_worker_registry = WorkerRegistry()
+
+
+def worker_registry() -> WorkerRegistry:
+  """Get the worker registry."""
+  return _worker_registry
 
 
 class FutureLike(Protocol[_T]):
@@ -429,15 +457,6 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
   max_parallelism: int
   heartbeat_threshold_secs: float
   iterate_batch_size: int
-  _call_timeout: float
-  _lock: threading.Lock
-  # "_states_lock" guards all the variables below.
-  _states_lock: threading.RLock
-  _client: courier.Client
-  _pendings: list[StateWithTime]
-  _heartbeat_client: courier.Client
-  _heartbeat: StateWithTime | None
-  _client_heartbeat: float
 
   def __init__(
       self,
@@ -474,9 +493,8 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
     self._lock = threading.Lock()
     self._states_lock = threading.RLock()
     self._refresh_clients()
-    self._heartbeat = None
-    self._pendings = []
-    self._client_heartbeat = 0.0
+    self._heartbeat: StateWithTime | None = None
+    self._pendings: list[StateWithTime] = []
 
   @property
   def configs(self) -> ClientConfig:
@@ -490,10 +508,7 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
 
   @property
   def _last_heartbeat(self) -> float:
-    return self._client_heartbeat
-
-  def _update_last_heartbeat(self, value: float):
-    self._client_heartbeat = max(value, self._client_heartbeat)
+    return _worker_registry.get(self.address)
 
   def _refresh_clients(self):
     assert self.address, f'empty address: "{self.address}"'
@@ -540,10 +555,13 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
       self, client_address: str, is_alive: bool = True
   ) -> futures.Future[None]:
     """Sends the heartbeat to inform the host at the address is (not) alive."""
-    if not client_address:
-      raise ValueError('client address is empty')
+    assert client_address, 'client address cannot be empty'
     if not self.is_alive:
       self._refresh_clients()
+    logging.info(
+        'chainable: %s',
+        f'notify {is_alive=} from "{client_address}" to "{self.address}"',
+    )
     return self._heartbeat_client.futures.heartbeat(client_address, is_alive)
 
   # TODO: b/376480832 - Deprecate actively checking heartbeat.
@@ -602,7 +620,7 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
       if state_and_time.state.done():
         try:
           if not state_and_time.state.exception():
-            self._update_last_heartbeat(state_and_time.time)
+            _worker_registry.refresh(self.address, state_and_time.time)
         except futures.CancelledError:
           # The actual exception will be caught on the callsite.
           time.sleep(0)
@@ -799,5 +817,5 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
     for p in self._pendings:
       p.state.cancel()
     self._pendings = []
-    self._client_heartbeat = 0.0
+    _worker_registry.unregister(self.address)
     return self.state

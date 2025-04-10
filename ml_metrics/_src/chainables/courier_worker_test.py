@@ -249,7 +249,7 @@ class CourierWorkerPoolTest(parameterized.TestCase):
         self.fail('Server is not shutdown after 10 seconds.')
 
   def test_worker_pool_fail_to_start(self):
-    server = courier_server.CourierServer('bad_server')
+    server = courier_server.CourierServer('bad_server', clients=['WorkerPool'])
     server.start()
     worker = courier_worker.Worker('bad_server', heartbeat_threshold_secs=1)
     worker.wait_until_alive(deadline_secs=12)

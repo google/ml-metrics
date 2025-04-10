@@ -38,31 +38,6 @@ _WeakRefDict = weakref.WeakKeyDictionary[_T, weakref.ref[_T]]
 _HRTBT_INTERVAL_SECS = 60
 _THREAD_POOL = futures.ThreadPoolExecutor()
 
-# Thread-safe registry of workers that are alive notified either by servers or
-# clients. The registry should not be mutated by any other means. Assign to
-# _worker_registry directly will raise TypeError.
-_worker_registry = courier_utils.WorkerRegistry()
-
-
-def worker_heartbeat(address: str) -> float:
-  """Check the last heartbeat of from all servers created by CourierServer."""
-  return _worker_registry.get(address)
-
-
-def worker_registry() -> courier_utils.WorkerRegistry:
-  """Get the worker registry."""
-  return _worker_registry
-
-
-def _register_worker(address: str, time_: float):
-  """Register a new worker."""
-  _worker_registry.register(address, time_)
-
-
-def _unregister_worker(address: str):
-  """Unregister a worker."""
-  _worker_registry.unregister(address)
-
 
 class _CourierServerSingleton(func_utils.SingletonMeta):
   """Singleton metaclass for CourierServer."""
@@ -103,7 +78,9 @@ class CourierServer(metaclass=_CourierServerSingleton):
     self.auto_shutdown_secs = auto_shutdown_secs
     self.build_server()
     self.set_shutdown_callback(self.notify_shutdown)
-    self._clients = [courier_utils.CourierClient(addr) for addr in clients]
+    self._clients = [
+        courier_utils.CourierClient(addr, call_timeout=60) for addr in clients
+    ]
     self._thread_pool = _THREAD_POOL
     try:
       signal.signal(signal.SIGINT, self.notify_shutdown)
@@ -147,10 +124,6 @@ class CourierServer(metaclass=_CourierServerSingleton):
   def _notify_alive(self, is_alive: bool = True):
     for client in self._clients:
       client.send_heartbeat(self.address, is_alive=is_alive)
-      logging.info(
-          'chainable: %s',
-          f'notify {is_alive=} from "{self.address}" to "{client.address}"',
-      )
 
   @property
   def has_started(self) -> bool:
@@ -248,15 +221,13 @@ class CourierServer(metaclass=_CourierServerSingleton):
       if not sender_addr:
         return
       if is_alive:
-        _register_worker(sender_addr, self._last_heartbeat)
-        logging.info(
-            'chainable: %s', f'notified alive=True from "{sender_addr}"'
+        # Assign the heartbeat directly as server side heartbeat precededs the
+        # client side one.
+        courier_utils.worker_registry().register(
+            sender_addr, self._last_heartbeat
         )
       else:
-        _unregister_worker(sender_addr)
-        logging.info(
-            'chainable: %s', f'notified alive=False from "{sender_addr}"'
-        )
+        courier_utils.worker_registry().unregister(sender_addr)
 
     assert self._server is not None, 'Server is not built.'
     self._server.Bind('maybe_make', pickled_maybe_make)
@@ -302,6 +273,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
           )
           self._shutdown_requested = True
           break
+        self._notify_alive()
         self._shutdown_lock.wait(_HRTBT_INTERVAL_SECS)
         with self._tx_stats_lock:
           ticker, bytes_sent, num_txs = self._tx_stats
@@ -329,7 +301,6 @@ class CourierServer(metaclass=_CourierServerSingleton):
         )
         self._thread.start()
     assert self._thread is not None
-    self._notify_alive()
     return self._thread
 
   def stop(self) -> threading.Thread:

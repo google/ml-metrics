@@ -18,6 +18,7 @@ import time
 
 from absl.testing import absltest
 from absl.testing import parameterized
+import courier
 from courier.python import testutil
 from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import lazy_fns
@@ -382,6 +383,61 @@ class RemoteObjectTest(parameterized.TestCase):
     remote_server.stop().join()
 
 
+class WorkerRegistryTest(parameterized.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.server = courier_server.CourierServer('CourierWorker')
+    self.server.start()
+    self.worker = courier_utils.CourierClient(self.server.address)
+    self.prefetched_server = courier_server.PrefetchedCourierServer()
+    self.prefetched_server.start()
+    self.prefetched_worker = courier_utils.CourierClient(
+        self.prefetched_server.address
+    )
+
+  def test_client_registry(self):
+    registry = courier_utils.WorkerRegistry()
+    registry.register('a', 1.0)
+    registry.refresh('b', 2.0)
+    registry.refresh('a', 3.0)
+    registry.register('c', 4.0)
+    registry.unregister('b')
+    registry.refresh('b', 5.0)
+    self.assertEqual(registry.data, {'a': 3.0, 'c': 4.0, 'b': None})
+
+  def test_client_registry_direct_set_raises(self):
+    registry = courier_utils.WorkerRegistry()
+    with self.assertRaisesRegex(TypeError, r'use register\(\) instead'):
+      registry['a'] = 1.0
+
+  def test_get_heartbeat(self):
+    self.assertEqual(
+        courier_utils.worker_registry().get('unknown_address'), 0.0
+    )
+    self.assertNotIn('fake_address', courier_utils.worker_registry())
+    self.worker.send_heartbeat('fake_address').result()
+    self.assertIn('fake_address', courier_utils.worker_registry())
+    self.assertGreater(courier_utils.worker_registry().get('fake_address'), 0.0)
+    self.worker.send_heartbeat('fake_address', is_alive=False).result()
+    self.assertEqual(courier_utils.worker_registry().get('fake_address'), 0.0)
+
+  @parameterized.named_parameters([
+      dict(testcase_name='no_sender'),
+      dict(testcase_name='alive', sender_addr='a'),
+      dict(testcase_name='dead', sender_addr='a', is_alive=False),
+  ])
+  def test_heartbeat(self, sender_addr: str = '', is_alive: bool = True):
+    client = courier.Client(self.server.address, call_timeout=1)
+    f = client.futures.heartbeat(sender_addr, is_alive)
+    self.assertIsNone(f.result())
+    registry = courier_utils.worker_registry()
+    if sender_addr and is_alive:
+      self.assertIsNotNone(registry.get(sender_addr))
+    else:
+      self.assertEqual(registry.get(sender_addr), 0.0)
+
+
 class CourierClientTest(absltest.TestCase):
 
   def setUp(self):
@@ -389,9 +445,7 @@ class CourierClientTest(absltest.TestCase):
     self.server = courier_server.CourierServer('CourierWorker')
     self.server.start()
     self.worker = courier_utils.CourierClient(self.server.address)
-    self.prefetched_server = courier_server.PrefetchedCourierServer(
-        'GeneratorWorker'
-    )
+    self.prefetched_server = courier_server.PrefetchedCourierServer()
     self.prefetched_server.start()
     self.prefetched_worker = courier_utils.CourierClient(
         self.prefetched_server.address
@@ -564,20 +618,6 @@ class CourierClientTest(absltest.TestCase):
       time.sleep(0)
       if time.time() - ticker > 10:
         self.fail('Server is not shutdown after 10 seconds.')
-
-  def test_client_registry(self):
-    registry = courier_utils.WorkerRegistry()
-    registry.register('a', 1.0)
-    registry.register('b', 2.0)
-    registry.register('a', 3.0)
-    registry.register('c', 4.0)
-    registry.unregister('b')
-    self.assertEqual(registry.data, {'a': 3.0, 'c': 4.0})
-
-  def test_client_registry_direct_set_raises(self):
-    registry = courier_utils.WorkerRegistry()
-    with self.assertRaisesRegex(TypeError, r'use register\(\) instead'):
-      registry['a'] = 1.0
 
 
 if __name__ == '__main__':

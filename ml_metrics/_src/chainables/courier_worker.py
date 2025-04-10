@@ -27,7 +27,6 @@ from typing import Any, NamedTuple, TypeVar
 
 from absl import logging
 from ml_metrics._src import types
-from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import courier_utils
 from ml_metrics._src.utils import iter_utils
@@ -177,11 +176,6 @@ class Worker(courier_utils.CourierClient):
         iterate_batch_size=self.iterate_batch_size,
         call_timeout=self._call_timeout,
     )
-
-  @property
-  def _last_heartbeat(self) -> float:
-    server_heartbeat = courier_server.worker_heartbeat(self.address)
-    return max(self._client_heartbeat, server_heartbeat)
 
   @property
   def worker_pool(self) -> WorkerPool | None:

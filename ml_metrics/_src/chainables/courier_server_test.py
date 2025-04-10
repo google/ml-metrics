@@ -60,21 +60,6 @@ class CourierServerTest(parameterized.TestCase):
     self.server.start()
     self.worker = courier_utils.CourierClient(self.server.address)
 
-  def test_get_heartbeat(self):
-    self.assertEqual(courier_server.worker_heartbeat('unknown_address'), 0.0)
-    self.worker.send_heartbeat('fake_address').result()
-    self.assertGreater(courier_server.worker_heartbeat('fake_address'), 0.0)
-    self.worker.send_heartbeat('fake_address', is_alive=False).result()
-    self.assertEqual(courier_server.worker_heartbeat('fake_address'), 0.0)
-
-  def test_get_all_clients(self):
-    self.worker.send_heartbeat('fake_address').result()
-    actual = list(courier_server.worker_registry())
-    self.assertSameElements(['fake_address', 'test_server'], actual)
-    self.worker.send_heartbeat('fake_address', is_alive=False).result()
-    actual = list(courier_server.worker_registry())
-    self.assertSameElements(['test_server'], actual)
-
   @parameterized.named_parameters([
       dict(
           testcase_name='unnamed',
@@ -163,20 +148,6 @@ class CourierServerTest(parameterized.TestCase):
     server.start()
     client = courier.Client(server.address, call_timeout=2)
     self.assertEqual(2, pickler.loads(client.plus_one(1)))
-
-  @parameterized.named_parameters([
-      dict(testcase_name='no_sender'),
-      dict(testcase_name='alive', sender_addr='a'),
-      dict(testcase_name='dead', sender_addr='a', is_alive=False),
-  ])
-  def test_heartbeat(self, sender_addr: str = '', is_alive: bool = True):
-    client = courier.Client(self.server.address, call_timeout=1)
-    f = client.futures.heartbeat(sender_addr, is_alive)
-    self.assertIsNone(f.result())
-    if sender_addr and is_alive:
-      self.assertIsNotNone(courier_server.worker_heartbeat(sender_addr))
-    else:
-      self.assertEqual(courier_server.worker_heartbeat(sender_addr), 0.0)
 
   def test_shutdown_and_restart(self):
     server = courier_server.CourierServer('test_restart')
