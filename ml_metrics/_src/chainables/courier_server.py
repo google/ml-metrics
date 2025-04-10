@@ -364,28 +364,31 @@ class PrefetchedCourierServer(CourierServer):
         and self.prefetch_size == other.prefetch_size
     )
 
-  def set_up(self) -> None:
-    """Set up (e.g. binding to methods) at server build time."""
-
-    def pickled_init_iterator(maybe_lazy):
-      self._last_heartbeat = time.time()
-      if self._shutdown_requested:
-        return TimeoutError('Shutdown requested, cannot take new generator.')
-
+  def _maybe_stop_prefetch(self):
+    """Stop the prefetch if the generator is not exhausted."""
+    if self._generator is not None:
       with self._generator_lock:
-        if self._generator is not None and not self._generator.exhausted:
+        if not self._generator.exhausted:
           logging.warning(
               'chainable: %s',
               'A generator is requested while the previous is unexhausted.',
           )
-          self._generator.maybe_stop(
-              TimeoutError(
-                  'A generator is requested while the previous is unexhausted.'
-              )
-          )
+          e = TimeoutError('A generator is stopped before exhausted.')
+          self._generator.maybe_stop(e)
           if self._enqueue_thread and self._enqueue_thread.is_alive():
             self._enqueue_thread.join()
-          self._generator = None
+        self._generator = None
+
+  def set_up(self) -> None:
+    """Set up (e.g. binding to methods) at server build time."""
+
+    def init_iterator(maybe_lazy):
+      self._last_heartbeat = time.time()
+      if self._shutdown_requested:
+        return TimeoutError('Shutdown requested, cannot take new generator.')
+
+      self._maybe_stop_prefetch()
+      with self._generator_lock:
         start_time = time.time()
         maybe_lazy = lazy_fns.maybe_unpickle(maybe_lazy)
         logging.info('chainable: %s', f'Initializing generator: {maybe_lazy}')
@@ -458,9 +461,10 @@ class PrefetchedCourierServer(CourierServer):
 
     assert self._server is not None, 'Server is not built.'
     super().set_up()
-    self._server.Bind('init_generator', pickled_init_iterator)
+    self._server.Bind('init_generator', init_iterator)
     self._server.Bind('next_from_generator', next_from_iterator)
     self._server.Bind('next_batch_from_generator', next_batch_from_iterator)
+    self._server.Bind('stop_prefetch', self._maybe_stop_prefetch)
 
 
 # TODO: b/372935688 - Deprecate CourierServerWrapper.

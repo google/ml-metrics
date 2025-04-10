@@ -301,6 +301,24 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
     self.assertFalse(state2.done())
     self.assertIsNone(state2.result())
 
+  @parameterized.named_parameters([
+      dict(testcase_name='local', local=True),
+      dict(testcase_name='remote', local=False),
+  ])
+  def test_stop_prefetch(self, local: bool):
+    client = courier.Client(self.server.address)
+    generator = pickler.dumps(lazy_fns.trace(test_utils.range_with_return)(10))
+    assert client.init_generator(generator) is None
+    self.assertIsNotNone(self.server._generator)
+    if local:
+      self.server._maybe_stop_prefetch()
+    else:
+      client.stop_prefetch()
+    thread = self.server._enqueue_thread
+    assert thread is not None
+    self.assertFalse(thread.is_alive())
+    self.assertIsNone(self.server._generator)
+
 
 if __name__ == '__main__':
   absltest.main()
