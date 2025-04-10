@@ -396,15 +396,16 @@ class MultiplexIterator(Iterator[_ValueT], types.Stoppable, types.Recoverable):
   def __next__(self):
     try:
       return next(self._iterator)
-    except StopIteration as e:
+    except StopIteration:
       self.maybe_stop()
-      raise e
-    except BaseException as e:
-      logging.exception(
-          'chainable: %s', f'exception when iterating "{self.name}".'
-      )
+      raise
+    except KeyboardInterrupt:
       self.maybe_stop()
-      raise e
+      raise
+    except Exception:
+      logging.exception('chainable: %s', f'error iterating "{self.name}".')
+      self.maybe_stop()
+      raise
 
   def __iter__(self):
     return self
