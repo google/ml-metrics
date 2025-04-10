@@ -249,18 +249,8 @@ class CourierWorkerPoolTest(parameterized.TestCase):
         self.fail('Server is not shutdown after 10 seconds.')
 
   def test_worker_pool_fail_to_start(self):
-    server = courier_server.CourierServer('bad_server', clients=['WorkerPool'])
-    server.start()
-    worker = courier_worker.Worker('bad_server', heartbeat_threshold_secs=1)
-    worker.wait_until_alive(deadline_secs=12)
-    if t := server.stop():
-      t.join()
-
-    worker_pool = courier_worker.WorkerPool(
-        ['bad_server'],
-        call_timeout=0.01,
-        heartbeat_threshold_secs=1,
-    )
+    port = portpicker.pick_unused_port()
+    worker_pool = courier_worker.WorkerPool([f'localhost:{port}'])
     with self.assertRaisesRegex(ValueError, 'Failed to connect to minimum.*'):
       worker_pool.wait_until_alive(deadline_secs=1)
 
