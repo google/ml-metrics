@@ -206,6 +206,12 @@ class GeneratorTask(Task):
     result: Get the result of the task if there is any.
   """
 
+  def stop(self):
+    if self.worker is not None:
+      self.worker.call(courier_method='stop_generator')
+    if self.state is not None:
+      self.state.cancel()
+
 
 @dc.dataclass(frozen=True)
 class RemoteObject(Generic[_T], types.Resolvable[_T]):
@@ -769,11 +775,9 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
         for elem in output_batch:
           yield elem
           batch_cnt += 1
-    except Exception as e:  # pylint: disable=broad-exception-caught
-      logging.exception(
-          'chainable: %s', f'exception when iterating task: {task}'
-      )
-      raise e
+    except Exception:  # pylint: disable=broad-exception-caught
+      logging.exception('chainable: %s', f'exception when iterating: {task}')
+      raise
     finally:
       generator_state.cancel()
 
