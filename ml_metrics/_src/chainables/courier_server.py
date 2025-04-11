@@ -364,7 +364,7 @@ class PrefetchedCourierServer(CourierServer):
         and self.prefetch_size == other.prefetch_size
     )
 
-  def _maybe_stop_prefetch(self):
+  def _reset_iterator(self):
     """Stop the prefetch if the generator is not exhausted."""
     if self._generator is not None:
       with self._generator_lock:
@@ -387,7 +387,7 @@ class PrefetchedCourierServer(CourierServer):
       if self._shutdown_requested:
         return TimeoutError('Shutdown requested, cannot take new generator.')
 
-      self._maybe_stop_prefetch()
+      self._reset_iterator()
       with self._generator_lock:
         start_time = time.time()
         maybe_lazy = lazy_fns.maybe_unpickle(maybe_lazy)
@@ -455,16 +455,11 @@ class PrefetchedCourierServer(CourierServer):
       batch_size = lazy_fns.maybe_make(batch_size)
       return lazy_fns.pickler.dumps(_next_batch_from_iterator(batch_size))
 
-    def next_from_iterator() -> bytes:
-      self._last_heartbeat = time.time()
-      return lazy_fns.pickler.dumps(_next_batch_from_iterator(batch_size=1)[0])
-
     assert self._server is not None, 'Server is not built.'
     super().set_up()
     self._server.Bind('init_generator', init_iterator)
-    self._server.Bind('next_from_generator', next_from_iterator)
     self._server.Bind('next_batch_from_generator', next_batch_from_iterator)
-    self._server.Bind('stop_prefetch', self._maybe_stop_prefetch)
+    self._server.Bind('reset_iterator', self._reset_iterator)
 
 
 # TODO: b/372935688 - Deprecate CourierServerWrapper.

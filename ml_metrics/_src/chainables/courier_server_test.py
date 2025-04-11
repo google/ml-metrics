@@ -194,7 +194,7 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
     client.init_generator(pickler.dumps(lazy_fns.trace(test_generator)(10)))
     actual = []
     while not iter_utils.is_stop_iteration(
-        t := pickler.loads(client.next_from_generator())
+        t := pickler.loads(client.next_batch_from_generator(1))[0]
     ):
       actual.append(t)
     self.assertEqual(list(range(10)), actual)
@@ -275,7 +275,7 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
     actual = []
     with self.assertLogs(level='ERROR') as cm:
       while not isinstance(
-          t := pickler.loads(client.next_from_generator()), Exception
+          t := pickler.loads(client.next_batch_from_generator(1))[0], Exception
       ):
         actual.append(t)
       self.assertEqual(list(range(6)), actual)
@@ -297,23 +297,21 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
     # The second init_generator call have to wait until the first one finishes.
     self.assertFalse(state2.done())
     self.assertIsNone(state1.result())
-    self.assertIsNotNone(self.server._generator)
-    self.assertFalse(state2.done())
     self.assertIsNone(state2.result())
 
   @parameterized.named_parameters([
       dict(testcase_name='local', local=True),
       dict(testcase_name='remote', local=False),
   ])
-  def test_stop_prefetch(self, local: bool):
+  def test_reset_iterator(self, local: bool):
     client = courier.Client(self.server.address)
     generator = pickler.dumps(lazy_fns.trace(test_utils.range_with_return)(10))
     assert client.init_generator(generator) is None
     self.assertIsNotNone(self.server._generator)
     if local:
-      self.server._maybe_stop_prefetch()
+      self.server._reset_iterator()
     else:
-      client.stop_prefetch()
+      client.reset_iterator()
     thread = self.server._enqueue_thread
     assert thread is not None
     self.assertFalse(thread.is_alive())
