@@ -110,23 +110,64 @@ class CourierServerTest(parameterized.TestCase):
     else:
       self.assertNotIn(server1, server_set)
 
+  @parameterized.named_parameters([
+      dict(testcase_name='local', local=True),
+      dict(testcase_name='local_dead', local=True, addr='w1', alive=False),
+      dict(testcase_name='local_notify', local=True, addr='w2'),
+      dict(testcase_name='remote', local=False),
+      dict(testcase_name='remote_notify', local=False, addr='w3'),
+      dict(testcase_name='remote_dead', local=False, addr='w4', alive=False),
+  ])
+  def test_heartbeat(self, local: bool, addr: str = '', alive=True):
+    client = courier.Client(self.server.address, call_timeout=1)
+    if local:
+      result = self.server._heartbeat(addr, is_alive=alive)
+    else:
+      result = client.heartbeat(addr, is_alive=alive)
+    self.assertIsNone(result)
+    if addr:
+      self.assertIn(addr, courier_utils.worker_registry())
+      if not alive:
+        self.assertIsNone(courier_utils.worker_registry()[addr])
+
   def test_maybe_make(self):
     client = courier.Client(self.server.address, call_timeout=1)
     self.assertEqual('hello', pickler.loads(client.maybe_make('hello')))
     result = client.maybe_make(pickler.dumps(lazy_fns.trace(len)([1, 2])))
     self.assertEqual(2, pickler.loads(result))
 
-  def test_maybe_make_return_immediately(self):
+  @parameterized.named_parameters([
+      dict(testcase_name='pickled', lazy=False),
+      dict(testcase_name='pickled_lazy', lazy=True),
+  ])
+  def test_maybe_make_local(self, lazy: bool):
+    payload = 2
+    if lazy:
+      payload = lazy_fns.trace(len)([1, 2])
+    result = pickler.loads(self.server._maybe_make(payload))
+    self.assertEqual(2, result)
+
+  @parameterized.named_parameters([
+      dict(testcase_name='local', local=True),
+      dict(testcase_name='remote', local=False),
+  ])
+  def test_maybe_make_return_immediately(self, local: bool):
     client = courier.Client(self.server.address, call_timeout=1)
     start = time.time()
-    result = client.maybe_make(
-        pickler.dumps(lazy_fns.trace(time.sleep)(0.5)), return_immediately=True
-    )
+    payload = pickler.dumps(lazy_fns.trace(time.sleep)(0.5))
+    if local:
+      result = self.server._maybe_make(payload, return_immediately=True)
+    else:
+      result = client.maybe_make(payload, return_immediately=True)
     # Ignore result call should return immediately.
     self.assertLess(time.time() - start, 0.5)
     self.assertIsNone(pickler.loads(result))
 
-  def test_maybe_make_return_none(self):
+  @parameterized.named_parameters([
+      dict(testcase_name='local', local=True),
+      dict(testcase_name='remote', local=False),
+  ])
+  def test_maybe_make_return_none(self, local):
     class Foo:
 
       def __init__(self):
@@ -136,9 +177,12 @@ class CourierServerTest(parameterized.TestCase):
         self.x += 1
         return self.x
 
-    foo = lazy_fns.trace(Foo)(cache_result_=True)()  # cache_result_=True)
+    foo = lazy_fns.trace(Foo)(cache_result_=True)()
     client = courier.Client(self.server.address, call_timeout=1)
-    result = client.maybe_make(pickler.dumps(foo), return_none=True)
+    if local:
+      result = self.server._maybe_make(pickler.dumps(foo), return_none=True)
+    else:
+      result = client.maybe_make(pickler.dumps(foo), return_none=True)
     self.assertIsNone(pickler.loads(result))
     result = client.maybe_make(pickler.dumps(foo))
     self.assertEqual(2, pickler.loads(result))
@@ -185,13 +229,18 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
     )
     self.server.start()
 
-  def test_generator(self):
+  @parameterized.named_parameters([
+      dict(testcase_name='local', local=True),
+      dict(testcase_name='remote', local=False),
+  ])
+  def test_generator(self, local: bool):
     client = courier.Client(self.server.address, call_timeout=1)
 
-    def test_generator(n):
-      yield from range(n)
-
-    client.init_generator(pickler.dumps(lazy_fns.trace(test_generator)(10)))
+    iterator = pickler.dumps(lazy_fns.trace(range)(10))
+    if local:
+      self.server._init_iterator(iterator)
+    else:
+      client.init_generator(iterator)
     actual = []
     while not iter_utils.is_stop_iteration(
         t := pickler.loads(client.next_batch_from_generator(1))[0]
@@ -199,7 +248,11 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
       actual.append(t)
     self.assertEqual(list(range(10)), actual)
 
-  def test_batch_generator(self):
+  @parameterized.named_parameters([
+      dict(testcase_name='local', local=True),
+      dict(testcase_name='remote', local=False),
+  ])
+  def test_batch_generator(self, local: bool):
     client = courier.Client(self.server.address, call_timeout=1)
 
     def test_generator(n):
@@ -209,17 +262,24 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
     client.init_generator(pickler.dumps(lazy_fns.trace(test_generator)(10)))
     actual = []
     while True:
-      states = pickler.loads(client.next_batch_from_generator(2))
-      if states and iter_utils.is_stop_iteration(states[-1]):
-        actual.extend(states[:-1])
-        returned = states[-1].value
+      if local:
+        batch = pickler.loads(self.server._next_batch(2))
+      else:
+        batch = pickler.loads(client.next_batch_from_generator(2))
+      if batch and iter_utils.is_stop_iteration(batch[-1]):
+        actual.extend(batch[:-1])
+        returned = batch[-1].value
         break
       else:
-        actual.extend(states)
+        actual.extend(batch)
     self.assertEqual(list(range(10)), actual)
     self.assertEqual(10, returned)
 
-  def test_batch_generator_with_timeout(self):
+  @parameterized.named_parameters([
+      dict(testcase_name='local', local=True),
+      dict(testcase_name='remote', local=False),
+  ])
+  def test_batch_generator_with_timeout(self, local: bool):
     client = courier.Client(self.server.address, call_timeout=1)
 
     def test_generator(n):
@@ -229,7 +289,10 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
     client.init_generator(pickler.dumps(lazy_fns.trace(test_generator)(10)))
     # Simulate the case where the generator is killed.
     self.server._generator = None
-    states = pickler.loads(client.next_batch_from_generator(2))
+    if local:
+      states = pickler.loads(self.server._next_batch(2))
+    else:
+      states = pickler.loads(client.next_batch_from_generator(2))
     assert len(states) == 1
     self.assertIsInstance(states[-1], TimeoutError)
 
@@ -244,7 +307,11 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
     state = client.init_generator(pickler.dumps(lazy_iter))
     self.assertIsInstance(state, TimeoutError)
 
-  def test_batch_generator_with_shutdown(self):
+  @parameterized.named_parameters([
+      dict(testcase_name='local', local=True),
+      dict(testcase_name='remote', local=False),
+  ])
+  def test_batch_generator_with_shutdown(self, local: bool):
     server = courier_server.PrefetchedCourierServer(prefetch_size=1)
     server.start()
     courier_worker.wait_until_alive(server.address, deadline_secs=12)
@@ -252,12 +319,23 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
     # When the worker is shutdown, any exception is converted into a Timeout.
     lazy_iter = lazy_fns.trace(test_utils.range_with_exc)(10, 8)
     client.init_generator(pickler.dumps(lazy_iter))
-    states = pickler.loads(client.next_batch_from_generator(6))
+    if local:
+      states = pickler.loads(server._next_batch(6))
+    else:
+      states = pickler.loads(client.next_batch_from_generator(6))
     self.assertEqual([0, 1, 2, 3, 4, 5], states)
     # Simulate the case where the worker is shutdown.
-    future = client.futures.next_batch_from_generator(6)
-    server._shutdown_requested = True
-    states = pickler.loads(future.result())
+    if local:
+      # Invalid generator will cause an exception when fetching the next batch.
+      assert server._generator is not None
+      server._generator.maybe_stop(ValueError('test exception.'))
+      assert isinstance(server._generator.exception, ValueError)
+      server._shutdown_requested = True
+      states = pickler.loads(server._next_batch(6))
+    else:
+      future = client.futures.next_batch_from_generator(6)
+      server._shutdown_requested = True
+      states = pickler.loads(future.result())
     self.assertLen(states, 1)
     self.assertIsInstance(states[-1], TimeoutError)
     server.stop().join()
