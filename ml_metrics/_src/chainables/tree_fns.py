@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,28 +26,26 @@ from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
 from ml_metrics._src.utils import iter_utils
-import more_itertools as mit
 import numpy as np
 
 
 _Aggregatable = aggregates.Aggregatable | aggregates.HasAsAggFn
 SliceIteratorFn = Callable[..., Iterable[Hashable]]
 SliceMaskIteratorFn = Callable[..., Iterable[tuple[tuple[Hashable, ...], Any]]]
-MaskTree = tree.MapLikeTree[bool]
-ValueT = TypeVar('ValueT')
+MaskTree = tree.TreeLike[bool]
+_T = TypeVar('_T')
 FnT = TypeVar('FnT')
 StateT = TypeVar('StateT')
-ValueT = TypeVar('ValueT')
 
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
-class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
+class TreeFn(Generic[FnT, _T]):
   """A lazy function that takes a dict and outputs either a dict or a tuple.
 
   Attributes:
     input_keys: The input keys used to take from the input dict. If left empty
       (default), this outputs an empty tuple.
-    inpt_argkeys: The input argument names that postionally match with the
+    input_argkeys: The input argument names that postionally match with the
       values referenced by the input_keys, and passed in as kwargs to the fn.
     output_keys: The output keys of the function outputs. If left empty
       (default), output will be only positional (a tuple).
@@ -65,6 +63,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
     lazy: If True, the underlying function is lazy, normally, this means it
       needs to be constructed at runtime.
     id: A string that serves as an identifier for the TreeFn instance.
+    ignore_error: If True, ignore the error when calling the function.
   """
 
   input_keys: tree.TreeMapKey | tree.TreeMapKeys | None = ()
@@ -148,16 +147,19 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
 
   @functools.cached_property
   def actual_fn(self) -> FnT:
+    """Returns the actual function."""
     return lazy_fns.maybe_make(self.fn) if self.lazy else self.fn
 
   @functools.cached_property
   def num_inputs(self):
+    """Returns the number of inputs."""
     if isinstance(self.input_keys, tuple):
       return len(self.input_keys)
     return 1 if self.input_keys else 0
 
   @functools.cached_property
   def num_outputs(self):
+    """Returns the number of outputs."""
     if isinstance(self.output_keys, tuple):
       return len(self.output_keys)
     return 1 if self.output_keys else 0
@@ -176,7 +178,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
         self, masks=masks, replace_mask_false_with=replace_mask_false_with
     )
 
-  def _apply_masks(self, items: tuple[tree.MapLikeTree[Any], ...]):
+  def _apply_masks(self, items: tuple[tree.TreeLike, ...]):
     """Applies multiple masks to multiple inputs."""
     result = []
     apply_mask_fn = functools.partial(
@@ -193,8 +195,8 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
     return tuple(result)
 
   def _normalize_outputs(
-      self, outputs: tuple[ValueT, ...] | ValueT
-  ) -> tuple[ValueT, ...] | tuple[tuple[ValueT, ...]]:  # pylint: disable=g-one-element-tuple
+      self, outputs: tuple[_T, ...] | _T
+  ) -> tuple[_T, ...] | tuple[tuple[_T, ...]]:  # pylint: disable=g-one-element-tuple
     """Normalizes the outputs to tuple of values."""
     # This is needed because function or selecting can return either a single
     # value or a tuple of values.
@@ -210,9 +212,7 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       outputs = (outputs,)
     return outputs
 
-  def get_inputs(
-      self, inputs: tree.MapLikeTree[ValueT] | None
-  ) -> tuple[ValueT, ...]:
+  def get_inputs(self, inputs: tree.TreeLike) -> tuple[_T, ...]:
     fn_inputs = tree.TreeMapView.as_view(inputs)[self.input_keys]
     # A tuple of masks will apply to each input per input_keys. Otherwise, the
     # masks will be applied to all inputs.
@@ -220,7 +220,8 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
       fn_inputs = self._apply_masks(fn_inputs)
     return fn_inputs
 
-  def _maybe_call_fn(self, fn_inputs: tuple[ValueT, ...]) -> Any:
+  def _maybe_call_fn(self, fn_inputs: tuple[_T, ...]):
+    """Calls the function if it is not None."""
     if self.actual_fn is not None:
       try:
         if self.input_argkeys:
@@ -239,7 +240,8 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
 
   def _get_outputs(
       self, outputs: Any, inputs: Any = tree.NullMap()
-  ) -> tree.MapLikeTree[ValueT]:
+  ) -> tree.TreeLike[_T]:
+    """Returns the outputs with the input keys."""
     result = tree.TreeMapView(inputs)
     if len(self.output_keys) == 1 and len(outputs) > 1:
       return result.copy_and_set(self.output_keys, outputs).data
@@ -251,16 +253,13 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
         result = result.copy_and_set(keys, output)
     return result.data
 
-  def __call__(
-      self, inputs: tree.MapLikeTree[ValueT] | None = None
-  ) -> tree.MapLikeTree[ValueT] | None:
-    return mit.first(self.iterate([inputs]))
+  def __call__(self, inputs: tree.TreeLike = None) -> tree.TreeLike[_T]:
+    return next(self.iterate([inputs]))
 
   def _iterate(
-      self,
-      input_iterator: Iterator[tree.MapLikeTree[ValueT] | None],
-      ignore_error: bool = False,
-  ) -> Iterator[tree.MapLikeTree[ValueT] | None]:
+      self, input_iterator: Iterator[tree.TreeLike], ignore_error: bool = False
+  ) -> Iterator[tree.TreeLike[_T]]:
+    """Iterates through the input_iterator and calls the function."""
     fn_inputs = map(self.get_inputs, input_iterator)
     if self.fn_batch_size:
       fn_inputs = iter_utils.rebatched_args(
@@ -280,8 +279,8 @@ class TreeFn(Generic[FnT, ValueT], tree.MapLikeTreeCallable[ValueT]):
     return fn_outputs
 
   def iterate(
-      self, input_iterator: Iterable[tree.MapLikeTree[ValueT] | None]
-  ) -> Iterator[tree.MapLikeTree[ValueT] | None]:
+      self, input_iterator: Iterable[tree.TreeLike]
+  ) -> Iterator[tree.TreeLike[_T]]:
     return map(
         self._get_outputs,
         self._iterate(iter(input_iterator), ignore_error=self.ignore_error),
@@ -300,8 +299,8 @@ class FilterFn(TreeFn):
   """A lazy Map operation that operates on an mappable."""
 
   def iterate(
-      self, input_iterator: Iterable[tree.MapLikeTree[ValueT] | None]
-  ) -> Iterator[tree.MapLikeTree[ValueT] | None]:
+      self, input_iterator: Iterable[tree.TreeLike]
+  ) -> Iterator[tree.TreeLike[_T]]:
     it_ = iter_utils.processed_with_inputs(self._iterate, iter(input_iterator))
     return (elem for (value,), elem in it_ if value)
 
@@ -317,8 +316,8 @@ class Assign(TreeFn):
       )
 
   def iterate(
-      self, input_iterator: Iterable[tree.MapLikeTree[ValueT] | None]
-  ) -> Iterator[tree.MapLikeTree[ValueT] | None]:
+      self, input_iterator: Iterable[tree.TreeLike]
+  ) -> Iterator[tree.TreeLike[_T]]:
     return it.starmap(
         self._get_outputs,
         iter_utils.processed_with_inputs(
@@ -450,7 +449,7 @@ class Slicer:
     )
 
   def iterate_and_slice(
-      self, inputs: tree.MapLikeTree[Any]
+      self, inputs: tree.TreeLike
   ) -> Iterator[tuple[SliceKey, Any]]:
     """Iterates through each row of the batch and emits slice and row index."""
     # The input_keys are always normalized to tuple, so the output will always
@@ -470,9 +469,7 @@ class Slicer:
 
 
 @dataclasses.dataclass(kw_only=True, frozen=True)
-class TreeAggregateFn(
-    Generic[StateT, ValueT], TreeFn[aggregates.Aggregatable, ValueT]
-):
+class TreeAggregateFn(Generic[_T, StateT], TreeFn[_Aggregatable, _T]):
   """Transform with one AggregateFn with its input and output keys."""
 
   fn: _Aggregatable | lazy_fns.LazyFn[_Aggregatable] | None = None
@@ -497,9 +494,8 @@ class TreeAggregateFn(
     except Exception as e:
       raise ValueError(f'Cannot create_state in {self=}') from e
 
-  def update_state(
-      self, state: StateT, inputs: tree.MapLikeTree[ValueT]
-  ) -> StateT:
+  def update_state(self, state: StateT, inputs: tree.TreeLike) -> StateT:
+    """Updates the state by inputs."""
     try:
       fn_inputs = self.get_inputs(inputs)
       if self.input_argkeys:
@@ -517,20 +513,18 @@ class TreeAggregateFn(
   def merge_states(self, states: StateT) -> StateT:
     return self.actual_fn.merge_states(states)
 
-  def get_result(self, state: StateT) -> tree.MapLikeTree[ValueT] | None:
+  def get_result(self, state: StateT) -> tree.TreeLike:
     outputs = self.actual_fn.get_result(state)
     return self._get_outputs(self._normalize_outputs(outputs))
 
-  def __call__(
-      self, inputs: tree.MapLikeTree[ValueT] | None = None
-  ) -> tree.MapLikeTree[ValueT] | None:
+  def __call__(self, inputs: tree.TreeLike = None) -> tree.TreeLike:
     """Directly apply aggregate on inputs."""
     return self.get_result(self.update_state(self.create_state(), inputs))
 
   # TODO: b/356633410 - support iterate for TreeAggregateFn.
   def iterate(
-      self, input_iterator: Iterable[tree.MapLikeTree | None]
-  ) -> Iterator[tree.MapLikeTree | None]:
+      self, input_iterator: Iterable[tree.TreeLike]
+  ) -> Iterator[tree.TreeLike[_T]]:
     raise NotImplementedError(
         f'TreeAggregateFn does not support iterate, TreeAggFn:{self}'
     )

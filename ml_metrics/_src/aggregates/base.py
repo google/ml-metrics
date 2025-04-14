@@ -207,12 +207,12 @@ class AggFnNested(AggregateFn):
   """AggregateFn that traverses and aggregates each leaf of a PyTree."""
 
   fn: Aggregatable
-  preprocess_fn: Callable[..., tree.MapLikeTree[Any]] | None
+  preprocess_fn: Callable[..., tree.TreeLike[Any]] | None
 
   def __init__(
       self,
       fn: Aggregatable,
-      preprocess_fn: Callable[..., tree.MapLikeTree[Any]] | None = None,
+      preprocess_fn: Callable[..., tree.TreeLike[Any]] | None = None,
   ):
     if preprocess_fn is not None and not callable(preprocess_fn):
       raise ValueError(f'preporcess_fn must be a callable. got {preprocess_fn}')
@@ -226,9 +226,7 @@ class AggFnNested(AggregateFn):
     """Creates the initial states for the aggregation."""
     return None
 
-  def update_state(
-      self, state: tree.TreeMapView, inputs: tree.MapLikeTree[Any]
-  ):
+  def update_state(self, state: tree.TreeMapView, inputs: tree.TreeLike[Any]):
     """Update the state from a batch of inputs."""
     if self.preprocess_fn:
       inputs = self.preprocess_fn(inputs)

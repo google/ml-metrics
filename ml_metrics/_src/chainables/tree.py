@@ -97,20 +97,18 @@ class NullMap(MapLike):
     return
 
 
-# A MapLike tree is a nested MapLike structure. E.g., Sequence and Mapping
+# A TreeLike is a nested MapLike structure. E.g., Sequence and Mapping
 # DataFrame, Numpy array are all MapLike.
 # Uses Union here since forward reference does not work with |.
-MapLikeTree = MapLike[BaseKey, Union['MapLikeTree', LeafValueT]] | LeafValueT
-MapLikeTreeCallable = Callable[[MapLikeTree | None], MapLikeTree | None]
-
+TreeLike = MapLike[BaseKey, Union['TreeLike', LeafValueT]] | LeafValueT
 
 DEFAULT_FILTER = 'DEFAULT_FILTER'
 
 
 def apply_mask(
-    items: MapLikeTree[Any],
+    items: TreeLike[Any],
     *,
-    masks: MapLikeTree[bool],
+    masks: TreeLike[bool],
     replace_false_with: Any = DEFAULT_FILTER,
 ):
   """Applies masks to inputs.
@@ -286,7 +284,7 @@ def _default_tree(key_path: Key, value: Any):
 
 
 def _dfs_iter_tree(
-    data: MapLikeTree[Any], parent_key_path: Key
+    data: TreeLike[Any], parent_key_path: Key
 ) -> Iterator[TreeMapKey]:
   """Iterates through the tree using DFS and yield all Key.
 
@@ -337,7 +335,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
     strict: If True, non-existing key will cause a KeyError.
   """
 
-  data: MapLikeTree = dataclasses.field(default_factory=NullMap)
+  data: TreeLike = dataclasses.field(default_factory=NullMap)
   key_paths: tuple[TreeMapKey, ...] | None = None
   map_fn: Callable[..., Any] | None = dataclasses.field(
       kw_only=True,
@@ -348,7 +346,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
   @classmethod
   def as_view(
       cls,
-      tree_or_view: MapLikeTree[LeafValueT] | TreeMapView[LeafValueT],
+      tree_or_view: TreeLike[LeafValueT] | TreeMapView[LeafValueT],
       key_paths: tuple[TreeMapKey, ...] | None = None,
       map_fn: Callable[..., Any] | None = None,
   ) -> TreeMapView:
@@ -435,11 +433,11 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
 
   def _set_by_path(
       self,
-      tree: MapLikeTree,
+      tree: TreeLike,
       key_path: Key,
       value: LeafValueT,
       in_place: bool = False,
-  ) -> MapLikeTree[LeafValueT]:
+  ) -> TreeLike[LeafValueT]:
     """Shallow copies the root and set tree[k] as "value" when applicable."""
     if not isinstance(key_path, Key):
       key_path = Key.new(key_path)
@@ -563,7 +561,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
     """Alias for `copy_and_update`."""
     return self.copy_and_update(other)
 
-  def apply(self) -> MapLikeTree[LeafValueT]:
+  def apply(self) -> TreeLike[LeafValueT]:
     """Copy and apply a map function to the tree."""
     if self.map_fn is None and self.key_paths is None:
       return self.data

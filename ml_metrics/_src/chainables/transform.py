@@ -134,8 +134,8 @@ class _RunnerIterator(iter_utils.MultiplexIterator[_ValueT]):
     self._with_agg = state and with_agg_state
 
     def iter_fn(
-        input_iterator: Iterable[tree.MapLikeTree | None] = (),
-    ) -> Iterator[tree.MapLikeTree | None]:
+        input_iterator: Iterable[tree.TreeLike] = (),
+    ) -> Iterator[tree.TreeLike]:
       """Call a chain of functions in sequence."""
       result = input_iterator
       for fn in self._runner.fns:
@@ -309,7 +309,7 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
     }
 
   def update_state(
-      self, state: _AggState, inputs: tree.MapLikeTree[Any]
+      self, state: _AggState, inputs: tree.TreeLike[Any]
   ) -> _AggState:
     """Updates the state by inputs."""
 
@@ -513,7 +513,7 @@ class _ChainedRunnerIterator(Iterable[_ValueT]):
     return self._total
 
   @property
-  def agg_result(self) -> tree.MapLikeTree[Any] | None:
+  def agg_result(self) -> tree.TreeLike[Any] | None:
     its = self.named_iterators(agg_only=True)
     if not its:
       return None
@@ -604,7 +604,7 @@ class ChainedRunner(Iterable[_ValueT]):
     )
     return dict(itertools.chain.from_iterable(it_state))
 
-  def get_result(self, state: _AggState) -> tree.MapLikeTree[Any] | None:
+  def get_result(self, state: _AggState) -> tree.TreeLike[Any] | None:
     it_result = itertools.chain.from_iterable(
         agg_result.items()
         for r in self.named_aggs.values()
