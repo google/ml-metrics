@@ -25,6 +25,11 @@ import numpy as np
 Key = tree.Key
 
 
+def inc(it_inputs):
+  for x in it_inputs:
+    yield x + 1
+
+
 class TestAverageMetric:
 
   def as_agg_fn(self):
@@ -56,6 +61,30 @@ class TestAverageFnDictOutput(TestAverageFn):
 
   def get_result(self, state):
     return {'mean': super().get_result(state), 'state': state}
+
+
+class TreeIterFnTest(absltest.TestCase):
+
+  def test_default(self):
+    data = [1, 2, 3]
+    tree_fn = tree_fns.TreeIterFn(iter_fn=inc)
+    self.assertEqual([2, 3, 4], list(tree_fn.iterate(data)))
+
+  def test_null_fn(self):
+    data = [1, 2, 3]
+    tree_fn = tree_fns.TreeIterFn()
+    self.assertEqual(data, list(tree_fn.iterate(data)))
+
+  def test_lazy_fn(self):
+    data = [1, 2, 3]
+    tree_fn = tree_fns.TreeIterFn(iter_fn=lazy_fns.trace(inc))
+    self.assertEqual([2, 3, 4], list(tree_fn.iterate(data)))
+
+  @mock.patch.object(tree_fns.TreeFn, '_iter_fn', autospec=True)
+  def test_pickle(self, mock_iter_fn):
+    tree_fn = tree_fns.TreeIterFn(iter_fn=lazy_fns.trace(inc))
+    mock_iter_fn.assert_not_called()
+    self.assertEqual(tree_fn, pickle.loads(pickle.dumps(tree_fn)))
 
 
 class TreeFnTest(parameterized.TestCase):
@@ -143,7 +172,7 @@ class TreeFnTest(parameterized.TestCase):
     with self.assertRaises(KeyError):
       tree_fn(data)
 
-  @mock.patch.object(tree_fns.TreeFn, 'actual_fn', autospec=True)
+  @mock.patch.object(tree_fns.TreeFn, '_actual_fn', autospec=True)
   def test_tree_fn_pickle(self, mock_actual_fn):
     tree_fn = tree_fns.TreeFn.new(
         fn=len,
@@ -183,7 +212,7 @@ class TreeFnTest(parameterized.TestCase):
     tree_fn = tree_fns.TreeFn.new(
         fn=lazy_fns.trace(lambda x, y: x + y)(),
     )
-    self.assertTrue(tree_fn.lazy)
+    self.assertTrue(tree_fn._lazy)
 
   def test_tree_fn_actual_fn(self):
     class Foo:
@@ -194,7 +223,7 @@ class TreeFnTest(parameterized.TestCase):
     tree_fn = tree_fns.TreeFn.new(
         fn=lazy_fns.trace(Foo)(),
     )
-    self.assertEqual(1, tree_fn.actual_fn())
+    self.assertEqual(1, tree_fn._actual_fn())
 
   def test_tree_fn_all_input(self):
     data = [1, 2, 3]
