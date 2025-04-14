@@ -81,15 +81,14 @@ class CourierServer(metaclass=_CourierServerSingleton):
     self._tx_stats = (time.time(), 0, 0)
     self.auto_shutdown_secs = auto_shutdown_secs
     self.build_server()
-    self.set_shutdown_callback(self.notify_shutdown)
     self._clients = [
         courier_utils.CourierClient(addr, call_timeout=60) for addr in clients
     ]
     self._thread_pool = _THREAD_POOL
     try:
-      signal.signal(signal.SIGINT, self.notify_shutdown)
-      signal.signal(signal.SIGTERM, self.notify_shutdown)
-      signal.signal(signal.SIGABRT, self.notify_shutdown)
+      signal.signal(signal.SIGINT, self._request_shutdown)
+      signal.signal(signal.SIGTERM, self._request_shutdown)
+      signal.signal(signal.SIGABRT, self._request_shutdown)
     except ValueError:
       logging.warning(
           'chainable: %s',
@@ -114,7 +113,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
     )
 
   def __del__(self):
-    self.notify_shutdown()
+    self._request_shutdown()
 
   @property
   def address(self) -> str:
@@ -137,14 +136,14 @@ class CourierServer(metaclass=_CourierServerSingleton):
         and self._thread is not None
     )
 
-  def notify_shutdown(self, signum=None, frame=None):
+  def _request_shutdown(self, signum=None, frame=None):
     """Notify the server to shutdown, also served as a signal handler.
 
     Args:
       signum: not used, but is required for this to be a signal handler.
       frame: not used, but is required for this to be a signal handler.
     """
-    logging.warning('chainable: %s', f'notify_shutdown {signum=}')
+    logging.warning('chainable: %s', f'request_shutdown {signum=}')
     del signum, frame
     with self._shutdown_lock:
       self._shutdown_requested = True
@@ -237,7 +236,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
     assert self._server is not None, 'Server is not built.'
     self._server.Bind('maybe_make', self._maybe_make)
     self._server.Bind('heartbeat', self._heartbeat)
-    self._server.Bind('shutdown', self.notify_shutdown)
+    self._server.Bind('shutdown', self._request_shutdown)
     self._server.Bind('clear_cache', transform.clear_cache)
     self._server.Bind('cache_info', _pickled_cache_info)
 
@@ -310,7 +309,7 @@ class CourierServer(metaclass=_CourierServerSingleton):
 
   def stop(self) -> threading.Thread:
     """Stop the server."""
-    self.notify_shutdown()
+    self._request_shutdown()
     assert self._thread is not None
     return self._thread
 
