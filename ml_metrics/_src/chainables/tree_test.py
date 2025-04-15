@@ -460,6 +460,33 @@ class TreeMapViewTest(parameterized.TestCase):
     }
     self.assertEqual(result, expected)
 
+  def test_tree_shape_key_paths(self):
+    inputs = {
+        'a': np.array([1, 2, 3]),
+        'b': {'c': np.array([[1, 2], [2, 3]])},
+        'c': (np.array([1, 2]), {'e': 6}),
+        'd': [1, np.array(2)],
+    }
+    result = tree.tree_shape(inputs, list(inputs.keys()))
+    expected = {
+        'a': (3,),
+        'b': dict,
+        'c': tuple,
+        'd': list,
+    }
+    self.assertEqual(result, expected)
+
+  def test_tree_shape_skip_invalid_key_paths(self):
+    inputs = {
+        'a': np.array([1, 2, 3]),
+        'b': {'c': np.array([[1, 2], [2, 3]])},
+        'c': (np.array([1, 2]), {'e': 6}),
+        'd': [1, np.array(2)],
+    }
+    result = tree.tree_shape(inputs, ('a', Key().b.c, 'e'))
+    expected = {'a': (3,), Key().b.c: (2, 2)}
+    self.assertEqual(result, expected)
+
 
 class ApplyMaskTest(parameterized.TestCase):
 

@@ -26,10 +26,10 @@ from ml_metrics._src import types
 import numpy as np
 
 
-def tree_shape(inputs: Any):
+def tree_shape(inputs: Any, key_paths=None):
   result = {}
   try:
-    for k, v in TreeMapView.as_view(inputs).items():
+    for k, v in TreeMapView.as_view(inputs, key_paths=key_paths).items():
       if hasattr(v, 'shape'):
         result[k] = v.shape
       else:
@@ -420,7 +420,9 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
     # Uses user specified key_paths if available. Otherwise, DFS and yield all
     # key paths.
     if self.key_paths is not None:
-      yield from self.key_paths
+      for key in self.key_paths:
+        if self.get(key) is not None:
+          yield key
       return
     yield from _dfs_iter_tree(self.data, Key())
 
