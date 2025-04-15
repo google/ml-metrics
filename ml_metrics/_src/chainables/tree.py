@@ -97,8 +97,8 @@ class NullMap(MapLike):
     return
 
 
-# A TreeLike is a nested MapLike structure. E.g., Sequence and Mapping
-# DataFrame, Numpy array are all MapLike.
+# A TreeLike is a nested MapLike structure. E.g., Sequence, Mapping, DataFrame,
+# and Numpy array are all MapLike.
 # Uses Union here since forward reference does not work with |.
 TreeLike = MapLike[BaseKey, Union['TreeLike', LeafValueT]] | LeafValueT
 
@@ -292,7 +292,7 @@ def _dfs_iter_tree(
   note: numpy array are considered a leaf.
 
   Args:
-    data: A MapLikeTree instance.
+    data: A TreeLike instance.
     parent_key_path: The parent key path of the current node.
 
   Yields:
@@ -314,7 +314,7 @@ def _dfs_iter_tree(
 class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
   """Handler for a MapTreeLike instance as a mapping instance.
 
-  This creates an immutable View of a `MapLikeTree`, the view implements the
+  This creates an immutable View of a `TreeLike`, the view implements the
   Mapping interfaces so it can be used with any TreeMapKey. Following are some
   examples:
 
@@ -350,7 +350,7 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
       key_paths: tuple[TreeMapKey, ...] | None = None,
       map_fn: Callable[..., Any] | None = None,
   ) -> TreeMapView:
-    """Util to use a MapLikeTree as a Map."""
+    """Util to use a TreeLike as a Map."""
     if not isinstance(tree_or_view, TreeMapView):
       tree_or_view = TreeMapView(tree_or_view)
     if map_fn is not None:
