@@ -188,9 +188,7 @@ class _Makers(collections.UserDict):
 makeables = _Makers()
 
 
-def _maybe_make(
-    maybe_lazy: types.MaybeResolvable[_T],
-) -> types.MaybeResolvable[_T]:
+def _maybe_make(maybe_lazy: types.MaybeResolvable[_T]) -> _T:
   if types.is_resolvable(maybe_lazy):
     return maybe_lazy.result_()
   if maker := makeables[type(maybe_lazy)]:
@@ -198,9 +196,7 @@ def _maybe_make(
   return maybe_lazy
 
 
-def maybe_make(
-    maybe_lazy: types.MaybeResolvable[_T] | bytes,
-) -> types.MaybeResolvable[_T]:
+def maybe_make(maybe_lazy: types.MaybeResolvable[_T] | bytes) -> _T:
   """Dereference a lazy object or lazy function when applicable."""
   maybe_lazy = maybe_unpickle(maybe_lazy)
   return _maybe_make(maybe_lazy)
