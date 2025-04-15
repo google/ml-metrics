@@ -34,12 +34,16 @@ SliceIteratorFn = Callable[..., Iterable[Hashable]]
 SliceMaskIteratorFn = Callable[..., Iterable[tuple[tuple[Hashable, ...], Any]]]
 MaskTree = tree.TreeLike[bool]
 _T = TypeVar('_T')
-FnT = TypeVar('FnT')
+_FnT = TypeVar('_FnT')
 StateT = TypeVar('StateT')
 
 
+def _identity_fn(*x):
+  return x
+
+
 @dataclasses.dataclass(kw_only=True, frozen=True)
-class TreeFn(Generic[FnT, _T]):
+class TreeFn(Generic[_FnT, _T]):
   """A lazy function that takes a dict and outputs either a dict or a tuple.
 
   Attributes:
@@ -69,7 +73,7 @@ class TreeFn(Generic[FnT, _T]):
   input_keys: tree.TreeMapKey | tree.TreeMapKeys | None = ()
   input_argkeys: tuple[str, ...] = ()
   output_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
-  fn: FnT | lazy_fns.LazyFn[FnT] | None = None
+  fn: _FnT | lazy_fns.LazyFn[_FnT] = _identity_fn
   masks: tuple[MaskTree, ...] = dataclasses.field(default=(), repr=False)
   replace_mask_false_with: Any = dataclasses.field(
       default=tree.DEFAULT_FILTER, repr=False
@@ -100,7 +104,7 @@ class TreeFn(Generic[FnT, _T]):
       cls,
       *,
       output_keys: tree.TreeMapKey | tree.TreeMapKeys = tree.Key.SELF,
-      fn: FnT | lazy_fns.LazyFn[FnT] | None = None,
+      fn: _FnT | lazy_fns.LazyFn[_FnT] | None = None,
       input_keys: tree.TreeMapKey | tree.TreeMapKeys = tree.Key.SELF,
       masks: tuple[MaskTree, ...] | MaskTree = (),
       replace_mask_false_with: Any = tree.DEFAULT_FILTER,
@@ -130,7 +134,7 @@ class TreeFn(Generic[FnT, _T]):
         output_keys=output_keys,
         input_keys=input_keys,
         input_argkeys=input_argkeys,
-        fn=fn,
+        fn=fn or _identity_fn,
         masks=masks,
         replace_mask_false_with=replace_mask_false_with,
         fn_batch_size=fn_batch_size,
@@ -141,32 +145,34 @@ class TreeFn(Generic[FnT, _T]):
     )
 
   @functools.cached_property
-  def lazy(self):
+  def _lazy(self):
     fn = self.fn
     return types.is_resolvable(fn)
 
   @functools.cached_property
-  def actual_fn(self) -> FnT:
+  def _actual_fn(self) -> _FnT:
     """Returns the actual function."""
-    return lazy_fns.maybe_make(self.fn) if self.lazy else self.fn
+    result = lazy_fns.maybe_make(self.fn) if self._lazy else self.fn
+    assert not types.is_resolvable(result), f'{type(result)=}'
+    return result
 
   @functools.cached_property
-  def num_inputs(self):
+  def _num_inputs(self):
     """Returns the number of inputs."""
     if isinstance(self.input_keys, tuple):
       return len(self.input_keys)
     return 1 if self.input_keys else 0
 
   @functools.cached_property
-  def num_outputs(self):
+  def _num_outputs(self):
     """Returns the number of outputs."""
     if isinstance(self.output_keys, tuple):
       return len(self.output_keys)
     return 1 if self.output_keys else 0
 
-  def maybe_make(self: TreeFn) -> TreeFn:
+  def maybe_make(self: Self) -> Self:
     """Explicitly instantiate the lazy_fn of a tree_fn."""
-    return dataclasses.replace(self, fn=self.actual_fn)
+    return dataclasses.replace(self, fn=self._actual_fn)
 
   def with_masks(
       self,
@@ -212,7 +218,7 @@ class TreeFn(Generic[FnT, _T]):
       outputs = (outputs,)
     return outputs
 
-  def get_inputs(self, inputs: tree.TreeLike) -> tuple[_T, ...]:
+  def _get_inputs(self, inputs: tree.TreeLike) -> tuple[_T, ...]:
     fn_inputs = tree.TreeMapView.as_view(inputs)[self.input_keys]
     # A tuple of masks will apply to each input per input_keys. Otherwise, the
     # masks will be applied to all inputs.
@@ -221,22 +227,18 @@ class TreeFn(Generic[FnT, _T]):
     return fn_inputs
 
   def _maybe_call_fn(self, fn_inputs: tuple[_T, ...]):
-    """Calls the function if it is not None."""
-    if self.actual_fn is not None:
-      try:
-        if self.input_argkeys:
-          outputs = self.actual_fn(**dict(zip(self.input_argkeys, fn_inputs)))
-        else:
-          outputs = self.actual_fn(*fn_inputs)
-      except Exception as e:
-        raise ValueError(
-            f'Failed to call {self.fn} with inputs:'
-            f' {tree.tree_shape(fn_inputs)}'
-        ) from e
-    else:
-      # If the function is None, this serves as a select operation.
-      outputs = fn_inputs
-    return self._normalize_outputs(outputs)
+    """Calls the function with the inputs."""
+    try:
+      kw_inputs = {}
+      if self.input_argkeys:
+        fn_inputs, kw_inputs = (), dict(zip(self.input_argkeys, fn_inputs))
+        # If the function is None, this serves as a select operation.
+        assert self._actual_fn is not _identity_fn, f'{kw_inputs=}'
+      return self._actual_fn(*fn_inputs, **kw_inputs)
+    except Exception as e:
+      raise ValueError(
+          f'Failed to call {self.fn} with inputs: {tree.tree_shape(fn_inputs)}'
+      ) from e
 
   def _get_outputs(
       self, outputs: Any, inputs: Any = tree.NullMap()
@@ -260,21 +262,22 @@ class TreeFn(Generic[FnT, _T]):
       self, input_iterator: Iterator[tree.TreeLike], ignore_error: bool = False
   ) -> Iterator[tree.TreeLike[_T]]:
     """Iterates through the input_iterator and calls the function."""
-    fn_inputs = map(self.get_inputs, input_iterator)
+    fn_inputs = map(self._get_inputs, input_iterator)
     if self.fn_batch_size:
       fn_inputs = iter_utils.rebatched_args(
           fn_inputs,
           batch_size=self.fn_batch_size,
-          num_columns=self.num_inputs,
+          num_columns=self._num_inputs,
       )
     # Only ignore function call error.
     map_ = iter_utils.map_ignore_error if ignore_error else map
     fn_outputs = map_(self._maybe_call_fn, fn_inputs)
+    fn_outputs = map(self._normalize_outputs, fn_outputs)
     if self.batch_size:
       fn_outputs = iter_utils.rebatched_args(
           fn_outputs,
           batch_size=self.batch_size,
-          num_columns=self.num_outputs,
+          num_columns=self._num_outputs,
       )
     return fn_outputs
 
@@ -288,7 +291,10 @@ class TreeFn(Generic[FnT, _T]):
 
   def __getstate__(self):
     state = self.__dict__.copy()
-    state.pop('actual_fn', None)
+    state.pop('_lazy', None)
+    state.pop('_num_outputs', None)
+    state.pop('_num_inputs', None)
+    state.pop('_actual_fn', None)
     return state
 
   def __setstate__(self, state):
@@ -330,7 +336,7 @@ class Select(TreeFn):
   """A lazy Map operation that operates on an mappable."""
 
   def __post_init__(self):
-    assert self.fn is None, f'Select should have no fn, got {self.fn}.'
+    assert self.fn is _identity_fn, f'Select should have no fn, got {self.fn}.'
 
 
 @dataclasses.dataclass(frozen=True)
@@ -476,8 +482,8 @@ class TreeAggregateFn(Generic[_T, StateT], TreeFn[_Aggregatable, _T]):
   disable_slicing: bool = False
 
   @functools.cached_property
-  def actual_fn(self) -> aggregates.Aggregatable:
-    actual_fn = lazy_fns.maybe_make(self.fn) if self.lazy else self.fn
+  def _actual_fn(self) -> aggregates.Aggregatable:
+    actual_fn = lazy_fns.maybe_make(self.fn) if self._lazy else self.fn
     if aggregates.has_as_agg_fn(actual_fn):
       actual_fn = actual_fn.as_agg_fn()
     if not isinstance(actual_fn, aggregates.Aggregatable):
@@ -490,19 +496,17 @@ class TreeAggregateFn(Generic[_T, StateT], TreeFn[_Aggregatable, _T]):
 
   def create_state(self) -> StateT:
     try:
-      return self.actual_fn.create_state()
+      return self._actual_fn.create_state()
     except Exception as e:
       raise ValueError(f'Cannot create_state in {self=}') from e
 
   def update_state(self, state: StateT, inputs: tree.TreeLike) -> StateT:
     """Updates the state by inputs."""
     try:
-      fn_inputs = self.get_inputs(inputs)
+      fn_inputs, kw_inputs = self._get_inputs(inputs), {}
       if self.input_argkeys:
-        fn_inputs = dict(zip(self.input_argkeys, fn_inputs))
-        state = self.actual_fn.update_state(state, **fn_inputs)
-      else:
-        state = self.actual_fn.update_state(state, *fn_inputs)
+        fn_inputs, kw_inputs = (), dict(zip(self.input_argkeys, fn_inputs))
+      state = self._actual_fn.update_state(state, *fn_inputs, **kw_inputs)
     except Exception as e:
       raise ValueError(
           f'Cannot call {self.input_keys=}, {self.output_keys=},'
@@ -511,10 +515,10 @@ class TreeAggregateFn(Generic[_T, StateT], TreeFn[_Aggregatable, _T]):
     return state
 
   def merge_states(self, states: StateT) -> StateT:
-    return self.actual_fn.merge_states(states)
+    return self._actual_fn.merge_states(states)
 
   def get_result(self, state: StateT) -> tree.TreeLike:
-    outputs = self.actual_fn.get_result(state)
+    outputs = self._actual_fn.get_result(state)
     return self._get_outputs(self._normalize_outputs(outputs))
 
   def __call__(self, inputs: tree.TreeLike = None) -> tree.TreeLike:

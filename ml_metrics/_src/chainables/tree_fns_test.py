@@ -143,7 +143,7 @@ class TreeFnTest(parameterized.TestCase):
     with self.assertRaises(KeyError):
       tree_fn(data)
 
-  @mock.patch.object(tree_fns.TreeFn, 'actual_fn', autospec=True)
+  @mock.patch.object(tree_fns.TreeFn, '_actual_fn', autospec=True)
   def test_tree_fn_pickle(self, mock_actual_fn):
     tree_fn = tree_fns.TreeFn.new(
         fn=len,
@@ -183,7 +183,7 @@ class TreeFnTest(parameterized.TestCase):
     tree_fn = tree_fns.TreeFn.new(
         fn=lazy_fns.trace(lambda x, y: x + y)(),
     )
-    self.assertTrue(tree_fn.lazy)
+    self.assertTrue(tree_fn._lazy)
 
   def test_tree_fn_actual_fn(self):
     class Foo:
@@ -194,7 +194,7 @@ class TreeFnTest(parameterized.TestCase):
     tree_fn = tree_fns.TreeFn.new(
         fn=lazy_fns.trace(Foo)(),
     )
-    self.assertEqual(1, tree_fn.actual_fn())
+    self.assertEqual(1, tree_fn._actual_fn())
 
   def test_tree_fn_all_input(self):
     data = [1, 2, 3]
