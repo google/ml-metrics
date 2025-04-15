@@ -338,11 +338,6 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
         raise KeyError(
             f'{output_key=} not found from: {list(state.keys())=}'
         ) from e
-      except Exception as e:
-        raise ValueError(
-            f'Falied to update {tree_agg_fn=} with inputs:'
-            f' {tree.tree_shape(inputs)}'
-        ) from e
     return state
 
   def merge_states(
@@ -954,7 +949,7 @@ class TreeTransform(Generic[TreeFnT]):
     assert fn is not None, 'fn must be provided, got None.'
     # The output_keys here is mostly for correct `self.output_keys`, which is
     # not used in FilterFn when filtering.
-    fn = tree_fns.FilterFn.new(
+    fn = tree_fns.FilterFn(
         fn=fn, input_keys=input_keys, output_keys=tuple(self.output_keys)
     )
     return self._maybe_new_transform(fn)
@@ -977,7 +972,7 @@ class TreeTransform(Generic[TreeFnT]):
           ' `assign_keys` instead.'
       )
     assign_keys = assign_keys or output_keys
-    fn = tree_fns.Assign.new(
+    fn = tree_fns.Assign(
         output_keys=assign_keys,
         fn=fn,
         input_keys=input_keys,
@@ -994,7 +989,7 @@ class TreeTransform(Generic[TreeFnT]):
       batch_size: int = 0,
   ) -> TreeTransform:
     output_keys = output_keys or input_keys
-    fn = tree_fns.Select.new(
+    fn = tree_fns.Select(
         input_keys=input_keys, output_keys=output_keys, batch_size=batch_size
     )
     return self._maybe_new_transform(fn)
@@ -1072,7 +1067,7 @@ class TreeTransform(Generic[TreeFnT]):
       batch_size: int = 0,
   ) -> TreeTransform:
     """Applies a TreeFn on the selected inputs and directly outputs the result."""
-    fn = tree_fns.TreeFn.new(
+    fn = tree_fns.TreeFn(
         output_keys=output_keys,
         fn=fn,
         input_keys=input_keys,
@@ -1119,7 +1114,7 @@ class TreeTransform(Generic[TreeFnT]):
   ) -> Self:
     """Adds a aggregate and stack it on the existing aggregates."""
     if fn:
-      fn = tree_fns.TreeAggregateFn.new(
+      fn = tree_fns.TreeAggregateFn(
           output_keys=output_keys,
           fn=fn,
           input_keys=input_keys,

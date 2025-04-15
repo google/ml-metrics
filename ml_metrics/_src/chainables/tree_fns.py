@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 import collections
-import dataclasses
+import dataclasses as dc
 import functools
 import itertools as it
 from typing import Any, Callable, Generic, Hashable, Iterable, Iterator, Mapping, Self, TypeVar
@@ -42,7 +42,7 @@ def _identity_fn(*x):
   return x
 
 
-@dataclasses.dataclass(kw_only=True, frozen=True)
+@dc.dataclass(kw_only=True, frozen=True)
 class TreeFn(Generic[_FnT, _T]):
   """A lazy function that takes a dict and outputs either a dict or a tuple.
 
@@ -70,24 +70,19 @@ class TreeFn(Generic[_FnT, _T]):
     ignore_error: If True, ignore the error when calling the function.
   """
 
-  input_keys: tree.TreeMapKey | tree.TreeMapKeys | None = ()
+  input_keys: tree.TreeMapKey | tree.TreeMapKeys = (tree.Key.SELF,)
   input_argkeys: tuple[str, ...] = ()
-  output_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
-  fn: _FnT | lazy_fns.LazyFn[_FnT] = _identity_fn
-  masks: tuple[MaskTree, ...] = dataclasses.field(default=(), repr=False)
-  replace_mask_false_with: Any = dataclasses.field(
+  output_keys: tree.TreeMapKey | tree.TreeMapKeys = (tree.Key.SELF,)
+  fn: _FnT | lazy_fns.LazyFn[_FnT] | None = None
+  masks: tuple[MaskTree, ...] | MaskTree = dc.field(default=(), repr=False)
+  replace_mask_false_with: Any = dc.field(
       default=tree.DEFAULT_FILTER, repr=False
   )
   fn_batch_size: int = 0
   batch_size: int = 0
   ignore_error: bool = False
-  _default_constructor: bool = dataclasses.field(default=True, repr=False)
 
   def __post_init__(self):
-    if self._default_constructor:
-      raise ValueError(
-          f'Do not use the constructor, use {self.__class__.__name__}.new().'
-      )
     if self.fn_batch_size and not self.batch_size:
       raise ValueError(
           'fn_batch_size should be used with batch_size, got'
@@ -98,51 +93,23 @@ class TreeFn(Generic[_FnT, _T]):
           'batch sizes have to be non-negative, got'
           f' {self.fn_batch_size=} and {self.batch_size=}'
       )
-
-  @classmethod
-  def new(
-      cls,
-      *,
-      output_keys: tree.TreeMapKey | tree.TreeMapKeys = tree.Key.SELF,
-      fn: _FnT | lazy_fns.LazyFn[_FnT] | None = None,
-      input_keys: tree.TreeMapKey | tree.TreeMapKeys = tree.Key.SELF,
-      masks: tuple[MaskTree, ...] | MaskTree = (),
-      replace_mask_false_with: Any = tree.DEFAULT_FILTER,
-      fn_batch_size: int = 0,
-      batch_size: int = 0,
-      ignore_error: bool = False,
-      **disable_slicing,
-  ) -> Self:
-    """Normalizes the arguments before constructing a TreeFn."""
-    input_argkeys = ()
-    # TODO: b/311207032 - support literals in dictionary input_keys for non-data
-    # arguement passing: foo(a=Key('data'), b=Literal('value'))).
+    input_argkeys = self.input_argkeys
+    input_keys, output_keys = self.input_keys, self.output_keys
     if isinstance(input_keys, Mapping):
+      assert not input_argkeys, f'{input_argkeys=}'
       input_argkeys, input_keys = tuple(zip(*input_keys.items()))
     # These require a tuple for positional inputs. Normalize_keys converts
     # the keys into a tuple of keys to make sure the actual selected inputs
     # are also wrapped in a tuple.
-    input_keys = tree.normalize_keys(input_keys)
-    output_keys = tree.normalize_keys(output_keys)
-    if not isinstance(masks, tuple):
-      masks = (masks,)
-    if not fn and input_argkeys:
-      raise ValueError(
-          f'Select operation should not have kw args, got {input_keys=}'
-      )
-    return cls(
-        output_keys=output_keys,
-        input_keys=input_keys,
-        input_argkeys=input_argkeys,
-        fn=fn or _identity_fn,
-        masks=masks,
-        replace_mask_false_with=replace_mask_false_with,
-        fn_batch_size=fn_batch_size,
-        batch_size=batch_size,
-        ignore_error=ignore_error,
-        _default_constructor=False,
-        **disable_slicing,
-    )
+    object.__setattr__(self, 'input_keys', tree.normalize_keys(input_keys))
+    object.__setattr__(self, 'input_argkeys', input_argkeys)
+    object.__setattr__(self, 'output_keys', tree.normalize_keys(output_keys))
+    if not isinstance(self.masks, tuple):
+      object.__setattr__(self, 'masks', (self.masks,))
+    if self.fn is None:
+      if input_argkeys:
+        raise ValueError(f'Select Op cannot have kwargs, got {input_keys=}')
+      object.__setattr__(self, 'fn', _identity_fn)
 
   @functools.cached_property
   def _lazy(self):
@@ -172,7 +139,7 @@ class TreeFn(Generic[_FnT, _T]):
 
   def maybe_make(self: Self) -> Self:
     """Explicitly instantiate the lazy_fn of a tree_fn."""
-    return dataclasses.replace(self, fn=self._actual_fn)
+    return dc.replace(self, fn=self._actual_fn)
 
   def with_masks(
       self,
@@ -180,7 +147,7 @@ class TreeFn(Generic[_FnT, _T]):
       replace_mask_false_with: Any = tree.DEFAULT_FILTER,
   ) -> Self:
     """Returns a new TreeFn with the masks."""
-    return dataclasses.replace(
+    return dc.replace(
         self, masks=masks, replace_mask_false_with=replace_mask_false_with
     )
 
@@ -236,9 +203,9 @@ class TreeFn(Generic[_FnT, _T]):
         assert self._actual_fn is not _identity_fn, f'{kw_inputs=}'
       return self._actual_fn(*fn_inputs, **kw_inputs)
     except Exception as e:
-      raise ValueError(
-          f'Failed to call {self.fn} with inputs: {tree.tree_shape(fn_inputs)}'
-      ) from e
+      keys = [tree.Key().at(i) for i in range(len(fn_inputs))]
+      shape = tree.tree_shape(fn_inputs, keys)
+      raise ValueError(f'Failed to call {self.fn} with inputs {shape=}') from e
 
   def _get_outputs(
       self, outputs: Any, inputs: Any = tree.NullMap()
@@ -336,10 +303,11 @@ class Select(TreeFn):
   """A lazy Map operation that operates on an mappable."""
 
   def __post_init__(self):
+    super().__post_init__()
     assert self.fn is _identity_fn, f'Select should have no fn, got {self.fn}.'
 
 
-@dataclasses.dataclass(frozen=True)
+@dc.dataclass(frozen=True)
 class SliceKey:
   features: tuple[tree.TreeMapKey, ...] = ()
   values: tuple[Hashable, ...] = ()
@@ -355,7 +323,7 @@ class SliceKey:
       )
 
 
-@dataclasses.dataclass(frozen=True)
+@dc.dataclass(frozen=True)
 class Slicer:
   """Generates slices given an input_keys and slicer iterator.
 
@@ -369,7 +337,7 @@ class Slicer:
   input_keys: tree.TreeMapKey | tree.TreeMapKeys = ()
   within_values: tuple[Any, ...] = ()
   replace_mask_false_with: Any = tree.DEFAULT_FILTER
-  _default_constructor: bool = dataclasses.field(default=True, repr=False)
+  _default_constructor: bool = dc.field(default=True, repr=False)
 
   def __post_init__(self):
     if self._default_constructor:
@@ -469,12 +437,12 @@ class Slicer:
       yield SliceKey(self.slice_name, slice_value), mask
 
   def maybe_make(self) -> Self:
-    return dataclasses.replace(
+    return dc.replace(
         self, slice_mask_fn=lazy_fns.maybe_make(self.slice_mask_fn)
     )
 
 
-@dataclasses.dataclass(kw_only=True, frozen=True)
+@dc.dataclass(kw_only=True, frozen=True)
 class TreeAggregateFn(Generic[_T, StateT], TreeFn[_Aggregatable, _T]):
   """Transform with one AggregateFn with its input and output keys."""
 
@@ -508,9 +476,14 @@ class TreeAggregateFn(Generic[_T, StateT], TreeFn[_Aggregatable, _T]):
         fn_inputs, kw_inputs = (), dict(zip(self.input_argkeys, fn_inputs))
       state = self._actual_fn.update_state(state, *fn_inputs, **kw_inputs)
     except Exception as e:
+      input_keys = self.input_keys
+      key_paths = tuple(self.input_keys)
+      if self.input_argkeys:
+        input_keys = dict(zip(self.input_argkeys, self.input_keys))
       raise ValueError(
-          f'Cannot call {self.input_keys=}, {self.output_keys=},'
-          f' {type(self.fn)} with shape:\n{tree.tree_shape(inputs)}'
+          f'Cannot call with {input_keys=}, {self.output_keys=},'
+          f' {type(self.fn)} with'
+          f' shape:\n{tree.tree_shape(inputs, key_paths=key_paths)}'
       ) from e
     return state
 
