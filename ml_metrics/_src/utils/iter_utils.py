@@ -1297,7 +1297,7 @@ def rebatched_args(
     tuples: Iterator[tuple[_ValueT, ...]],
     batch_size: int = 0,
     *,
-    num_columns: int,
+    num_columns: int = 0,
     pad: Any = None,
 ) -> Iterator[tuple[_ValueT, ...]]:
   """Merges and concatenates n batches of tuples while iterating."""
@@ -1305,7 +1305,11 @@ def rebatched_args(
     yield from tuples
     return
 
-  assert num_columns > 0
+  if not num_columns:
+    first_batch = mit.first(tuples)
+    tuples = mit.prepend(first_batch, tuples)
+    num_columns = len(first_batch)
+    logging.debug('chainable: %s', f'rebatched_tuples: {num_columns=}')
   column_buffer = [[] for _ in range(num_columns)]
   batch_sizes = np.zeros(num_columns, dtype=int)
   exhausted = False
@@ -1315,9 +1319,7 @@ def rebatched_args(
       exhausted = True
     else:
       if len(batch) != num_columns:
-        raise ValueError(
-            f'Incorrect number of columns, got {len(batch)} != {num_columns=}.'
-        )
+        raise ValueError(f'Mismatched columns: {len(batch)} != {num_columns=}')
       for i, column in enumerate(batch):
         column_buffer[i].append(column)
       batch_sizes += [_batch_size(column) for column in batch]

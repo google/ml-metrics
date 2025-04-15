@@ -508,21 +508,19 @@ class IterUtilsTest(parameterized.TestCase):
         num_args=2, batch_size=input_batch_size, batch_fn=batch_fn
     )
     inputs = itt.islice(infinite_batches, 5)
-    actual = iter_utils.rebatched_args(
-        inputs, batch_size=batch_size, num_columns=2, pad=pad
-    )
+    actual = iter_utils.rebatched_args(inputs, batch_size=batch_size, pad=pad)
     for a, b in zip(expected, actual, strict=True):
       np.testing.assert_array_almost_equal(a, b)
 
   def test_batch_non_sequence_type(self):
     inputs = [(1, 2), (3, 4)]
     with self.assertRaisesRegex(TypeError, 'Non sequence type'):
-      next(iter_utils.rebatched_args(iter(inputs), batch_size=4, num_columns=2))
+      next(iter_utils.rebatched_args(iter(inputs), batch_size=4))
 
   def test_batch_unsupported_type(self):
     inputs = [('aaa', 'bbb'), ('aaa', 'bbb')]
     with self.assertRaisesRegex(TypeError, 'Unsupported container type'):
-      next(iter_utils.rebatched_args(iter(inputs), batch_size=4, num_columns=2))
+      next(iter_utils.rebatched_args(iter(inputs), batch_size=4))
 
   def test_recitable_iterator_normal(self):
     inputs = range(3)
@@ -594,12 +592,10 @@ class IterUtilsTest(parameterized.TestCase):
 
     def process_generator(it_inputs):
       it_fn_inputs = iter_utils.rebatched_args(
-          it_inputs, batch_size=fn_batch_size, num_columns=num_columns
+          it_inputs, batch_size=fn_batch_size
       )
       yield from iter_utils.rebatched_args(
-          map(foo, it_fn_inputs),
-          batch_size=input_batch_size,
-          num_columns=num_columns,
+          map(foo, it_fn_inputs), batch_size=input_batch_size
       )
 
     # Setting a max buffer size to make sure the buffer is flushed while
