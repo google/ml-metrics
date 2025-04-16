@@ -351,9 +351,9 @@ class Sink(TreeFn[types.SinkT, _T]):
       it_ = iter_utils.processed_with_inputs(
           self._iterate, iter(input_iterator), ignore_error=self.ignore_error
       )
-      return (elem for _, elem in it_)
+      yield from (elem for _, elem in it_)
     finally:
-      super()._actual_fn.close()
+      self._actual_fn.close()
 
 
 @dc.dataclass(frozen=True)

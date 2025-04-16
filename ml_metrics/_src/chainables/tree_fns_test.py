@@ -319,7 +319,9 @@ class TreeFnTest(parameterized.TestCase):
     fn = tree_fns.Sink(fn=sink)
     self.assertIsInstance(fn._actual_fn, tree_fns._CallableSink)
     self.assertEmpty(sink.data)
-    self.assertEqual([1, 2, 3], list(fn.iterate(data)))
+    it_ = fn.iterate(data)
+    self.assertFalse(sink.closed)
+    self.assertEqual([1, 2, 3], list(it_))
     self.assertEqual([1, 2, 3], sink.data)
     self.assertTrue(sink.closed)
 
