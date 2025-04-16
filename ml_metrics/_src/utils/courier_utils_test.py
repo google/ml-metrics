@@ -567,17 +567,17 @@ class CourierClientTest(absltest.TestCase):
     # The generator on the server ignores error and stops at the 1st exception.
     task = courier_utils.GeneratorTask.new(lazy_fns.trace(bad_generator)(5, 3))
     agg_q = queue.SimpleQueue()
+    result = []
 
     async def run():
-      result = []
       async for x in self.prefetched_worker.async_iterate(
           task, generator_result_queue=agg_q
       ):
         result.append(x)
-      return result
 
     with self.assertRaisesRegex(ValueError, 'bad generator'):
-      _ = asyncio.run(run())
+      asyncio.run(run())
+    self.assertEqual([0, 1, 2], result)
 
   def test_worker_heartbeat(self):
     # Server is not started, thus it is never alive.

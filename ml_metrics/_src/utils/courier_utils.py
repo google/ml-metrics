@@ -752,23 +752,23 @@ class CourierClient(metaclass=func_utils.SingletonMeta):
         output_batch = lazy_fns.maybe_make(
             await asyncio.wrap_future(output_state)
         )
-        assert isinstance(output_batch, list)
-        if output_batch:
-          if iter_utils.is_stop_iteration(stop_iteration := output_batch[-1]):
+        assert isinstance(output_batch, list), f'{type(output_batch)}'
+        for elem in output_batch:
+          if not isinstance(elem, Exception):
+            yield elem
+            batch_cnt += 1
+            continue
+
+          if iter_utils.is_stop_iteration(elem):
             exhausted = True
-            generator_result_queue.put(returned := stop_iteration.value)
-            output_batch = output_batch[:-1]
+            generator_result_queue.put(returned := elem.value)
             logging.info(
                 'chainable: %s',
                 f'worker "{self.address}" generator exhausted after'
                 f' {batch_cnt} batches with return type {type(returned)}',
             )
-          elif isinstance(exc := output_batch[-1], Exception):
-            if exc != ValueError('generator already executing'):
-              raise output_batch[-1]
-        for elem in output_batch:
-          yield elem
-          batch_cnt += 1
+          elif elem != ValueError('generator already executing'):
+            raise elem
     except Exception as e:  # pylint: disable=broad-exception-caught
       logging.exception(
           'chainable: %s', f'exception when iterating task: {task}'
