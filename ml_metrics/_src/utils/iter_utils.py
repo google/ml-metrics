@@ -753,9 +753,9 @@ class IteratorQueue(IterableQueue[_ValueT]):
     self._run_enqueue = False
     with self._states_lock:
       self._enqueue_stop = self._enqueue_start = self._max_enqueuer
-      assert self.enqueue_done
       if not is_stop_iteration(exc):
         self._exception = exc
+      assert self.enqueue_done, f'{self._enqueue_stop=}, {self._enqueue_start}'
     with self._enqueue_lock:
       self._enqueue_lock.notify_all()
     with self._dequeue_lock:
