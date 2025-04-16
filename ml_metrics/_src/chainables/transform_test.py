@@ -869,6 +869,18 @@ class TransformTest(parameterized.TestCase):
     expected = [{'a': [0, 2], 'b': [1, 3]}, {'a': [4], 'b': [5]}]
     self.assertEqual(expected, actual)
 
+  def test_sink(self):
+    sink = test_utils.TestSink()
+    t = transform.TreeTransform().sink(sink, input_keys='a')
+    inputs = [
+        {'a': 0, 'b': 1},
+        {'a': 2, 'b': 3},
+        {'a': 4, 'b': 5},
+    ]
+    actual = list(t.make().iterate(inputs))
+    self.assertEqual(inputs, actual)
+    self.assertEqual([0, 2, 4], sink.data)
+
   def test_aggregate_starts_with_empty_agg(self):
     p = (
         transform.TreeTransform()

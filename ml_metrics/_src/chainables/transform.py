@@ -1020,6 +1020,31 @@ class TreeTransform(Generic[TreeFnT]):
         batch_size=batch_size,
     )
 
+  def sink(
+      self,
+      sink: types.MaybeResolvable[types.SinkT],
+      *,
+      input_keys: TreeMapKeys | TreeMapKey = tree.Key.SELF,
+  ) -> TreeTransform:
+    """Sinks the input of this transform.
+
+    The sink function need to implement the `write` and `close` methods. When
+    input_keys are provided, the selected inputs will be fed to the `sink.write`
+    method as positional or keyword arguements depending on whether the
+    input_keys are list of keys or dict keys. The original inputs then are
+    then forwarded after each write without any changes. When the iteration is
+    done, the `sink.close` method will be called.
+
+    Args:
+      sink: the sink function.
+      input_keys: the input keys to be fed to the sink.
+
+    Returns:
+      A TreeTransform that sinks the input of this transform.
+    """
+    fn = tree_fns.Sink(fn=sink, input_keys=input_keys)
+    return self._maybe_new_transform(fn)
+
   # TODO: b/356633410 - support rebatching.
   def aggregate(
       self,
