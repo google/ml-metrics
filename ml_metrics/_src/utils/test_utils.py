@@ -22,6 +22,20 @@ from ml_metrics._src.chainables import transform
 import numpy as np
 
 
+class TestSink:
+
+  def __init__(self):
+    self.data = []
+    self.closed = False
+
+  def write(self, data):
+    self.data.append(data)
+    return data
+
+  def close(self):
+    self.closed = True
+
+
 def range_with_exc(x, exc_i):
   for i in range(x):
     if i == exc_i:

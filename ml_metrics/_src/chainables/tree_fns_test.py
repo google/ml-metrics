@@ -313,6 +313,32 @@ class TreeFnTest(parameterized.TestCase):
     }
     self.assertEqual(expected, tree_fn(data))
 
+  def test_sink_default(self):
+    data = [1, 2, 3]
+    sink = test_utils.TestSink()
+    fn = tree_fns.Sink(fn=sink)
+    self.assertIsInstance(fn._actual_fn, tree_fns._CallableSink)
+    self.assertEmpty(sink.data)
+    self.assertEqual([1, 2, 3], list(fn.iterate(data)))
+    self.assertEqual([1, 2, 3], sink.data)
+    self.assertTrue(sink.closed)
+
+  def test_sink_lazy(self):
+    data = [1, 2, 3]
+    sink = lazy_fns.trace(test_utils.TestSink)(cache_result_=True)
+    fn = tree_fns.Sink(fn=sink)
+    self.assertEqual([1, 2, 3], list(fn.iterate(data)))
+    self.assertEqual([1, 2, 3], sink.result_().data)
+    self.assertTrue(sink.result_().closed)
+
+  def test_sink_with_input_keys(self):
+    data = [{'a': 1, 'b': 2}, {'a': 3, 'b': 4}]
+    sink = test_utils.TestSink()
+    fn = tree_fns.Sink(fn=sink, input_keys='b')
+    self.assertEqual(data, list(fn.iterate(data)))
+    self.assertTrue(sink.closed)
+    self.assertEqual([2, 4], sink.data)
+
   def test_tree_aggfn_iterate_not_implemented(self):
     data = [[1, 2, 3], [1, 2, 3]]
     tree_fn = tree_fns.TreeAggregateFn(fn=TestAverageFn())
@@ -377,9 +403,8 @@ class TreeFnTest(parameterized.TestCase):
     self.assertEqual({'mean': [2.0]}, agg_fn(data))
 
   def test_tree_aggregate_invalid_agg_fn(self):
-    agg_fn = tree_fns.TreeAggregateFn(fn=1)  # pytype: disable=wrong-arg-types
     with self.assertRaisesRegex(TypeError, 'Not an aggregatable'):
-      _ = agg_fn.maybe_make()
+      tree_fns.TreeAggregateFn(fn=1)  # pytype: disable=wrong-arg-types
 
   def test_tree_aggregate_with_keyword_arg(self):
     data = {'a': [1, 2, 3], 'b': [4, 5, 6]}

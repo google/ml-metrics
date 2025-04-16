@@ -81,6 +81,7 @@ class TreeFn(Generic[_FnT, _T]):
   fn_batch_size: int = 0
   batch_size: int = 0
   ignore_error: bool = False
+  _cached_fn: _FnT | None = None
 
   def __post_init__(self):
     if self.fn_batch_size and not self.batch_size:
@@ -116,11 +117,15 @@ class TreeFn(Generic[_FnT, _T]):
     fn = self.fn
     return types.is_resolvable(fn)
 
-  @functools.cached_property
+  @property
   def _actual_fn(self) -> _FnT:
     """Returns the actual function."""
+    if self._cached_fn is not None:
+      return self._cached_fn
+
     result = lazy_fns.maybe_make(self.fn) if self._lazy else self.fn
     assert not types.is_resolvable(result), f'{type(result)=}'
+    object.__setattr__(self, '_cached_fn', result)
     return result
 
   @functools.cached_property
@@ -139,7 +144,7 @@ class TreeFn(Generic[_FnT, _T]):
 
   def maybe_make(self: Self) -> Self:
     """Explicitly instantiate the lazy_fn of a tree_fn."""
-    return dc.replace(self, fn=self._actual_fn)
+    return dc.replace(self, fn=lazy_fns.maybe_make(self.fn))
 
   def with_masks(
       self,
@@ -307,6 +312,50 @@ class Select(TreeFn):
     assert self.fn is _identity_fn, f'Select should have no fn, got {self.fn}.'
 
 
+class _CallableSink(Callable[..., None]):
+  """A sink function that can be used to sink the data."""
+
+  def __init__(self, sink: types.SinkT):
+    self._sink = sink
+
+  def __call__(self, *data: tree.TreeLike[_T]) -> None:
+    """Writes the data to the sink."""
+    self._sink.write(*data)
+
+  def close(self) -> None:
+    """Closes the sink."""
+    self._sink.close()
+
+
+class Sink(TreeFn[types.SinkT, _T]):
+  """A TreeFn that sink and forward the inputs."""
+
+  def __post_init__(self):
+    super().__post_init__()
+    if not isinstance(super()._actual_fn, types.SinkT):
+      raise TypeError(f'The fn is not a sink, got {type(self._actual_fn)=}')
+    if self.output_keys and self.output_keys[0] != tree.Key.SELF:
+      raise ValueError(
+          f'Sink should not have output_keys, got {self.output_keys=}'
+      )
+
+  @property
+  def _actual_fn(self) -> _CallableSink:
+    """Returns the actual function."""
+    return _CallableSink(super()._actual_fn)
+
+  def iterate(
+      self, input_iterator: Iterable[tree.TreeLike]
+  ) -> Iterator[tree.TreeLike[_T]]:
+    try:
+      it_ = iter_utils.processed_with_inputs(
+          self._iterate, iter(input_iterator), ignore_error=self.ignore_error
+      )
+      return (elem for _, elem in it_)
+    finally:
+      super()._actual_fn.close()
+
+
 @dc.dataclass(frozen=True)
 class SliceKey:
   features: tuple[tree.TreeMapKey, ...] = ()
@@ -446,11 +495,19 @@ class Slicer:
 class TreeAggregateFn(Generic[_T, StateT], TreeFn[_Aggregatable, _T]):
   """Transform with one AggregateFn with its input and output keys."""
 
-  fn: _Aggregatable | lazy_fns.LazyFn[_Aggregatable] | None = None
   disable_slicing: bool = False
 
-  @functools.cached_property
+  def __post_init__(self):
+    super().__post_init__()
+    # Check whether the actual_fn is an Aggregatable.
+    _ = self._actual_fn
+
+  @property
   def _actual_fn(self) -> aggregates.Aggregatable:
+    if (actual_fn := self._cached_fn) is not None:
+      assert isinstance(actual_fn, aggregates.Aggregatable)
+      return actual_fn
+
     actual_fn = lazy_fns.maybe_make(self.fn) if self._lazy else self.fn
     if aggregates.has_as_agg_fn(actual_fn):
       actual_fn = actual_fn.as_agg_fn()
@@ -460,6 +517,7 @@ class TreeAggregateFn(Generic[_T, StateT], TreeFn[_Aggregatable, _T]):
           ' has to have `as_agg_fn` method to convert it to an Aggregatable,'
           f' got a {type(actual_fn)}, {actual_fn=}'
       )
+    object.__setattr__(self, '_cached_fn', actual_fn)
     return actual_fn
 
   def create_state(self) -> StateT:

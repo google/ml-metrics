@@ -21,6 +21,17 @@ _T = TypeVar('_T')
 
 
 @runtime_checkable
+class SinkT(Protocol[_T]):
+  """A sink that can be used to sink the data."""
+
+  def write(self, data: _T) -> None:
+    """Writes the data to the sink."""
+
+  def close(self) -> None:
+    """Closes the sink."""
+
+
+@runtime_checkable
 class Makeable(Protocol[_T]):
   """A config class that can make a Metric class."""
 
