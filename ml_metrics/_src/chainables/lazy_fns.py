@@ -328,10 +328,9 @@ class LazyObject(types.Resolvable[_T]):
   def __str__(self):
     if self.value is None:
       return f'LazyObject(id={self.id})'
-    elif isinstance(self.value, type):
-      return self.value.__name__
-    else:
-      return f'<{self.value.__class__.__name__} object>'
+    return getattr(
+        self.value, '__name__', f'<{self.value.__class__.__name__} object>'
+    )
 
   def __hash__(self) -> int:
     if not self._cache_result:
@@ -437,8 +436,10 @@ class LazyFn(LazyObject[_T]):
   def __str__(self) -> str:
     if self.value is getattr:
       return f'{self.args[0]}.{self.args[1]}'
-    elif self.value is operator.getitem:
+
+    if self.value is operator.getitem:
       return f'{self.args[0]}[{self.args[1]}]'
+
     args = ', '.join(f'{arg}' for arg in self.args)
     kwargs = ', '.join(f'{k}={v}' for k, v in self.kwargs)
     args_strs = []

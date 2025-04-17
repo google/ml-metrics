@@ -281,6 +281,11 @@ class LazyFnsTest(parameterized.TestCase):
           expected='Foo(1, b=2).c[1]',
       ),
       dict(
+          testcase_name='fn_arg_kwargs1',
+          lazy_obj=lazy_fns.trace(foo)(1, b=2),
+          expected='foo(1, b=2)',
+      ),
+      dict(
           testcase_name='lazy_object_instance',
           lazy_obj=lazy_fns.trace(Foo(1)),
           expected='<Foo object>',
