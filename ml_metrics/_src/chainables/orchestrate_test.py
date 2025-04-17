@@ -231,7 +231,7 @@ class RunShardedIteratorTest(parameterized.TestCase):
       )
       return transform.TreeTransform.new(name='datasource').data_source(ds)
 
-    with self.assertRaisesRegex(RuntimeError, r'Task failed at \d/6 tasks.'):
+    with self.assertRaisesRegex(RuntimeError, r'Failed at \d/6 task.'):
       _ = mit.ilen(
           orchestrate.sharded_pipelines_as_iterator(
               self.worker_pool,

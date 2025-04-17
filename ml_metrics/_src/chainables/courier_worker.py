@@ -212,6 +212,11 @@ class Worker(courier_utils.CourierClient):
       self._worker_pool = None
 
 
+async def _iterate_until_complete(aiterator, output_queue):
+  async for elem in aiterator:
+    output_queue.put(elem)
+
+
 class WorkerPool:
   """Worker group that constructs a group of courier workers.
 
@@ -429,13 +434,8 @@ class WorkerPool:
     """Iterates through the result of a generator if the iterator task."""
     task_iterator = iter(task_iterator)
     output_queue = queue.SimpleQueue()
-    start_time = prev_ticker = time.time()
+    start_time = time.time()
     event_loop = asyncio.new_event_loop()
-
-    async def iterate_until_complete(aiterator, output_queue):
-      async for elem in aiterator:
-        output_queue.put(elem)
-
     loop_thread = threading.Thread(target=event_loop.run_forever, daemon=True)
     loop_thread.start()
     running_tasks: list[GeneratorTask] = []
@@ -444,129 +444,144 @@ class WorkerPool:
     timeout_tasks: list[GeneratorTask] = []
     running_workers: set[courier_utils.CourierClient] = set()
     running_total, finished_cnt, timeout_cnt = 0, 0, 0
-    batch_cnt, prev_batch_cnt = 0, 0
-    exhausted = False
-    while not exhausted or tasks or running_tasks:
-      workers: list[Worker] = list(set(self.idle_workers()) - running_workers)
-      # TODO: b/311207032 - Prefer proven workers before shuffling.
-      random.shuffle(workers)
-      for worker in workers:
-        # Only append new task when existing queue is empty, this is to ensure
-        # failed tasks are retried before new tasks are submitted.
-        if not tasks and not exhausted:
-          try:
-            tasks.append(_as_generator_task(next(task_iterator)))
-            running_total += 1
-          except StopIteration:
-            exhausted = True
-        if tasks:
-          task = tasks.pop().set(worker=worker)
+    batch_cnt = 0
+
+    def iterate():
+      nonlocal batch_cnt, running_total, finished_cnt, timeout_cnt
+      nonlocal running_tasks, running_workers, timeout_tasks
+      exhausted = False
+      prev_ticker = start_time
+      prev_batch_cnt = batch_cnt
+      while not exhausted or tasks or running_tasks:
+        workers: list[Worker] = list(set(self.idle_workers()) - running_workers)
+        # TODO: b/311207032 - Prefer proven workers before shuffling.
+        random.shuffle(workers)
+        for worker in workers:
+          # Only append new task when existing queue is empty, this is to ensure
+          # failed tasks are retried before new tasks are submitted.
+          if not tasks and not exhausted:
+            try:
+              tasks.append(_as_generator_task(next(task_iterator)))
+              running_total += 1
+            except StopIteration:
+              exhausted = True
+          if tasks:
+            task = tasks.pop().set(worker=worker)
+            logging.info(
+                'chainable: %s', f'submitting task to worker {worker.address}'
+            )
+            aiter_until_complete = _iterate_until_complete(
+                worker.async_iterate(
+                    task, generator_result_queue=generator_result_queue
+                ),
+                output_queue=output_queue,
+            )
+            task = task.set(
+                state=asyncio.run_coroutine_threadsafe(
+                    aiter_until_complete, event_loop
+                ),
+            )
+            running_tasks.append(task)
+        while not output_queue.empty():
+          batch_cnt += 1
+          yield output_queue.get()
+
+        # Acquiring unfinished and failed tasks
+        new_failed_tasks, timeout_tasks, still_running_tasks = [], [], []
+        for task in running_tasks:
+          if task.done():
+            if exc := task.exception():
+              if isinstance(exc, TimeoutError) or is_timeout(exc):
+                logging.warning(
+                    'chainable: %s', f'task timeout, worker: {task.worker}'
+                )
+                timeout_tasks.append(task.set(_exc=None))
+              else:
+                logging.exception(
+                    'chainable: %s',
+                    f'task failed with exception: {task.exception()}, {task=}',
+                )
+                new_failed_tasks.append(task)
+            else:
+              finished_cnt += 1
+          elif task.is_alive:
+            still_running_tasks.append(task)
+          else:
+            logging.warning(
+                'chainable: %s', f'worker timeout, worker: {task.worker}'
+            )
+            timeout_tasks.append(task.set(_exc=None))
+        running_tasks = still_running_tasks
+        # Preemptively cancel task from the timeout workers.
+        for task in timeout_tasks:
+          if (state := task.state) is not None:
+            state.cancel()
+        if new_failed_tasks:
+          # Failed tasks likely caused by non-transient error, unretriable.
+          logging.error(
+              'chainable: %s', f'{len(new_failed_tasks)} new failed tasks.'
+          )
+          # Return at first failure.
+          failed_tasks.extend(new_failed_tasks)
+          break
+        if timeout_tasks:
+          logging.info('chainable: %s', f'{len(timeout_tasks)} tasks Timeout.')
+          tasks.extend(timeout_tasks)
+          timeout_cnt += len(timeout_tasks)
+          if timeout_cnt > retry_threshold:
+            break
           logging.info(
-              'chainable: %s', f'submitting task to worker {worker.address}'
+              'chainable: %s',
+              f'{len(timeout_tasks)} tasks Timeout, retrying: {timeout_tasks}',
           )
-          aiter_until_complete = iterate_until_complete(
-              worker.async_iterate(
-                  task, generator_result_queue=generator_result_queue
-              ),
-              output_queue=output_queue,
+        running_workers = {task.worker for task in running_tasks if task.worker}
+        if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SEC:
+          delta_time = ticker - prev_ticker
+          delta_cnt = batch_cnt - prev_batch_cnt
+          failed_cnt = len(failed_tasks)
+          total_cnt = total_tasks or running_total
+          running_cnt = len(running_tasks)
+          logging.info(
+              'chainable: %s',
+              f'async throughput: {delta_cnt / delta_time:.2f} batches/s;'
+              ' progress:'
+              f' {running_cnt}/{failed_cnt}/{finished_cnt}/{total_cnt} (running/failed/finished/total)'
+              f' with {timeout_cnt} retries in {delta_time:.2f} secs.',
           )
-          task = task.set(
-              state=asyncio.run_coroutine_threadsafe(
-                  aiter_until_complete, event_loop
-              ),
-          )
-          running_tasks.append(task)
+          prev_ticker, prev_batch_cnt = ticker, batch_cnt
+
+    try:
+      yield from iterate()
+    except KeyboardInterrupt:
+      logging.warning('chainable: %s', 'KeyboardInterrupt during iteration.')
+    finally:
+      # Stop fetching here and prefetching at the workers too.
+      for task in running_tasks:
+        assert task.state is not None
+        if task.worker is not None:
+          task.worker.call(courier_method='stop_prefetch')
+        task.state.cancel()
+      event_loop.call_soon_threadsafe(event_loop.stop)
       while not output_queue.empty():
         batch_cnt += 1
         yield output_queue.get()
-
-      # Acquiring unfinished and failed tasks
-      new_failed_tasks, timeout_tasks, still_running_tasks = [], [], []
-      for task in running_tasks:
-        if task.done():
-          if exc := task.exception():
-            if isinstance(exc, TimeoutError) or is_timeout(exc):
-              logging.warning(
-                  'chainable: %s', f'task timeout, worker: {task.worker}'
-              )
-              timeout_tasks.append(task.set(_exc=None))
-            else:
-              logging.exception(
-                  'chainable: %s',
-                  f'task failed with exception: {task.exception()}, {task=}',
-              )
-              new_failed_tasks.append(task)
-          else:
-            finished_cnt += 1
-        elif task.is_alive:
-          still_running_tasks.append(task)
-        else:
-          logging.warning(
-              'chainable: %s', f'worker timeout, worker: {task.worker}'
-          )
-          timeout_tasks.append(task.set(_exc=None))
-      running_tasks = still_running_tasks
-      # Preemptively cancel task from the timeout workers.
-      for task in timeout_tasks:
-        if (state := task.state) is not None:
-          state.cancel()
-      if new_failed_tasks:
-        # Failed tasks likely caused by non-transient error, not to be retried.
-        logging.error(
-            'chainable: %s', f'{len(new_failed_tasks)} new failed tasks.'
+      loop_thread.join()
+      event_loop.close()
+      if generator_result_queue:
+        generator_result_queue.put(iter_utils.STOP_ITERATION)
+      if failed_tasks:
+        raise RuntimeError(
+            f'Failed at {running_total}/{total_tasks} task.'
+        ) from failed_tasks[-1].exception()
+      if timeout_cnt > retry_threshold and timeout_tasks:
+        assert (e := timeout_tasks[-1].exception()) is not None
+        raise TimeoutError(
+            f'Too many Timeouts: {timeout_cnt} > {retry_threshold}, last'
+            f' error: {e.args[0]}'
         )
-        # Return at first failure.
-        failed_tasks.extend(new_failed_tasks)
-        break
-      if timeout_tasks:
-        logging.info('chainable: %s', f'{len(timeout_tasks)} tasks Timeout.')
-        tasks.extend(timeout_tasks)
-        timeout_cnt += len(timeout_tasks)
-        if timeout_cnt > retry_threshold:
-          break
-        logging.info(
-            'chainable: %s',
-            f'{len(timeout_tasks)} tasks Timeout, retrying: {timeout_tasks}',
-        )
-
-      running_workers = {task.worker for task in running_tasks if task.worker}
-
-      if (ticker := time.time()) - prev_ticker > _LOGGING_INTERVAL_SEC:
-        delta_time, delta_cnt = ticker - prev_ticker, batch_cnt - prev_batch_cnt
-        failed_cnt, total_cnt = len(failed_tasks), total_tasks or running_total
-        running_cnt = len(running_tasks)
-        logging.info(
-            'chainable: %s',
-            f'async throughput: {delta_cnt / delta_time:.2f} batches/s;'
-            f' progress: {running_cnt}/{failed_cnt}/{finished_cnt}/{total_cnt}'
-            f' (running/failed/finished/total) with {timeout_cnt} retries'
-            f' in {delta_time:.2f} secs.',
-        )
-        prev_ticker, prev_batch_cnt = ticker, batch_cnt
-
-    event_loop.call_soon_threadsafe(event_loop.stop)
-    loop_thread.join()
-    if failed_tasks:
-      raise RuntimeError(
-          f'Task failed at {running_total}/{total_tasks} tasks.'
-      ) from failed_tasks[-1].exception()
-
-    if timeout_cnt > retry_threshold and timeout_tasks:
-      assert (e := timeout_tasks[-1].exception()) is not None
-      raise TimeoutError(
-          f'Too many Timeouts: {timeout_cnt} > {retry_threshold}, last'
-          f' error: {e.args[0]}'
-      )
-
-    while not output_queue.empty():
-      batch_cnt += 1
-      yield output_queue.get()
-
     delta_time = time.time() - start_time
     logging.info(
         'chainable: %s',
         f'iterate finished with {finished_cnt}/{running_total} (finished/total)'
         f' in {delta_time:.2f}s, throughput: {batch_cnt / delta_time:.2f}/s.',
     )
-    if generator_result_queue:
-      generator_result_queue.put(iter_utils.STOP_ITERATION)

@@ -21,7 +21,7 @@ from ml_metrics._src.chainables import courier_server
 from ml_metrics._src.chainables import courier_worker
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import courier_utils
-from ml_metrics._src.utils import iter_utils
+from ml_metrics._src.utils import test_utils
 import portpicker
 
 
@@ -62,15 +62,6 @@ def setUpModule():
 
 def tearDownModule():
   courier_server.shutdown_all()
-
-
-def lazy_q_fn(n, stop=False):
-  q = queue.SimpleQueue()
-  for i in range(n):
-    q.put(i)
-  if stop:
-    q.put(iter_utils.STOP_ITERATION)
-  return q
 
 
 def mock_generator(n, sleep_interval=0.0):
@@ -268,11 +259,12 @@ class CouierWorkerPoolGeneratorTest(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
-    self.server = courier_server.PrefetchedCourierServer('GeneratorWorker')
-    self.server.start()
-    self.worker = courier_worker.Worker(self.server.address)
-    self.worker_pool = courier_worker.WorkerPool([self.worker])
-    self.worker_pool.wait_until_alive(deadline_secs=15)
+    self.servers = [courier_server.PrefetchedCourierServer() for _ in range(2)]
+    for s in self.servers:
+      s.start()
+    addrs = [s.address for s in self.servers]
+    self.worker_pool = courier_worker.WorkerPool(addrs)
+    self.worker_pool.wait_until_alive(minimum_num_workers=len(addrs))
 
   def test_worker_pool_iterate_lazy_generator(self):
     lazy_generators = (lazy_fns.trace(mock_generator)(3) for _ in range(30))
@@ -283,7 +275,7 @@ class CouierWorkerPoolGeneratorTest(absltest.TestCase):
         [
             TIMEOUT_SERVER.address,
             UNREACHABLE_SERVER.address,
-            self.server.address,
+            self.servers[0].address,
         ],
         max_parallelism=1,
         call_timeout=0.5,
@@ -331,18 +323,36 @@ class CouierWorkerPoolGeneratorTest(absltest.TestCase):
       actual_agg.append(generator_result_queue.get())
     self.assertEqual([3] * 5, actual_agg[:-1])
 
-  # TODO: b/349174267 - re-neable the test when this test does not hang when
-  # exiting.
-  # def test_worker_pool_iterate_invalid_iterator(self):
-  #   invalid_iterators = [lazy_fns.trace(len)([3])]
-  #   generator_result_queue = queue.SimpleQueue()
-  #   iterator = self.worker_pool.iterate(
-  #       invalid_iterators,
-  #       retry_threshold=0,
-  #       generator_result_queue=generator_result_queue,
-  #   )
-  #   with self.assertRaises(Exception):
-  #     next(iterator)
+  def test_worker_pool_iterate_with_exception(self):
+    # When the failing task crash the master, master will stop the other worker
+    # with slow task.
+    failing_task = courier_worker._as_generator_task(
+        lazy_fns.trace(test_utils.range_with_exc)(8, 3)
+    )
+    slow_task = courier_worker._as_generator_task(
+        lazy_fns.trace(test_utils.range_with_sleep)(60, 2)
+    )
+    generator_result_queue = queue.SimpleQueue()
+    iterator = self.worker_pool.iterate(
+        [slow_task, failing_task],
+        retry_threshold=0,
+        generator_result_queue=generator_result_queue,
+        total_tasks=2,
+    )
+    actual = []
+    with self.assertRaisesRegex(RuntimeError, 'Failed at 2/2 task'):
+      for x in iterator:
+        actual.append(x)
+    self.assertEqual([0, 1, 2], actual)
+    for worker in self.worker_pool.all_workers:
+      exc = worker.next_batch_from_generator().result()
+      exc = lazy_fns.pickler.loads(exc)[-1]
+      while not isinstance(exc, (ValueError, TimeoutError)):
+        exc = worker.next_batch_from_generator().result()
+        exc = lazy_fns.pickler.loads(exc)[-1]
+    for server in self.servers:
+      assert server._generator is not None
+      self.assertTrue(server._generator.exhausted)
 
 
 if __name__ == '__main__':
