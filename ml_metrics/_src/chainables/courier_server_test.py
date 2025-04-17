@@ -381,19 +381,21 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
       dict(testcase_name='local', local=True),
       dict(testcase_name='remote', local=False),
   ])
-  def test_reset_iterator(self, local: bool):
-    client = courier.Client(self.server.address)
+  def test_stop_prefetch(self, local: bool):
+    client = courier.Client(self.server.address, call_timeout=1)
     generator = pickler.dumps(lazy_fns.trace(test_utils.range_with_return)(10))
     assert client.init_generator(generator) is None
     self.assertIsNotNone(self.server._generator)
     if local:
-      self.server._reset_iterator()
+      self.server._stop_prefetch()
     else:
-      client.reset_iterator()
+      client.stop_prefetch()
     thread = self.server._enqueue_thread
     assert thread is not None
     self.assertFalse(thread.is_alive())
-    self.assertIsNone(self.server._generator)
+    assert self.server._generator is not None
+    self.assertTrue(self.server._generator.exhausted)
+    self.assertIsInstance(self.server._generator.exception, TimeoutError)
 
 
 if __name__ == '__main__':

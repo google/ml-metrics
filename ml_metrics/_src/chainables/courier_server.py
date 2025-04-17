@@ -143,7 +143,13 @@ class CourierServer(metaclass=_CourierServerSingleton):
       signum: not used, but is required for this to be a signal handler.
       frame: not used, but is required for this to be a signal handler.
     """
-    logging.warning('chainable: %s', f'request_shutdown {signum=}')
+    addr_str = ''
+    if self._server is not None and self._server.has_started:
+      addr_str = f' @{self.address}'
+    signum_str = f' {signum=}' if signum else ''
+    logging.warning(
+        'chainable: %s', f'shutdown requested{addr_str}{signum_str}'
+    )
     del signum, frame
     with self._shutdown_lock:
       self._shutdown_requested = True
@@ -248,9 +254,6 @@ class CourierServer(metaclass=_CourierServerSingleton):
       self._server = courier.Server(self.server_name, port=self.port)
       self.set_up()
     return self._server
-
-  def set_shutdown_callback(self, callback: Callable[..., None]):
-    self._shutdown_callback = callback
 
   def _shutdown_server(self):
     self._notify_alive(is_alive=False)
@@ -357,6 +360,7 @@ class PrefetchedCourierServer(CourierServer):
     self._generator = None
     self._ignore_error = ignore_error
     self._generator_lock = threading.Lock()
+    self._shutdown_callback = self._stop_prefetch
 
   def __hash__(self) -> int:
     return super().__hash__()
@@ -368,20 +372,22 @@ class PrefetchedCourierServer(CourierServer):
         and self.prefetch_size == other.prefetch_size
     )
 
-  def _reset_iterator(self):
+  def _stop_prefetch(self, fatal: bool = False):
     """Stop the prefetch if the generator is not exhausted."""
     if self._generator is not None:
       with self._generator_lock:
         if not self._generator.exhausted:
           logging.warning(
               'chainable: %s',
-              'A generator is requested while the previous is unexhausted.',
+              'A generator is reset while the previous is unexhausted.',
           )
-          e = TimeoutError('A generator is stopped before exhausted.')
+          if fatal:
+            e = RuntimeError('A generator was stopped before exhausted.')
+          else:
+            e = TimeoutError('A generator was stopped before exhausted.')
           self._generator.maybe_stop(e)
           if self._enqueue_thread:
             self._enqueue_thread.join()
-        self._generator = None
 
   def _init_iterator(self, maybe_lazy):
     """Initialize the iterator."""
@@ -389,7 +395,7 @@ class PrefetchedCourierServer(CourierServer):
     if self._shutdown_requested:
       return TimeoutError('Shutdown requested, cannot take new generator.')
 
-    self._reset_iterator()
+    self._stop_prefetch()
     with self._generator_lock:
       start_time = time.time()
       maybe_lazy = lazy_fns.maybe_unpickle(maybe_lazy)
@@ -439,6 +445,7 @@ class PrefetchedCourierServer(CourierServer):
       # is then appended to the result list and returned in one batch below.
       pass
 
+    # Generator is exahusted either normally or due to an exception.
     if not self._generator:
       if (e := self._generator.exception) is not None:
         if self._shutdown_requested:
@@ -459,7 +466,7 @@ class PrefetchedCourierServer(CourierServer):
     super().set_up()
     self._server.Bind('init_generator', self._init_iterator)
     self._server.Bind('next_batch_from_generator', self._next_batch)
-    self._server.Bind('reset_iterator', self._reset_iterator)
+    self._server.Bind('stop_prefetch', self._stop_prefetch)
 
 
 # TODO: b/372935688 - Deprecate CourierServerWrapper.
