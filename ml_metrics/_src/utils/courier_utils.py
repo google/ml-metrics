@@ -416,7 +416,7 @@ def _maybe_pickle(obj: Any) -> Any:
   try:
     return lazy_fns.pickler.dumps(obj)
   except Exception as e:  # pylint: disable=broad-exception-caught
-    raise ValueError(f'Having issue pickling {obj}') from e
+    raise ValueError(f'Having issue pickling {type(obj)}: {obj}') from e
 
 
 def _normalize_args(args, kwargs):
