@@ -163,7 +163,7 @@ class SingletonMeta(type):
     obj = super(SingletonMeta, cls).__call__(*args, **kwargs)
     if (ref := cls._instances.get(obj, None)) and (result := ref()) is not None:
       return result
-    logging.info('chainable: %s', f'chainable: singleton {cls.__name__}, {obj}')
+    logging.info('chainable: %s', f'singleton {cls.__name__}, {obj}')
     cls._instances[obj] = weakref.ref(obj)
     return obj
 
