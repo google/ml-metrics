@@ -36,6 +36,14 @@ class TestSink:
     self.closed = True
 
 
+class Unpickleable:
+  def __call__(self, x):
+    return x + 1
+
+  def __getstate__(self):
+    raise TypeError('Unpickleable')
+
+
 def range_with_exc(x, exc_i):
   for i in range(x):
     if i == exc_i:

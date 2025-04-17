@@ -153,6 +153,16 @@ class TreeFnTest(parameterized.TestCase):
     mock_actual_fn.assert_not_called()
     self.assertEqual(tree_fn, pickle.loads(pickle.dumps(tree_fn)))
 
+  def test_tree_fn_pickle_with_lazy_fn(self):
+    tree_fn = tree_fns.TreeFn(fn=lazy_fns.trace(test_utils.Unpickleable)())
+    self.assertEqual(3, tree_fn(2))
+    # Once the function is called, it cached the result of the lazy function.
+    # Thus making it different from the original, we are testing whether
+    # pickling and unpickling it will restore the original state.
+    tree_fn = pickle.loads(pickle.dumps(tree_fn))
+    self.assertEqual(tree_fn, pickle.loads(pickle.dumps(tree_fn)))
+    self.assertEqual(3, tree_fn(2))
+
   def test_tree_fn_ignore_error(self):
     def foo(x):
       if x == 2:

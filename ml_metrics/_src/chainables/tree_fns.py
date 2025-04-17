@@ -267,6 +267,7 @@ class TreeFn(Generic[_FnT, _T]):
     state.pop('_num_outputs', None)
     state.pop('_num_inputs', None)
     state.pop('_actual_fn', None)
+    state.pop('_cached_fn', None)
     return state
 
   def __setstate__(self, state):
