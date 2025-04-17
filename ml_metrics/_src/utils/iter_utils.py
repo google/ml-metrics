@@ -638,6 +638,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
       while not max_batch_size or len(result) < max_batch_size:
         try:
           result.append(self.get_nowait())
+          logging.debug('chainable: %s', 'dequeued one')
         except (queue.Empty, asyncio.QueueEmpty) as e:
           if (not block and result) or (
               block and max_batch_size and len(result) == max_batch_size
@@ -646,8 +647,11 @@ class IteratorQueue(IterableQueue[_ValueT]):
           if result:
             _release_and_notify(self._dequeue_lock, notify=self._enqueue_lock)
           logging.debug(
-              'chainable: %s', f'"{self.name}" dequeue empty, waiting'
+              'chainable: %s', f'"{self.name}" dequeue empty, got {len(result)}'
           )
+          # By the time the lock is re-acquired, the queue may have elements.
+          if not self._queue.empty():
+            continue
           if self._dequeue_lock.wait(timeout=self.timeout):
             continue
           raise TimeoutError(
@@ -753,9 +757,9 @@ class IteratorQueue(IterableQueue[_ValueT]):
     self._run_enqueue = False
     with self._states_lock:
       self._enqueue_stop = self._enqueue_start = self._max_enqueuer
-      assert self.enqueue_done
       if not is_stop_iteration(exc):
         self._exception = exc
+      assert self.enqueue_done, f'{self._enqueue_stop=}, {self._enqueue_start=}'
     with self._enqueue_lock:
       self._enqueue_lock.notify_all()
     with self._dequeue_lock:
