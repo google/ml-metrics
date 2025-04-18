@@ -143,14 +143,15 @@ class CourierServer(metaclass=_CourierServerSingleton):
       signum: not used, but is required for this to be a signal handler.
       frame: not used, but is required for this to be a signal handler.
     """
-    addr_str = ''
-    if self._server is not None and self._server.has_started:
-      addr_str = f' @{self.address}'
-    signum_str = f' {signum=}' if signum else ''
-    logging.warning(
-        'chainable: %s', f'shutdown requested{addr_str}{signum_str}'
-    )
-    del signum, frame
+    del frame
+    if not self._shutdown_requested:
+      signum_str = f' {signum=}' if signum else ''
+      try:
+        addr_str = f' @{self.address}'
+      except Exception:  # pylint: disable=broad-exception-caught
+        addr_str = ''
+      warning_str = f'shutdown requested{addr_str}{signum_str}'
+      logging.warning('chainable: %s', warning_str)
     with self._shutdown_lock:
       self._shutdown_requested = True
       self._shutdown_lock.notify_all()
@@ -322,7 +323,7 @@ def shutdown_all(*, block: bool = True):
   servers = [
       (s, s.address) for s in CourierServer.all_instances if s.has_started
   ]
-  logging.info('chainable: %s', f'shutting down {len(servers)} servers.')
+  logging.info('chainable: %s', f'shutting down all {len(servers)} servers.')
   for server, _ in servers:
     server.stop()
   if block:
@@ -388,6 +389,7 @@ class PrefetchedCourierServer(CourierServer):
           self._generator.maybe_stop(e)
           if self._enqueue_thread:
             self._enqueue_thread.join()
+          logging.info('chainable: %s', 'Prefetching stopped.')
 
   def _init_iterator(self, maybe_lazy):
     """Initialize the iterator."""
@@ -395,11 +397,12 @@ class PrefetchedCourierServer(CourierServer):
     if self._shutdown_requested:
       return TimeoutError('Shutdown requested, cannot take new generator.')
 
+    start_time = time.time()
+    maybe_lazy = lazy_fns.maybe_unpickle(maybe_lazy)
+    logging.info('chainable: %s', f'Initializing a generator: {maybe_lazy}')
     self._stop_prefetch()
     with self._generator_lock:
-      start_time = time.time()
-      maybe_lazy = lazy_fns.maybe_unpickle(maybe_lazy)
-      logging.info('chainable: %s', f'Initializing generator: {maybe_lazy}')
+      logging.debug('chainable: %s', f'Constructing generator: {maybe_lazy}')
       result = lazy_fns.maybe_make(maybe_lazy)
       if not isinstance(result, Iterable):
         raise TypeError(f'{result} is not a generator, but a {type(result)}.')
