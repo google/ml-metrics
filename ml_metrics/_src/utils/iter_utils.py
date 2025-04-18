@@ -534,7 +534,6 @@ class IteratorQueue(IterableQueue[_ValueT]):
     self._max_enqueuer = max_enqueuer
     self._enqueue_start = 0
     self._enqueue_stop = 0
-    self._run_enqueue = True
     self.ignore_error = ignore_error
 
   @classmethod
@@ -691,10 +690,8 @@ class IteratorQueue(IterableQueue[_ValueT]):
 
   def put_nowait(self, value: _ValueT) -> None:
     """Puts a value to the queue, raieses if queue is full immediately."""
-    try:
-      self._queue.put_nowait(value)
-    except (queue.Full, asyncio.QueueFull) as e:
-      raise e
+    # When the queue is full, this will raise queue.Full or asyncio.QueueFull.
+    self._queue.put_nowait(value)
     with self._states_lock:
       self._progress.cnt += 1
       logging.debug(
@@ -704,13 +701,17 @@ class IteratorQueue(IterableQueue[_ValueT]):
   def put(self, value: _ValueT) -> None:
     """Puts a value to the queue, waits for timeout if queue is full."""
     with self._enqueue_lock:
-      while self._run_enqueue:
+      while not self.enqueue_done:
         try:
           self.put_nowait(value)
           _release_and_notify(self._enqueue_lock, notify=self._dequeue_lock)
           return
         except (queue.Full, asyncio.QueueFull) as e:
           logging.debug('chainable: %s', f'"{self.name}" enqueue full, waiting')
+          # By the time the value is enqueued, the enqueue could be stopped by
+          # external signal.
+          if self.enqueue_done:
+            break
           if self._enqueue_lock.wait(timeout=self.timeout):
             continue
           raise TimeoutError(f'Enqueue timeout={self.timeout}secs.') from e
@@ -754,7 +755,6 @@ class IteratorQueue(IterableQueue[_ValueT]):
       None.
     """
     exc = exc or StopIteration()
-    self._run_enqueue = False
     with self._states_lock:
       self._enqueue_stop = self._enqueue_start = self._max_enqueuer
       if not is_stop_iteration(exc):
@@ -774,8 +774,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
     """Iterates through a generator while enqueue its elements."""
     iterator = iter(iterator)
     self._start_enqueue()
-    self._run_enqueue = True
-    while self._run_enqueue and not self.enqueue_done:
+    while not self.enqueue_done:
       try:
         self.put(next(iterator))
       except StopIteration as e:

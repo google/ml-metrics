@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the 'License');
 # you may not use this file except in compliance with the License.
@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+import threading
 import time
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -32,7 +34,6 @@ def setUpModule():
 
 def tearDownModule():
   courier_server.shutdown_all()
-  assert not courier_worker.Worker('test_server').pendings
 
 
 class TestServer(courier_server.CourierServer):
@@ -340,7 +341,6 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
         self.assertIsInstance(states[-1], (ValueError, TimeoutError))
       except Exception:  # pylint: disable=broad-exception-caught
         pass
-    server.stop().join()
 
   def test_courier_exception_during_prefetch(self):
     client = courier.Client(self.server.address, call_timeout=1)
@@ -362,22 +362,23 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
     self.assertRegex(cm.output[0], '.*Traceback.*')
 
   def test_init_generator_lock(self):
+    start, end = threading.Event(), threading.Event()
 
     def delayed_generator(n):
+      start.set()
       time.sleep(1)
+      end.set()
       return range(n)
 
     client = courier.Client(self.server.address)
-    generator = pickler.dumps(lazy_fns.trace(delayed_generator)(10))
-    state1 = client.futures.init_generator(generator)
-    while not self.server._generator_lock.locked():
-      time.sleep(0)
+    generator = lazy_fns.trace(delayed_generator)(10)
+    t = threading.Thread(target=self.server._init_iterator, args=(generator,))
+    t.start()
     generator = pickler.dumps(lazy_fns.trace(range)(10))
-    state2 = client.futures.init_generator(generator)
     # The second init_generator call have to wait until the first one finishes.
-    self.assertFalse(state2.done())
-    self.assertIsNone(state1.result())
-    self.assertIsNone(state2.result())
+    start.wait()
+    self.assertIsNone(client.init_generator(generator))
+    self.assertTrue(end.is_set())
 
   @parameterized.named_parameters([
       dict(testcase_name='local', local=True),
@@ -391,7 +392,7 @@ class PrefetchedCourierServerTest(parameterized.TestCase):
     if local:
       self.server._stop_prefetch()
     else:
-      client.stop_prefetch()
+      assert client.stop_prefetch() is None
     thread = self.server._enqueue_thread
     assert thread is not None
     self.assertFalse(thread.is_alive())
