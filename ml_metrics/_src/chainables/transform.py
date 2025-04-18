@@ -463,6 +463,7 @@ class _ChainedRunnerIterator(Iterable[_ValueT]):
       with_agg_result: bool,
       state: Any = None,
       total: int = 0,
+      single_batch: bool = False,
   ):
     self._iterators = list(iterators)
     assert all(isinstance(it, _RunnerIterator) for it in self._iterators)
@@ -471,6 +472,7 @@ class _ChainedRunnerIterator(Iterable[_ValueT]):
     self._with_agg = state and (with_agg_state or with_agg_result)
     self._with_agg_result = with_agg_result
     self._total = total
+    self._single_batch = single_batch
 
   def maybe_stop(self):
     for it in self._iterators:
@@ -489,6 +491,8 @@ class _ChainedRunnerIterator(Iterable[_ValueT]):
       batch_output = next(self._iterators[-1])
       return batch_output if self._with_result else None
     except StopIteration as e:
+      if self._single_batch:
+        raise
       returned = None
       if self._with_agg:
         # This can collect the agg_state and the agg_result at the end of
@@ -628,6 +632,7 @@ class ChainedRunner(Iterable[_ValueT]):
       state: Any = None,
       ignore_error: bool = False,
       total: int | None = 0,
+      single_batch: bool = False,
   ) -> _ChainedRunnerIterator[Any]:
     """An iterator runner that takes an data_source runs the transform."""
     iterators = []
@@ -647,6 +652,7 @@ class ChainedRunner(Iterable[_ValueT]):
         with_agg_result=with_agg_result,
         state=state or self.create_state(),
         total=total,
+        single_batch=single_batch,
     )
 
   def __iter__(self):
@@ -667,6 +673,7 @@ class ChainedRunner(Iterable[_ValueT]):
     iter_result = self.iterate(
         data_source=self._actual_inputs(inputs, input_iterator),
         ignore_error=ignore_error,
+        single_batch=True,
     )
     result = mit.last(iter_result)
     if iter_result.agg_result is not None:
