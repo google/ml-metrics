@@ -221,7 +221,7 @@ class IterUtilsTest(parameterized.TestCase):
 
   def test_multiplex_iterator_parallel(self):
     it = iter_utils.MultiplexIterator(
-        data_sources=[test_utils.range_with_sleep(10, 0.6), range(10, 20)],
+        data_sources=[test_utils.range_with_sleep(10, 0.3), range(10, 20)],
         iter_fn=iter_inc,
         parallism=2,
     )
@@ -248,10 +248,15 @@ class IterUtilsTest(parameterized.TestCase):
     self.assertTrue(all(not t.is_alive() for t in it._thread_pool._threads))
 
   def test_enqueue_dequeue_raises(self):
+    # Any error immediately stops the dequeue regarldess whether it is  empty.
     q = iter_utils.IteratorQueue()
-    q._exception = ValueError('foo')
     with self.assertRaises(ValueError):
-      _ = list(q)
+      q.enqueue_from_iterator(test_utils.range_with_exc(10, 3))
+    actual = []
+    with self.assertRaises(ValueError):
+      for a in q:
+        actual.append(a)
+    self.assertEqual([], actual)
 
   def test_iterator_queue_enqueue_dequeue_single_thread(self):
     q = iter_utils.IteratorQueue()
@@ -277,22 +282,36 @@ class IterUtilsTest(parameterized.TestCase):
     self.assertLen(output_q.returned, 2)
     self.assertEqual([1, 2], output_q.returned)
 
-  def test_iterator_queue_multithread_enqueue_dequeue(self):
+  def test_iterator_queue_mt_enqueue_dequeue(self):
     n = 1024
     num_threads, num_dequeue_threads = 16, 16
-    input_q = iter_utils.IteratorQueue(24, name='input')
-    q = iter_utils.IteratorQueue(n, timeout=15, name='iter')
-    for _ in range(num_threads):
-      t = threading.Thread(target=q.enqueue_from_iterator, args=(input_q,))
-      t.start()
+    q = iter_utils.IteratorQueue(n, timeout=15, max_enqueuer=num_threads)
     with futures.ThreadPoolExecutor() as thread_pool:
       states = [thread_pool.submit(list, q) for _ in range(num_dequeue_threads)]
-      input_q.enqueue_from_iterator(test_utils.range_with_return(n))
+      for _ in range(num_threads):
+        inputs = test_utils.range_with_return(n)
+        thread_pool.submit(q.enqueue_from_iterator, inputs)
+    results = futures.as_completed(states)
+    actual = list(itt.chain(*(result.result() for result in results)))
+    expected = list(range(n)) * num_threads
+    self.assertCountEqual(expected, actual)
+    self.assertEqual([n] * num_threads, q.returned)
+
+  def test_iterator_queue_mt_single_enqueue(self):
+    n = 1024
+    num_threads = dequeue_threads = 16
+    inputs = iter_utils._ThreadSafeIterator(test_utils.range_with_return(n))
+    q = iter_utils.IteratorQueue(n, max_enqueuer=num_threads, timeout=10)
+    with futures.ThreadPoolExecutor() as thread_pool:
+      states = [thread_pool.submit(list, q) for _ in range(dequeue_threads)]
+      for _ in range(num_threads):
+        t = threading.Thread(target=q.enqueue_from_iterator, args=(inputs,))
+        t.start()
     results = futures.as_completed(states)
     actual = list(itt.chain(*(result.result() for result in results)))
     expected = list(range(n))
     self.assertCountEqual(expected, actual)
-    self.assertEqual([n] * num_threads, q.returned)
+    self.assertEqual([n], q.returned)
 
   def test_iterator_queue_mt_enqueue_async_dequeue(self):
     n = 1024
@@ -367,9 +386,12 @@ class IterUtilsTest(parameterized.TestCase):
           iterator.enqueue_from_iterator, test_utils.range_with_return(10)
       )
       qsize = iterator._queue.qsize()
-      result += iterator.get_batch()
-      result += iterator.get_batch(2, block=True)
-      result += iterator.get_batch(block=True)
+      try:
+        result += iterator.get_batch()
+        result += iterator.get_batch(2, block=True)
+        result += iterator.get_batch(block=True)
+      except StopIteration:
+        pass
     self.assertLessEqual(qsize, 2)
     self.assertEqual(list(range(10)), result)
     self.assertEqual([10], iterator.returned)
