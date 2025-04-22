@@ -58,6 +58,7 @@ class _QueueLike(Protocol[_ValueT]):
 
 
 STOP_ITERATION = StopIteration()
+# Only used in in process as indicator to skip, not meant to cross process.
 _SKIP = '_SKIP'
 
 
@@ -469,23 +470,6 @@ def _async_get_batch(iterator_queue: IterableQueue):
     raise StopAsyncIteration(*e.args) from e
 
 
-def _release_and_notify(
-    lock: threading.Lock | threading.Condition | threading.RLock,
-    notify: threading.Condition,
-    notify_all: bool = False,
-):
-  """Temporarily releases the lock and notifies the notify_lock."""
-  lock.release()
-  try:
-    with notify:
-      if notify_all:
-        notify.notify_all()
-      else:
-        notify.notify()
-  finally:
-    lock.acquire()
-
-
 class IteratorQueue(IterableQueue[_ValueT]):
   """Enqueue elements from an iterator and record exhausted and returned.
 
@@ -522,10 +506,9 @@ class IteratorQueue(IterableQueue[_ValueT]):
     self._max_batch_size = max_batch_size or _MAX_BATCH_SIZE
     self.name = name
     self.timeout = timeout
-    # The lock here manages enqueue (put) and dequeue (get).
-    self._dequeue_lock = threading.Condition()
-    self._enqueue_lock = threading.Condition()
-    # The lock here protects the access to all states below.
+    # The events here manages enqueue (put) and dequeue (get).
+    self._not_empty, self._not_full = threading.Event(), threading.Event()
+    # The lock here protects the mutation and access to all states.
     self._states_lock = threading.RLock()
     self._progress = Progress()
     self._returned = []
@@ -556,14 +539,13 @@ class IteratorQueue(IterableQueue[_ValueT]):
     return self._exhausted
 
   def _set_exhausted(self):
-    remaining = self._enqueue_start - self._enqueue_stop
-    with_exception = self.exception is not None
-    logging.debug(
-        'chainable: %s',
-        f'"{self.name}" dequeue exhausted {with_exception=}, {remaining=}',
-    )
     self._exhausted = True
-    self._dequeue_lock.notify_all()
+    self._not_empty.set()
+    remain = self._enqueue_start - self._enqueue_stop
+    has_exception = self.exception is not None
+    logging.debug(
+        'chainable: %s', f'"{self.name}" exhausted {has_exception=}, {remain=}'
+    )
 
   def __bool__(self):
     return not self.exhausted
@@ -606,12 +588,13 @@ class IteratorQueue(IterableQueue[_ValueT]):
       if self.enqueue_done:
         self._set_exhausted()
         raise self.exception or StopIteration(*self.returned)
+      self._not_empty.clear()
       raise e
     except StopIteration as e:
       raise e
     except Exception as e:  # pylint: disable=broad-exception-caught
-      e.add_note(f'Exception during dequeueing "{self.name}".')
-      logging.exception('chainable: %s', f'"{self.name}" dequeue failed.')
+      e.add_note(f'Exception during Dequeueing "{self.name}".')
+      logging.exception('chainable: %s', f'"{self.name}" Dequeue failed.')
       raise e
     finally:
       self._states_lock.release()
@@ -633,88 +616,74 @@ class IteratorQueue(IterableQueue[_ValueT]):
     """
     max_batch_size = max_batch_size or self._max_batch_size
     result = []
-    with self._dequeue_lock:
-      while not max_batch_size or len(result) < max_batch_size:
-        try:
-          result.append(self.get_nowait())
-          logging.debug('chainable: %s', 'dequeued one')
-        except (queue.Empty, asyncio.QueueEmpty) as e:
-          if (not block and result) or (
-              block and max_batch_size and len(result) == max_batch_size
-          ):
-            break
-          if result:
-            _release_and_notify(self._dequeue_lock, notify=self._enqueue_lock)
-          logging.debug(
-              'chainable: %s', f'"{self.name}" dequeue empty, got {len(result)}'
-          )
-          # By the time the lock is re-acquired, the queue may have elements.
-          if not self._queue.empty():
-            continue
-          if self._dequeue_lock.wait(timeout=self.timeout):
-            continue
-          raise TimeoutError(
-              f'"{self.name}" dequeue timeout={self.timeout}secs.'
-          ) from e
-        except Exception as e:  # pylint: disable=broad-exception-caught
-          exhausted = is_stop_iteration(e)
-          if (exhausted and result) or (not exhausted and self.ignore_error):
-            break
-          raise e
-    with self._enqueue_lock:
-      self._enqueue_lock.notify()
+    while not max_batch_size or len(result) < max_batch_size:
+      try:
+        result.append(self.get_nowait())
+      except (queue.Empty, asyncio.QueueEmpty) as e:
+        if not block and result:
+          break
+
+        if result:
+          self._not_full.set()
+        logging.debug(
+            'chainable: %s',
+            f'"{self.name}" Dequeue empty, got {len(result)} elements, waiting'
+            f' {self.enqueue_done=} {self._not_empty.is_set()=}.',
+        )
+        if self._not_empty.wait(timeout=self.timeout):
+          continue
+
+        raise TimeoutError(
+            f'"{self.name}" dequeue timeout after {self.timeout}secs.'
+        ) from e
+      except Exception as e:  # pylint: disable=broad-exception-caught
+        exhausted = is_stop_iteration(e)
+        if (exhausted and result) or (not exhausted and self.ignore_error):
+          break
+        raise e
+
+    self._not_full.set()
     logging.debug(
-        'chainable: %s', f'"{self.name}" dequeued {len(result)} batches'
+        'chainable: %s', f'"{self.name}" Dequeued {len(result)} elements.'
     )
     return result
 
   def get(self) -> _ValueT:
     """Gets an element from the queue, waits for timeout if empty."""
-    with self._dequeue_lock:
-      while True:
-        try:
-          value = self.get_nowait()
-          _release_and_notify(self._dequeue_lock, notify=self._enqueue_lock)
-          logging.debug(
-              'chainable: %s', f'"{self.name}" dequeued a {type(value)}'
-          )
-          return value
-        except (queue.Empty, asyncio.QueueEmpty) as e:
-          logging.debug(
-              'chainable: %s', f'"{self.name}" dequeue empty, waiting'
-          )
-          if self._dequeue_lock.wait(timeout=self.timeout):
-            logging.debug('chainable: %s', f'"{self.name}" dequeue retry')
-            continue
-          raise TimeoutError(f'Dequeue timeout={self.timeout}secs.') from e
+    return self.get_batch(max_batch_size=1, block=True)
 
-  def put_nowait(self, value: _ValueT) -> None:
-    """Puts a value to the queue, raieses if queue is full immediately."""
-    # When the queue is full, this will raise queue.Full or asyncio.QueueFull.
-    self._queue.put_nowait(value)
-    with self._states_lock:
+  def put_nowait(self, value: _ValueT = _SKIP, *, stop_iteration=None) -> None:
+    """Puts a value to the queue, raises if queue is full immediately."""
+    self._states_lock.acquire()
+    try:
+      if value is not _SKIP:
+        self._queue.put_nowait(value)
+      if is_stop_iteration(stop_iteration):
+        self._stop_enqueue(*stop_iteration.args)
+      elif stop_iteration:
+        self._exception = stop_iteration
+        self._stop_enqueue()
+      self._not_empty.set()
       self._progress.cnt += 1
       logging.debug(
           'chainable: %s', f'"{self.name}" enqueued cnt {self._progress.cnt}.'
       )
+    except (queue.Full, asyncio.QueueFull):
+      self._not_full.clear()
+      raise
+    finally:
+      self._states_lock.release()
 
-  def put(self, value: _ValueT) -> None:
-    """Puts a value to the queue, waits for timeout if queue is full."""
-    with self._enqueue_lock:
-      while not self.enqueue_done:
-        try:
-          self.put_nowait(value)
-          _release_and_notify(self._enqueue_lock, notify=self._dequeue_lock)
-          return
-        except (queue.Full, asyncio.QueueFull) as e:
-          logging.debug('chainable: %s', f'"{self.name}" enqueue full, waiting')
-          # By the time the value is enqueued, the enqueue could be stopped by
-          # external signal.
-          if self.enqueue_done:
-            break
-          if self._enqueue_lock.wait(timeout=self.timeout):
-            continue
-          raise TimeoutError(f'Enqueue timeout={self.timeout}secs.') from e
+  def put(self, value: _ValueT = _SKIP, *, stop_iteration=None) -> None:
+    """Puts a value to the queue and optionally stop enqueue in one transaction."""
+    while not self.enqueue_done:
+      try:
+        return self.put_nowait(value, stop_iteration=stop_iteration)
+      except (queue.Full, asyncio.QueueFull) as e:
+        logging.debug('chainable: %s', f'"{self.name}" enqueue full, waiting')
+        if self._not_full.wait(timeout=self.timeout):
+          continue
+        raise TimeoutError(f'Enqueue timeout={self.timeout}secs.') from e
 
   def _start_enqueue(self):
     with self._states_lock:
@@ -727,19 +696,15 @@ class IteratorQueue(IterableQueue[_ValueT]):
       self._enqueue_stop += 1
       self._enqueue_stop = min(self._enqueue_stop, self._enqueue_start)
       self._returned.extend(values)
-      remaining = self._enqueue_start - self._enqueue_stop
-      logging.debug(
-          'chainable: %s',
-          f'"{self.name}" enqueue stop, {remaining=}/{self._max_enqueuer},'
-          f' with_exception={self.exception is not None}',
-      )
       if self.enqueue_done:
-        _release_and_notify(
-            self._states_lock, notify=self._dequeue_lock, notify_all=True
-        )
-        logging.debug(
-            'chainable: %s', f'"{self.name}" enqueue done, notify all'
-        )
+        self._not_empty.set()
+        logging.debug('chainable: %s', f'"{self.name}" enqueue done, notify.')
+    logging.debug(
+        'chainable: %s',
+        f'"{self.name}" enqueue stop, remaining='
+        f'{self._enqueue_start - self._enqueue_stop}/{self._max_enqueuer}, '
+        f'cnt:{self._progress.cnt}, exception={self.exception is not None}',
+    )
 
   def maybe_stop(self, exc: Exception | None = None):
     """Stops the producer and optionally terminates the consumer.
@@ -760,25 +725,28 @@ class IteratorQueue(IterableQueue[_ValueT]):
       if not is_stop_iteration(exc):
         self._exception = exc
       assert self.enqueue_done, f'{self._enqueue_stop=}, {self._enqueue_start=}'
-    with self._enqueue_lock:
-      self._enqueue_lock.notify_all()
-    with self._dequeue_lock:
+      self._not_full.set()
       if not is_stop_iteration(exc):
-        # Immeidately terminate the consumer side for enqueue error.
+        # Immediately terminate the consumer side for enqueue error.
         self._set_exhausted()
       else:
-        self._dequeue_lock.notify_all()
+        self._not_empty.set()
     logging.info('chainable: %s', f'"{self.name}" stopping enqueue.')
 
-  def enqueue_from_iterator(self, iterator: Iterable[_ValueT]):
+  def enqueue_from_iterator(self, iterator: Iterable[_ValueT]) -> None:
     """Iterates through a generator while enqueue its elements."""
     iterator = iter(iterator)
     self._start_enqueue()
+    buffer = []
     while not self.enqueue_done:
       try:
-        self.put(next(iterator))
+        buffer.append(next(iterator))
+        # Skip the first value, so only enqueue with one element delay.
+        if len(buffer) == 2:
+          self.put(buffer.pop(0))
       except StopIteration as e:
-        self._stop_enqueue(*e.args)
+        value = buffer.pop() if buffer else _SKIP
+        self.put(value, stop_iteration=e)
         return
       except Exception as e:  # pylint: disable=broad-exception-caught
         # Need to go pass this exception assuming the iterator can skip error.
@@ -789,9 +757,9 @@ class IteratorQueue(IterableQueue[_ValueT]):
           )
           continue
         e.add_note(f'Exception during enqueueing "{self.name}".')
+        value = buffer.pop() if buffer else _SKIP
+        self.put(value, stop_iteration=e)
         logging.exception('chainable: %s', f'"{self.name}" enqueue failed.')
-        self._exception = e
-        self._stop_enqueue()
         raise e
 
 
