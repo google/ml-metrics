@@ -964,8 +964,6 @@ class TreeTransform(Generic[TreeFnT]):
   def assign(
       self,
       assign_keys: TreeMapKey | TreeMapKeys = (),
-      # TODO: b/376296013 - output_keys is deprecated, use assign_keys instead.
-      output_keys: TreeMapKey | TreeMapKeys = (),
       *,
       fn: types.MaybeResolvable[Callable[..., Any]] | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
@@ -973,12 +971,6 @@ class TreeTransform(Generic[TreeFnT]):
       batch_size: int = 0,
   ) -> TreeTransform:
     """Assign some key value pairs back to the input mapping."""
-    if output_keys:
-      raise ValueError(
-          '`output_keys` is deprecated, use positional arguments or'
-          ' `assign_keys` instead.'
-      )
-    assign_keys = assign_keys or output_keys
     fn = tree_fns.Assign(
         output_keys=assign_keys,
         fn=fn,
