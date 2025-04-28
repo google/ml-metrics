@@ -971,12 +971,16 @@ class TreeTransform(Generic[TreeFnT]):
       batch_size: int = 0,
   ) -> TreeTransform:
     """Assign some key value pairs back to the input mapping."""
+    # TODO: b/413743757 - remove batch_size and fn_batch_size.
+    if batch_size or fn_batch_size:
+      raise ValueError('batch_size is deprecated, use batch() instead.')
+    if not assign_keys:
+      raise ValueError(f'Assign should have assign_keys, got {assign_keys=}')
+
     fn = tree_fns.Assign(
         output_keys=assign_keys,
         fn=fn,
         input_keys=input_keys,
-        fn_batch_size=fn_batch_size,
-        batch_size=batch_size,
     )
     self._check_assign_keys(fn.output_keys)
     return self._maybe_new_transform(fn)
@@ -987,13 +991,21 @@ class TreeTransform(Generic[TreeFnT]):
       output_keys: TreeMapKeys | None = None,
       batch_size: int = 0,
   ) -> TreeTransform:
+    """Selects the input of this transform."""
+    # TODO: b/413743757 - remove batch_size.
+    if batch_size:
+      raise ValueError('batch_size is deprecated, use batch() instead.')
+
     output_keys = output_keys or input_keys
-    fn = tree_fns.Select(
-        input_keys=input_keys, output_keys=output_keys, batch_size=batch_size
-    )
+    fn = tree_fns.Select(input_keys=input_keys, output_keys=output_keys)
     return self._maybe_new_transform(fn)
 
-  def batch(self, batch_size: int = 0):
+  def batch(
+      self,
+      batch_size: int = 0,
+      *,
+      batch_fn: Callable[..., Any] | None = None,
+  ):
     """Batches the input of this transform.
 
     This batches single element to a list of elements. E.g., for inputs of
@@ -1006,18 +1018,23 @@ class TreeTransform(Generic[TreeFnT]):
 
     Args:
       batch_size: the batch size.
+      batch_fn: the batch function that takes a tuple of inputs and returns a
+        tuple of batched outputs.
 
     Returns:
       A TreeTransform that batches the input of this transform.
     """
-    fn = lambda *args: tuple([arg] for arg in args)
+    if batch_fn is None:
+      batch_fn = lambda x: [x]
+    fn = lambda *args: tuple(batch_fn(arg) for arg in args)
     keys = tuple(self.output_keys) or tree.Key.SELF
-    return self.apply(
-        output_keys=keys,
+    fn = tree_fns.TreeFn(
+        batch_size=batch_size,
         fn=fn,
         input_keys=keys,
-        batch_size=batch_size,
+        output_keys=keys,
     )
+    return self._maybe_new_transform(fn)
 
   def sink(
       self,
@@ -1091,12 +1108,14 @@ class TreeTransform(Generic[TreeFnT]):
       batch_size: int = 0,
   ) -> TreeTransform:
     """Applies a TreeFn on the selected inputs and directly outputs the result."""
+    # TODO: b/413743757 - remove batch_size and fn_batch_size.
+    if batch_size or fn_batch_size:
+      raise ValueError('(fn_)batch_size is deprecated, use batch() instead.')
+
     fn = tree_fns.TreeFn(
         output_keys=output_keys,
         fn=fn,
         input_keys=input_keys,
-        fn_batch_size=fn_batch_size,
-        batch_size=batch_size,
     )
     return self._maybe_new_transform(fn)
 

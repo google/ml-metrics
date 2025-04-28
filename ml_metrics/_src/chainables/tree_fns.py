@@ -61,7 +61,6 @@ class TreeFn(Generic[_FnT, _T]):
       corresponding input in sequence of the keys in `input_keys`.
     replace_mask_false_with: If provided, replace False in the mask with this
       value.
-    fn_batch_size: Overrides the input batch size of the function call.
     batch_size: Overrides the output batch size, has to be set when
       fn_batch_size is set.
     lazy: If True, the underlying function is lazy, normally, this means it
@@ -78,21 +77,14 @@ class TreeFn(Generic[_FnT, _T]):
   replace_mask_false_with: Any = dc.field(
       default=tree.DEFAULT_FILTER, repr=False
   )
-  fn_batch_size: int = 0
   batch_size: int = 0
   ignore_error: bool = False
   _cached_fn: _FnT | None = None
 
   def __post_init__(self):
-    if self.fn_batch_size and not self.batch_size:
+    if self.batch_size < 0:
       raise ValueError(
-          'fn_batch_size should be used with batch_size, got'
-          f' {self.fn_batch_size=} and {self.batch_size=}.'
-      )
-    if self.fn_batch_size < 0 or self.batch_size < 0:
-      raise ValueError(
-          'batch sizes have to be non-negative, got'
-          f' {self.fn_batch_size=} and {self.batch_size=}'
+          f'batch sizes have to be non-negative, got {self.batch_size=}'
       )
     input_argkeys = self.input_argkeys
     input_keys, output_keys = self.input_keys, self.output_keys
@@ -235,12 +227,6 @@ class TreeFn(Generic[_FnT, _T]):
   ) -> Iterator[tree.TreeLike[_T]]:
     """Iterates through the input_iterator and calls the function."""
     fn_inputs = map(self._get_inputs, input_iterator)
-    if self.fn_batch_size:
-      fn_inputs = iter_utils.rebatched_args(
-          fn_inputs,
-          batch_size=self.fn_batch_size,
-          num_columns=self._num_inputs,
-      )
     # Only ignore function call error.
     map_ = iter_utils.map_ignore_error if ignore_error else map
     fn_outputs = map_(self._maybe_call_fn, fn_inputs)
@@ -277,6 +263,10 @@ class TreeFn(Generic[_FnT, _T]):
 class FilterFn(TreeFn):
   """A lazy Map operation that operates on an mappable."""
 
+  def __post_init__(self):
+    super().__post_init__()
+    assert not self.batch_size, f'{self.batch_size=}'
+
   def iterate(
       self, input_iterator: Iterable[tree.TreeLike]
   ) -> Iterator[tree.TreeLike[_T]]:
@@ -289,10 +279,8 @@ class Assign(TreeFn):
 
   def __post_init__(self):
     super().__post_init__()
-    if not self.output_keys:
-      raise ValueError(
-          f'Assign should have output_keys, got {self.output_keys=}'
-      )
+    assert self.output_keys, f'{self.output_keys=}'
+    assert not self.batch_size, f'{self.batch_size=}'
 
   def iterate(
       self, input_iterator: Iterable[tree.TreeLike]
@@ -311,6 +299,7 @@ class Select(TreeFn):
   def __post_init__(self):
     super().__post_init__()
     assert self.fn is _identity_fn, f'Select should have no fn, got {self.fn}.'
+    assert not self.batch_size, f'{self.batch_size=}'
 
 
 class _CallableSink(Callable[..., None]):

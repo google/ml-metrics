@@ -626,12 +626,17 @@ class TransformTest(parameterized.TestCase):
       input_keys=tree.Key.SELF,
       output_keys=tree.Key.SELF,
   ):
-    t = transform.TreeTransform().apply(
-        output_keys=output_keys,
-        fn=fn,
-        input_keys=input_keys,
-        fn_batch_size=fn_batch_size,
-        batch_size=batch_size,
+    t = (
+        transform.TreeTransform()
+        .select(input_keys)
+        # batch_fn is lambda x: x is equivalent to rebatching.
+        .batch(fn_batch_size, batch_fn=lambda x: x)
+        .apply(
+            output_keys=output_keys,
+            fn=fn,
+            input_keys=input_keys,
+        )
+        .batch(batch_size=batch_size, batch_fn=lambda x: x)
     )
     actual = list(t.make().iterate(inputs))
     test_utils.assert_nested_container_equal(self, expected, actual)
@@ -666,54 +671,28 @@ class TransformTest(parameterized.TestCase):
               {'a': [3, 4], 'b': np.array([4, 5])},
           ],
       ),
-      dict(
-          testcase_name='without_keys',
-          inputs=map(list, mit.batched(range(5), 3)),
-          fn_batch_size=2,
-          batch_size=3,
-          fn=BatchedCall(batch_size=2),
-          expected=[np.array([1, 2, 3]), np.array([4, 5])],
-      ),
-      dict(
-          testcase_name='rebatch_only',
-          inputs=map(list, mit.batched(range(5), 2)),
-          batch_size=3,
-          expected=[[0, 1, 2], [3, 4]],
-      ),
-      dict(
-          testcase_name='with_lazy_fns',
-          inputs=map(list, mit.batched(range(5), 3)),
-          fn_batch_size=2,
-          batch_size=3,
-          fn=lazy_fns.trace(BatchedCall)(batch_size=2),
-          expected=[np.array([1, 2, 3]), np.array([4, 5])],
-      ),
-      dict(
-          testcase_name='input_keys_only',
-          inputs=[{'a': [0, 1, 2], 'b': [1]}, {'a': [4, 5], 'b': [5]}],
-          fn_batch_size=2,
-          batch_size=3,
-          input_keys='a',
-          fn=BatchedCall(batch_size=2),
-          expected=[np.array([1, 2, 3]), np.array([5, 6])],
-      ),
   ])
   def test_assign_transform_rebatched(
       self,
       inputs,
       expected,
+      output_keys,
       fn=None,
       fn_batch_size=0,
       batch_size=0,
       input_keys=tree.Key.SELF,
-      output_keys=tree.Key.SELF,
   ):
-    t = transform.TreeTransform().assign(
-        assign_keys=output_keys,
-        fn=fn,
-        input_keys=input_keys,
-        fn_batch_size=fn_batch_size,
-        batch_size=batch_size,
+    t = (
+        transform.TreeTransform()
+        .select(input_keys)
+        # batch_fn is lambda x: x is equivalent to rebatching.
+        .batch(fn_batch_size, batch_fn=lambda x: x)
+        .assign(
+            assign_keys=output_keys,
+            fn=fn,
+            input_keys=input_keys,
+        )
+        .batch(batch_size=batch_size, batch_fn=lambda x: x)
     )
     actual = list(t.make().iterate(inputs))
     test_utils.assert_nested_container_equal(self, expected, actual)
@@ -724,6 +703,18 @@ class TransformTest(parameterized.TestCase):
 
     with self.assertRaises(ValueError):
       transform.TreeTransform().assign('a', fn=len).assign(fn=len)
+
+  def test_deprecated_batch_size(self):
+    with self.assertRaisesRegex(ValueError, 'batch_size is deprecated'):
+      transform.TreeTransform().apply(batch_size=1)
+    with self.assertRaisesRegex(ValueError, 'batch_size is deprecated'):
+      transform.TreeTransform().apply(fn_batch_size=1)
+    with self.assertRaisesRegex(ValueError, 'batch_size is deprecated'):
+      transform.TreeTransform().assign('a', fn=len, batch_size=1)
+    with self.assertRaisesRegex(ValueError, 'batch_size is deprecated'):
+      transform.TreeTransform().assign('a', fn=len, fn_batch_size=1)
+    with self.assertRaisesRegex(ValueError, 'batch_size is deprecated'):
+      transform.TreeTransform().select(('a', 'b'), batch_size=1)
 
   @parameterized.named_parameters([
       dict(
@@ -824,7 +815,11 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual(expected, t.make()(inputs))
 
   def test_select_with_rebatch(self):
-    t = transform.TreeTransform().select(('a', 'b'), batch_size=3)
+    t = (
+        transform.TreeTransform()
+        .select(('a', 'b'))
+        .batch(batch_size=3, batch_fn=lambda x: x)
+    )
     inputs = [
         {'a': [0, 1], 'b': [1, 2], 'c': [0, 1]},
         {'a': [2, 3], 'b': [3, 4], 'c': [2, 3]},

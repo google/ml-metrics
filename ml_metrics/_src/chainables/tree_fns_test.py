@@ -153,6 +153,12 @@ class TreeFnTest(parameterized.TestCase):
     mock_actual_fn.assert_not_called()
     self.assertEqual(tree_fn, pickle.loads(pickle.dumps(tree_fn)))
 
+  def test_tree_fn_negative_batch_size_raises(self):
+    with self.assertRaisesRegex(
+        ValueError, 'batch sizes have to be non-negative'
+    ):
+      tree_fns.TreeFn(batch_size=-1)
+
   def test_tree_fn_pickle_with_lazy_fn(self):
     tree_fn = tree_fns.TreeFn(fn=lazy_fns.trace(test_utils.Unpickleable)())
     self.assertEqual(3, tree_fn(2))
@@ -177,7 +183,7 @@ class TreeFnTest(parameterized.TestCase):
     self.assertEqual([0, 1, 3, 4], actual)
 
   def test_tree_fn_assign_no_output_keys_raises(self):
-    with self.assertRaisesRegex(ValueError, 'Assign should have output_keys'):
+    with self.assertRaises(AssertionError):
       tree_fns.Assign(fn=lambda: 1, output_keys=())
 
   def test_tree_fn_call_failed_raises(self):
