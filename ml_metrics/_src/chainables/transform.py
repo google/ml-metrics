@@ -410,7 +410,7 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
       ]
     else:
       data_sources = [data_source]
-    return data_sources
+    return data_sources  # pytype: disable=bad-return-type
 
   def __iter__(self):
     return self.iterate()
