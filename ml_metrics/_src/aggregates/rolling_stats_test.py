@@ -303,7 +303,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
           reservoir_other=[6, 7, 8, 9, 10],
           num_samples_original=5,
           num_samples_other=5,
-          expected_reservoir=(2, 1, 9, 10, 7),
+          expected_reservoir=(1, 2, 3, 4, 5),
           expected_num_samples_reviewed=10,
       ),
       dict(
@@ -311,18 +311,18 @@ class FixedSizeSampleTest(parameterized.TestCase):
           reservoir_original=[1, 2, 3, 4, 5],
           reservoir_other=[6, 7],
           num_samples_original=5,
-          num_samples_other=2,
-          expected_reservoir=(2, 1, 7, 5, 6),
-          expected_num_samples_reviewed=7,
+          num_samples_other=20,
+          expected_reservoir=(1, 4, 5, 6, 7),
+          expected_num_samples_reviewed=25,
       ),
       dict(
           testcase_name='only_other_reservoir_full',
           reservoir_original=[1, 2, 3],
           reservoir_other=[6, 7, 8, 9, 10],
-          num_samples_original=3,
+          num_samples_original=20,
           num_samples_other=5,
-          expected_reservoir=(1, 2, 9, 10, 7),
-          expected_num_samples_reviewed=8,
+          expected_reservoir=(1, 2, 3, 6, 7),
+          expected_num_samples_reviewed=25,
       ),
       dict(
           testcase_name='neither_reservoir_full',
@@ -347,9 +347,9 @@ class FixedSizeSampleTest(parameterized.TestCase):
           reservoir_original=[1, 2, 3, 4, 5],
           reservoir_other=[6, 7, 8, 9, 10],
           num_samples_original=11,
-          num_samples_other=7,
-          expected_reservoir=(2, 1, 9, 10, 7),
-          expected_num_samples_reviewed=18,
+          num_samples_other=100,
+          expected_reservoir=(6, 7, 8, 9, 10),
+          expected_num_samples_reviewed=111,
       ),
   )
   def test_fixed_size_sample_merge(
@@ -389,13 +389,13 @@ class FixedSizeSampleTest(parameterized.TestCase):
         max_size=5,
         seed=0,
         _reservoir=res_1,
-        _num_samples_reviewed=10,
+        _num_samples_reviewed=5,
     )
     other = rolling_stats.FixedSizeSample(
-        max_size=10, seed=0, _reservoir=res_2, _num_samples_reviewed=10
+        max_size=10, seed=0, _reservoir=res_2, _num_samples_reviewed=20
     )
     sampler.merge(other)
-    expected_result = (2, 1, 70, 100, 60)
+    expected_result = (20, 10, 90, 80, 100)
     np.testing.assert_array_equal(sampler.result(), expected_result)
 
   def test_fixed_size_sample_merge_smaller_samples_than_max_size(self):
@@ -569,6 +569,40 @@ class FixedSizeSampleTest(parameterized.TestCase):
         actual_counter[v] += 1
     actual_counter /= num_runs
     np.testing.assert_array_less(actual_counter - max_size / max_range, 0.03)
+
+  def test_sampling_merge_uniformness_weighted_reservoirs(self):
+    max_range, max_size = 100, 10
+    actual_counter = np.zeros(max_range)
+    num_runs = 1000
+    testing_buckets = 10
+
+    for i in range(num_runs):
+      sampler = rolling_stats.FixedSizeSample(max_size=max_size, seed=i)
+      for batch in mit.batched(np.arange(max_range), 9):
+        other = rolling_stats.FixedSizeSample(max_size=max_size, seed=i)
+        other.add(batch)
+
+        # Makes every choice between the two reservoirs weighted equally.
+        if sampler._num_samples_reviewed != 0:
+          other._num_samples_reviewed = sampler._num_samples_reviewed
+
+        sampler.merge(other)
+
+      for v in sampler.result():
+        actual_counter[v] += 1
+
+    actual_counter /= num_runs
+
+    # We expect the last bucket to show up with probability of 1/2, the second
+    # last bucket to show up with probability of 1/2**2, and this pattern to
+    # continue.
+    for i in range(testing_buckets):
+      np.testing.assert_allclose(
+          actual_counter[i : i + testing_buckets],
+          1 / (2 ** (testing_buckets - i)),
+          rtol=0.99,
+          atol=0.005,
+      )
 
   def test_as_agg_fn(self):
     sampler = rolling_stats.FixedSizeSample(max_size=5, seed=0)

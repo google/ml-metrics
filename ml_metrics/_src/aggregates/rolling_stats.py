@@ -128,22 +128,35 @@ class FixedSizeSample(base.MergeableMetric, base.HasAsAggFn):
         self._logw += np.log(self._rng.uniform(low=_EPSNEG)) / self.max_size
     self._num_samples_reviewed += n
 
-  def _merge_reservoirs(self, other: FixedSizeSample) -> list[Any]:
-    # TODO: b/370053191 - For efficiency, sample from the combined reservoir
-    # in one-shot.
-    result = []
-    num_samples_orig = self._num_samples_reviewed
-    reservoir_new, num_samples_new = other.reservoir, other.num_samples_reviewed
-    while len(result) < self.max_size and num_samples_orig + num_samples_new:
-      thr_from_orig = num_samples_orig / (num_samples_orig + num_samples_new)
-      if self._rng.uniform() < thr_from_orig:
-        sample = self._reservoir.pop(self._rng.integers(len(self._reservoir)))
-        num_samples_orig -= 1
-      else:
-        sample = reservoir_new.pop(self._rng.integers(len(reservoir_new)))
-        num_samples_new -= 1
-      result.append(sample)
-    return result
+  def _merge_reservoirs(
+      self, max_size: int, num_samples_reviewed: int, reservoir: list[Any]
+  ) -> list[Any]:
+
+    # Use num of samples reviewed to perform a weighted random choice for which
+    # reservoir to add to the new reservoir first.
+    if self._rng.uniform() < self._num_samples_reviewed / (
+        self._num_samples_reviewed + num_samples_reviewed
+    ):
+      first, second = self._reservoir, reservoir
+    else:
+      first, second = reservoir, self._reservoir
+
+    # Fill new reservoir with samples from the first reservoir.
+    if len(first) == self.max_size:
+      return first
+
+    if len(first) > self.max_size:
+      return self._rng.choice(first, self.max_size, replace=False)
+
+    # Finish filling the new reservoir with samples from the second reservoir.
+    if len(second) <= max_size - len(first):
+      return list(first) + list(second)
+
+    return list(first) + list(
+        self._rng.choice(
+            second, min(len(second), self.max_size - len(first)), replace=False
+        )
+    )
 
   def add(self, inputs: types.NumbersT):
     self._add_samples_to_reservoir(inputs, n=len(inputs))
@@ -154,7 +167,10 @@ class FixedSizeSample(base.MergeableMetric, base.HasAsAggFn):
           'The seeds of the two samplers must be equal, but recieved'
           f' self.seed={self.seed} and other.seed={other.seed}.'
       )
-    self._reservoir = self._merge_reservoirs(other)
+
+    self._reservoir = self._merge_reservoirs(
+        other.max_size, other.num_samples_reviewed, other.reservoir
+    )
     self._num_samples_reviewed += other.num_samples_reviewed
     self._logw += other.logw
 
