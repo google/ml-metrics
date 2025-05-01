@@ -498,28 +498,27 @@ class TransformTest(parameterized.TestCase):
 
   @parameterized.named_parameters([
       dict(
-          testcase_name='assign_elem', inputs=0, fn=lambda x: x + 1, expected=1
+          testcase_name='assign_elem',
+          inputs=[0],
+          fn=lambda x: x[0] + 1,
+          output_keys=Key().at(1),
+          expected=[0, 1],
       ),
       dict(
           testcase_name='assign_batch',
-          inputs=[0, 1],
+          inputs=[[0, 1]],
           fn=iter_utils.iterate_fn(lambda x: x + 1),
-          expected=[1, 2],
-      ),
-      dict(
-          testcase_name='assign_with_input_keys',
-          inputs=[0, 1],
-          fn=lambda x: x + 1,
-          expected=2,
-          input_keys=Key.Index(1),
+          input_keys=Key().at(0),
+          output_keys=Key().at(1),
+          expected=[[0, 1], [1, 2]],
       ),
       dict(
           testcase_name='assign_with_output_keys',
           inputs=[0, 1],
           fn=lambda x: x + 1,
-          expected=[0, 2],
+          expected=[0, 1, 2],
           input_keys=Key.Index(1),
-          output_keys=Key.Index(1),
+          output_keys=Key.Index(2),
       ),
       dict(
           testcase_name='assign_with_lazy_fn',
@@ -762,7 +761,7 @@ class TransformTest(parameterized.TestCase):
       ),
   ])
   def test_assign_self_keys_invalid(self, k1, k2):
-    with self.assertRaisesRegex(KeyError, 'Cannot mix SELF with other keys'):
+    with self.assertRaisesRegex(KeyError, 'Cannot assign to SELF'):
       # fn=len is not sensible here but the error should be raised at pipeline
       # construction time. So not reaching that point is part of the test.
       (transform.TreeTransform().assign(k1, fn=len).assign(k2, fn=len))

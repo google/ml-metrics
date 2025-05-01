@@ -928,12 +928,18 @@ class TreeTransform(Generic[TreeFnT]):
       self,
       assign_keys: TreeMapKeys,
       exisiting_keys: set[TreeMapKeys] | None = None,
+      is_aggregate: bool = False,
   ):
     """Checks the assign keys are valid."""
     non_dict_keys, dict_keys = mit.partition(_is_dict, assign_keys)
     new_keys = set(itertools.chain(non_dict_keys, *dict_keys))
     if exisiting_keys is None:
       exisiting_keys = self.output_keys
+    # Allow SELF as aggregate output_keys, but not for assign.
+    if not is_aggregate and tree.Key.SELF in new_keys:
+      raise KeyError(
+          f'Cannot assign to SELF, got {new_keys=}, uses apply instead.'
+      )
     if conflicting_keys := new_keys.intersection(exisiting_keys):
       raise KeyError(
           f'Duplicate output_keys: {conflicting_keys} from assignment of'
@@ -1133,7 +1139,7 @@ class TreeTransform(Generic[TreeFnT]):
     """Appends a new aggregate while optionally creates a new transform."""
     if not fn:
       return self
-    self._check_assign_keys(fn.output_keys, self.agg_output_keys)
+    self._check_assign_keys(fn.output_keys, self.agg_output_keys, True)
     agg_fns = self.agg_fns + (fn,)
     return dataclasses.replace(self, agg_fns=agg_fns)
 
