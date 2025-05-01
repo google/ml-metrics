@@ -987,7 +987,7 @@ class TreeTransform(Generic[TreeFnT]):
 
   def select(
       self,
-      input_keys: TreeMapKeys,
+      input_keys: TreeMapKeys | TreeMapKey,
       output_keys: TreeMapKeys | None = None,
       batch_size: int = 0,
   ) -> TreeTransform:
