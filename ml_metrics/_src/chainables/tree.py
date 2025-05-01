@@ -378,7 +378,10 @@ class TreeMapView(Mapping[TreeMapKey, LeafValueT]):
       if isinstance(k, Literal):
         return k.value
       if types.is_array_like(data) or isinstance(data, Mapping):
-        data = data[k]
+        try:
+          data = data[k]
+        except (KeyError, TypeError) as e:
+          raise KeyError(f'Failed to get {key=} from {type(data)}') from e
       else:
         raise KeyError(
             f'Cannot use "{k}" of as a mapping key on a type of'

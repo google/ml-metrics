@@ -123,7 +123,7 @@ class TreeMapViewTest(parameterized.TestCase):
       _ = TreeMapView([1, 2, 3])[Key.Index(9)]
     with self.assertRaises(KeyError):
       _ = TreeMapView({'a': 1})['b']
-    with self.assertRaises(TypeError):
+    with self.assertRaises(KeyError):
       _ = TreeMapView({'a': 1})[set('a')]
 
   def test_set_by_invalid_key_raises_error(self):

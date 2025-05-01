@@ -186,6 +186,10 @@ class TreeFnTest(parameterized.TestCase):
     with self.assertRaises(AssertionError):
       tree_fns.Assign(fn=lambda: 1, output_keys=())
 
+  def test_tree_fn_input_keys_key_error_raises(self):
+    with self.assertRaisesRegex(KeyError, 'Failed to get inputs'):
+      _ = tree_fns.TreeFn(fn=lambda x: x + 1, input_keys='a')({'b': 1})
+
   def test_tree_fn_call_failed_raises(self):
     with self.assertRaisesRegex(ValueError, 'Failed to call .+ with inputs'):
       # (0,) + 1 is illegal. Should raise error.

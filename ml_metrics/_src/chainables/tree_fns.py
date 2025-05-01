@@ -183,11 +183,16 @@ class TreeFn(Generic[_FnT, _T]):
     return outputs
 
   def _get_inputs(self, inputs: tree.TreeLike) -> tuple[_T, ...]:
-    fn_inputs = tree.TreeMapView.as_view(inputs)[self.input_keys]
-    # A tuple of masks will apply to each input per input_keys. Otherwise, the
-    # masks will be applied to all inputs.
-    if self.masks:
-      fn_inputs = self._apply_masks(fn_inputs)
+    try:
+      fn_inputs = tree.TreeMapView.as_view(inputs)[self.input_keys]
+      # A tuple of masks will apply to each input per input_keys. Otherwise, the
+      # masks will be applied to all inputs.
+      if self.masks:
+        fn_inputs = self._apply_masks(fn_inputs)
+    except Exception as e:
+      raise KeyError(
+          f'Failed to get inputs {self.input_keys=} in {self}'
+      ) from e
     return fn_inputs
 
   def _maybe_call_fn(self, fn_inputs: tuple[_T, ...]):
