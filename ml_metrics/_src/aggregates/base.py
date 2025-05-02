@@ -17,7 +17,7 @@ from __future__ import annotations
 import abc
 from collections.abc import Callable, Iterable
 import dataclasses
-from typing import Any, Generic, Protocol, Self, TypeGuard, TypeVar, runtime_checkable
+from typing import Any, Protocol, Self, TypeGuard, TypeVar, runtime_checkable
 
 from ml_metrics._src import types
 from ml_metrics._src.chainables import lazy_fns
@@ -157,12 +157,12 @@ class AggregateFn(Aggregatable):
     )
 
 
-class MergeableMetricAggFn(AggregateFn, Generic[_MetricT]):
+class MergeableMetricAggFn(AggregateFn):
   """A aggregation wrapper for MergeableMetric."""
 
-  metric_maker: _ResolvableOrMakeable[_MetricT]
+  metric_maker: _ResolvableOrMakeable[MergeableMetric]
 
-  def __init__(self, metric_maker: _ResolvableOrMakeable[_MetricT]):
+  def __init__(self, metric_maker: _ResolvableOrMakeable[MergeableMetric]):
     super().__init__()
     if not (
         types.is_resolvable(metric_maker) or types.is_makeable(metric_maker)
@@ -179,7 +179,7 @@ class MergeableMetricAggFn(AggregateFn, Generic[_MetricT]):
         and self.metric_maker == other.metric_maker
     )
 
-  def create_state(self) -> _MetricT:
+  def create_state(self) -> MergeableMetric:
     metric = self.metric_maker
     if types.is_makeable(metric):
       return metric.make()
@@ -188,18 +188,20 @@ class MergeableMetricAggFn(AggregateFn, Generic[_MetricT]):
     else:
       raise TypeError(f'{type(metric)} is not a Makeable or Resolvable.')
 
-  def update_state(self, state: _MetricT, *args, **kwargs) -> _MetricT:
+  def update_state(
+      self, state: MergeableMetric, *args, **kwargs
+  ) -> MergeableMetric:
     state.add(*args, **kwargs)
     return state
 
-  def merge_states(self, states: Iterable[_MetricT]) -> _MetricT:
+  def merge_states(self, states: Iterable[MergeableMetric]) -> MergeableMetric:
     iter_states = iter(states)
     result = next(iter_states)
     for state in iter_states:
       result.merge(state)
     return result
 
-  def get_result(self, state: _MetricT) -> Any:
+  def get_result(self, state: MergeableMetric) -> Any:
     return state.result()
 
 
