@@ -1194,25 +1194,14 @@ class TreeTransform(Generic[TreeFnT]):
       * Multiple slices: `add_slice('a').add_slice('b')`, note that this is not
         the same as `add_slice(('a', 'b'))` that is slice crosses of feature
         'a' and 'b'.
-      * Intra-example slicing: `add_slice('a', 'slice_name', slice_mask_fn)`,
-        the slice_mask_fn will yield a tuple of slice value and the
-        corresponding masks for the aggregation function inputs. The mask is an
-        array-like object with the same shape of the to be masked inputs. If
-        only one mask is provided, it will be applied to all the inputs. If
-        multiple masks are provided, the order of the masks have to match the
-        order of the inputs of the aggregations that is configured with this
-        slicing. The masking behavior is controlled by `mask_behavior` and
-        `replace_mask_false_with`. By default, it only filter out the entries
-        with False values in the mask.
+      * Intra-example slicing: deprecated, do not use.
 
     Args:
       keys: input keys for the slicer.
       slice_name: the slice name, default to same as keys, but is required when
         slice_fn or slice_mask_fn is provided.
       slice_fn: optional callable that returns an iterable of slices.
-      slice_mask_fn: optional callable that returens an iterable of slice and
-        masks pair. The order of the masks have to match the order of the inputs
-        of the aggregations that is configured with this slicing.
+      slice_mask_fn: deprecated, do not use.
       replace_mask_false_with: the value to replace the false values in the
         mask. When not set, the maksing behavior is to filter out the entries
         with False values in the mask.
@@ -1220,11 +1209,12 @@ class TreeTransform(Generic[TreeFnT]):
     Returns:
       The AggregateTransform with slices.
     """
+    if slice_mask_fn is not None:
+      raise ValueError('slice_mask_fn is deprecated, do not use.')
     slicer = tree_fns.Slicer.new(
         input_keys=keys,
         slice_fn=slice_fn,
         slice_name=slice_name,
-        slice_mask_fn=slice_mask_fn,
         replace_mask_false_with=replace_mask_false_with,
     )
     if slicer.slice_name in set(slicer.slice_name for slicer in self.slicers):
