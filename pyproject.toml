@@ -27,9 +27,8 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-courier = ['dm-launchpad']
 signals = ['pillow']
-full = ['dm-launchpad', 'pillow']
+full = ['pillow']
 
 [project.urls]
 homepage = "https://github.com/google/ml-metrics"
