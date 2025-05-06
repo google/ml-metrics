@@ -5,7 +5,8 @@
 2. To build pypi wheel, run:
 
 ```
-sh ./ml_metrics/oss/runner.sh
+cd <ml_metrics_dir>
+sh ml_metrics/oss/runner.sh
 ```
 
 3. Wheels are in `/tmp/ml_metrics/all_dist`.
@@ -37,7 +38,8 @@ your `~/.pypirc`.
 * Refer the required dependencies from the dependencies section of `pyproject.toml`.
 
 * When you do not need to update version number, you can manually adds or
-  increment build number by renaming the whl files under `/tmp/ml_metrics/all_dist` following the format of
+  increment build number by renaming the whl files under
+  `/tmp/ml_metrics/all_dist` following the format of
   `py_ml_metrics-{version}-[{build version}]-{py version}-non-any.whl`
   e.g.,:
 

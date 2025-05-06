@@ -4,7 +4,7 @@
 
 set -e -x
 
-export TMP_FOLDER="/tmp/ml_metrics/copybara"
+export TMP_FOLDER="/tmp/ml_metrics"
 
 # Clean previous folders/images.
 [ -f $TMP_FOLDER ] && rm -rf $TMP_FOLDER
@@ -12,6 +12,7 @@ export TMP_FOLDER="/tmp/ml_metrics/copybara"
 PYTHON_MAJOR_VERSION="3"
 PYTHON_MINOR_VERSION="11"
 PYTHON_VERSION="${PYTHON_MAJOR_VERSION}.${PYTHON_MINOR_VERSION}"
+ML_METRICS_RUN_TESTS=true
 
 AUDITWHEEL_PLATFORM="manylinux2014_x86_64"
 
@@ -20,8 +21,7 @@ docker rmi -f ml_metrics:${PYTHON_VERSION}
 docker rm -f ml_metrics
 
 # Synchronize Copybara in $TMP_FOLDER.
-copybara third_party/py/ml_metrics/oss/copy.bara.sky local .. \
-  --init-history --folder-dir=$TMP_FOLDER --ignore-noop
+cp -r . $TMP_FOLDER
 
 cd $TMP_FOLDER
 
@@ -35,9 +35,10 @@ docker run --rm -a stdin -a stdout -a stderr \
   --env PYTHON_VERSION=${PYTHON_VERSION} \
   --env PYTHON_MAJOR_VERSION=${PYTHON_MAJOR_VERSION} \
   --env PYTHON_MINOR_VERSION=${PYTHON_MINOR_VERSION} \
+  --env ML_METRICS_RUN_TESTS=${ML_METRICS_RUN_TESTS} \
   --env AUDITWHEEL_PLATFORM=${AUDITWHEEL_PLATFORM} \
   -v /tmp/ml_metrics:/tmp/ml_metrics \
   --name ml_metrics ml_metrics:${PYTHON_VERSION} \
-  bash copybara/ml_metrics/oss/build_whl.sh
+  bash ml_metrics/oss/build_whl.sh
 
 ls $TMP_FOLDER/all_dist/*.whl

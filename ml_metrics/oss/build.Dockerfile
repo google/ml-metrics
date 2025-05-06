@@ -16,7 +16,7 @@ ARG PYTHON_VERSION
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN yum install -y rsync
+RUN ulimit -n 1024 && yum install -y rsync
 
 ENV PATH="/opt/python/cp${PYTHON_MAJOR_VERSION}${PYTHON_MINOR_VERSION}-cp${PYTHON_MAJOR_VERSION}${PYTHON_MINOR_VERSION}/bin:${PATH}"
 
@@ -25,6 +25,8 @@ RUN --mount=type=cache,target=/root/.cache \
   python${PYTHON_VERSION} -m pip install -U \
     absl-py \
     build \
+    cloudpickle \
+    more-itertools\
     numpy;
 
 # Install dependencies needed for ml-metrics tests

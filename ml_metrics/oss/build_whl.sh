@@ -13,16 +13,20 @@ function main() {
 
   echo "=== Destination directory: ${DEST}"
 
+  if [ "$ML_METRICS_RUN_TESTS" = true ] ; then
+    python3 -m unittest discover -s ml_metrics -p '*_test.py'
+  fi
+
   TMPDIR=$(mktemp -d -t tmp.XXXXXXXXXX)
 
   echo $(date) : "=== Using tmpdir: ${TMPDIR}"
 
   echo "=== Copy ml_metrics files"
 
-  cp copybara/setup.py "${TMPDIR}"
-  cp copybara/pyproject.toml "${TMPDIR}"
-  cp copybara/LICENSE "${TMPDIR}"
-  rsync -avm -L --exclude="__pycache__/*" copybara/ml_metrics "${TMPDIR}"
+  cp ./setup.py "${TMPDIR}"
+  cp ./pyproject.toml "${TMPDIR}"
+  cp ./LICENSE "${TMPDIR}"
+  rsync -avm -L --exclude="__pycache__/*" ./ml_metrics "${TMPDIR}"
   # rsync -avm -L  --include="*.so" --include="*_pb2.py" \
   #   --exclude="*.runfiles" --exclude="*_obj" --include="*/" --exclude="*" \
   #   bazel-bin/ml_metrics "${TMPDIR}"
