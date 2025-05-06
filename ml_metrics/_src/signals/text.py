@@ -17,7 +17,7 @@ from collections.abc import Callable, Sequence
 import re
 from typing import Any
 
-from ml_metrics.google.tools.telemetry import telemetry
+from ml_metrics._src.tools.telemetry import telemetry
 
 
 def _maybe_tuple(
