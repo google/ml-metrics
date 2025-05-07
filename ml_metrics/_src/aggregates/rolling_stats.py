@@ -641,29 +641,9 @@ class R2TjurRelative(_R2TjurBase):
     )
 
 
-@dataclasses.dataclass(slots=True)
-class RRegression(base.MergeableMetric):
-  """Computes the Pearson Correlation Coefficient (PCC).
-
-  The Pearson correlation coefficient (PCC) is a correlation coefficient that
-  measures linear correlation between two sets of data. It is the ratio between
-  the covariance of two variables and the product of their standard deviations;
-  thus, it is essentially a normalized measurement of the covariance, such that
-  the result always has a value between -1 and 1. As with covariance itself, the
-  measure can only reflect a linear correlation of variables, and ignores many
-  other types of relationships or correlations. As a simple example, one would
-  expect the age and height of a sample of teenagers from a high school to have
-  a Pearson correlation coefficient significantly greater than 0, but less than
-  1 (as 1 would represent an unrealistically perfect correlation).
-
-  https://en.wikipedia.org/wiki/Pearson_correlation_coefficient
-  """
-
-  # If True, center the data matrix x and the target vector y.
-  # The centered r-regression is the "Pearson's Correlation".
-  # The not-centered r-regression is the "Reflective Correlation".
-  center: bool = True
-
+@dataclasses.dataclass
+class _PartialCrossFeatureStats(abc.ABC, base.MergeableMetric):
+  """Partial cross feature statistics."""
   num_samples: int = 0
   sum_x: types.NumbersT = 0
   sum_y: float = 0
@@ -671,10 +651,7 @@ class RRegression(base.MergeableMetric):
   sum_yy: float = 0  # sum(y**2)
   sum_xy: types.NumbersT = 0  # sum(x * y)
 
-  def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(self.__class__, self.center)
-
-  def __eq__(self, other: 'RRegression') -> bool:
+  def __eq__(self, other: '_PartialCrossFeatureStats') -> bool:
     return (
         self.num_samples == other.num_samples
         and self.sum_x == other.sum_x
@@ -684,7 +661,9 @@ class RRegression(base.MergeableMetric):
         and self.sum_xy == other.sum_xy
     )
 
-  def add(self, x: types.NumbersT, y: types.NumbersT) -> 'RRegression':
+  def add(
+      self, x: types.NumbersT, y: types.NumbersT
+  ) -> '_PartialCrossFeatureStats':
     """Updates the Class with the given batch.
 
     Args:
@@ -706,7 +685,9 @@ class RRegression(base.MergeableMetric):
 
     return self
 
-  def merge(self, other: 'RRegression') -> 'RRegression':
+  def merge(
+      self, other: '_PartialCrossFeatureStats'
+  ) -> '_PartialCrossFeatureStats':
     self.num_samples += other.num_samples
     self.sum_x += other.sum_x
     self.sum_y += other.sum_y
@@ -715,6 +696,74 @@ class RRegression(base.MergeableMetric):
     self.sum_xy += other.sum_xy
 
     return self
+
+  @abc.abstractmethod
+  def result(self) -> types.NumbersT:
+    """Must be overwritten by the specific metric."""
+    pass
+
+
+class Covariance(_PartialCrossFeatureStats):
+  """Computes the covariance of two sets of data.
+
+  Covariance = E[(X-E[X]) * (Y-E[Y])] = E[XY] - E[X] * E[Y]
+  https://en.wikipedia.org/wiki/Covariance
+  """
+
+  def as_agg_fn(self) -> base.AggregateFn:
+    return base.as_agg_fn(
+        self.__class__,
+        sum_x=self.sum_x,
+        sum_y=self.sum_y,
+        sum_xx=self.sum_xx,
+        sum_yy=self.sum_yy,
+        sum_xy=self.sum_xy,
+    )
+
+  def result(self) -> types.NumbersT:
+    # TODO: b/417267344 - Implement Delta Degrees of Freedom. Here, ddof is
+    # always 0.
+
+    # Covariance = E[(X-E[X]) * (Y-E[Y])] = E[XY] - E[X] * E[Y]
+    # = [sum(XY) - sum(X) * sum(Y) / num_samples] / num_samples
+    return (
+        self.sum_xy - self.sum_x * self.sum_y / self.num_samples
+    ) / self.num_samples
+
+
+@dataclasses.dataclass
+class RRegression(_PartialCrossFeatureStats):
+  """Computes the Pearson Correlation Coefficient (PCC).
+
+  The Pearson correlation coefficient (PCC) is a correlation coefficient that
+  measures linear correlation between two sets of data. It is the ratio between
+  the covariance of two variables and the product of their standard deviations;
+  thus, it is essentially a normalized measurement of the covariance, such that
+  the result always has a value between -1 and 1. As with covariance itself, the
+  measure can only reflect a linear correlation of variables, and ignores many
+  other types of relationships or correlations. As a simple example, one would
+  expect the age and height of a sample of teenagers from a high school to have
+  a Pearson correlation coefficient significantly greater than 0, but less than
+  1 (as 1 would represent an unrealistically perfect correlation).
+
+  https://en.wikipedia.org/wiki/Pearson_correlation_coefficient
+  """
+
+  # If True, center the data matrix x and the target vector y.
+  # The centered r-regression is the "Pearson's Correlation".
+  # The not-centered r-regression is the "Reflective Correlation".
+  center: bool = True
+
+  def as_agg_fn(self) -> base.AggregateFn:
+    return base.as_agg_fn(
+        self.__class__,
+        sum_x=self.sum_x,
+        sum_y=self.sum_y,
+        sum_xx=self.sum_xx,
+        sum_yy=self.sum_yy,
+        sum_xy=self.sum_xy,
+        center=self.center,
+    )
 
   def result(self) -> types.NumbersT:
     """Calculates the Pearson Correlation Coefficient (PCC).
