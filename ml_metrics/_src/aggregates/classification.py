@@ -26,7 +26,9 @@ from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
 from ml_metrics._src.utils import iter_utils
 from ml_metrics._src.utils import math_utils
+from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
+
 
 AverageType = types.AverageType
 InputType = types.InputType
@@ -586,6 +588,11 @@ class ConfusionMatrixAggFn(base.AggregateFn):
   dtype: type[Any] | None = None
 
   def __post_init__(self):
+    # Successful rate will always be 100% as we only track if the user calls the
+    # class.
+    telemetry.increment_counter(
+        'ml_metrics', 'signal', self.__class__.__name__, True
+    )
     if self.average == AverageType.SAMPLES:
       raise ValueError(
           '"samples" average is unsupported, use the Samplewise version.'
@@ -804,6 +811,11 @@ class SamplewiseClassification(base.MergeableMetric, base.HasAsAggFn):
   )
 
   def __post_init__(self):
+    # Successful rate will always be 100% as we only track if the user calls the
+    # class.
+    telemetry.increment_counter(
+        'ml_metrics', 'signal', self.__class__.__name__, True
+    )
     if self.input_type == InputType.BINARY:
       raise ValueError(
           'Samples average is not available for Binary classification.'
@@ -889,6 +901,9 @@ class SamplewiseClassification(base.MergeableMetric, base.HasAsAggFn):
     return result
 
 
+@telemetry.WithTelemetry(
+    'ml_metrics', 'metric', 'SamplewiseConfusionMatrixAggFn'
+)
 def SamplewiseConfusionMatrixAggFn(**kwargs) -> base.AggregateFn:  # pylint: disable=invalid-name
   """Convenient alias as a AggregateFn constructor."""
   return SamplewiseClassification(**kwargs).as_agg_fn()
