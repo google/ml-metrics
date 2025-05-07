@@ -1,0 +1,48 @@
+name: Build & Test
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build-and-test:
+    name: "Python ${{ matrix.python-version }} on ${{ matrix.os }}"
+    runs-on: "${{ matrix.os }}"
+
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+        os: [ubuntu-latest]
+
+    steps:
+      - uses: "actions/checkout@v4"
+      - name: Create directory
+        run: |
+          mkdir -p /tmp/ml_metrics
+          cp -r . /tmp/ml_metrics
+      - name: Build package
+        run: |
+          set -xe
+          export PYTHON_VERSION=${{ matrix.python-version }}
+          export PYTHON_MAJOR_VERSION=$(echo $PYTHON_VERSION | cut -d. -f1)
+          export PYTHON_MINOR_VERSION=$(echo $PYTHON_VERSION | cut -d. -f2)
+          export AUDITWHEEL_PLATFORM="manylinux2014_x86_64"
+          export ML_METRICS_RUN_TESTS=true
+          cd /tmp/ml_metrics
+          DOCKER_BUILDKIT=1 docker build --progress=plain --no-cache \
+            --build-arg PYTHON_VERSION=${PYTHON_VERSION} \
+            --build-arg PYTHON_MAJOR_VERSION=${PYTHON_MAJOR_VERSION} \
+            --build-arg PYTHON_MINOR_VERSION=${PYTHON_MINOR_VERSION} \
+            -t ml_metrics:${PYTHON_VERSION} - < ml_metrics/oss/build.Dockerfile
+          docker run --rm -a stdin -a stdout -a stderr \
+            --env PYTHON_VERSION=${PYTHON_VERSION} \
+            --env PYTHON_MAJOR_VERSION=${PYTHON_MAJOR_VERSION} \
+            --env PYTHON_MINOR_VERSION=${PYTHON_MINOR_VERSION} \
+            --env ML_METRICS_RUN_TESTS=${ML_METRICS_RUN_TESTS} \
+            --env AUDITWHEEL_PLATFORM=${AUDITWHEEL_PLATFORM} \
+            --env ML_METRICS_RUN_TESTS=${ML_METRICS_RUN_TESTS} \
+            -v /tmp/ml_metrics:/tmp/ml_metrics \
+            --name ml_metrics ml_metrics:${PYTHON_VERSION} \
+            bash ml_metrics/oss/build_whl.sh

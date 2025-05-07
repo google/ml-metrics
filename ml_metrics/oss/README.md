@@ -26,6 +26,8 @@ your `~/.pypirc`.
 
 # Optional
 
+* Update workflows in oss/workflows when Python is upgraded.
+
 * To build for a different python version, change the PYTHON_MINOR_VERSION
   and/or PYTHON_MAJOR_VERSION in `ml_metrics/oss/runner.sh`.
 
