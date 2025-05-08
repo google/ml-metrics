@@ -9,9 +9,11 @@ https://arxiv.org/pdf/2301.00930.pdf (Section A.2).
 """
 
 from ml_metrics._src.aggregates import types
+from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
 
+@telemetry.WithTelemetry('ml_metrics', 'signals', 'complexity_gap_score')
 def complexity_gap_score(
     labels: types.NumbersT,
     embeddings: types.NumbersT,
@@ -23,8 +25,8 @@ def complexity_gap_score(
   """Calculates the Complexity Gap (CG) score for identifying influential instances.
 
   Args:
-      labels: labels in binary vector representations.
-      embeddings: embeddings in vector representations.
+      labels: Labels in binary vector representations.
+      embeddings: Embeddings in vector representations.
       num_repetitions: Number of times to repeat the CG score calculation.
       class_balance_ratio: Ratio for balancing classes during calculation (e.g.,
         1.0 for perfect balance).
@@ -34,7 +36,7 @@ def complexity_gap_score(
       A NumPy array containing the CG score for each data point.
   """
   if (l := len(np.unique(labels))) > 2:
-    raise ValueError(f"CG score only works for binary labels, got {l} labels.")
+    raise ValueError(f'CG score only works for binary labels, got {l} labels.')
 
   cg_scores = np.zeros(len(labels))
 
@@ -47,12 +49,12 @@ def complexity_gap_score(
 
   for _ in range(num_repetitions):
     for label, data in data_by_label.items():
-      data = np.array(data["data"])
+      data = np.array(data['data'])
       other_label = _get_other_label(data_by_label, label)
-      other_data = np.array(data_by_label[other_label]["data"])
+      other_data = np.array(data_by_label[other_label]['data'])
       balanced_data = _balance_dataset(data, other_data, class_balance_ratio)
       vi_scores = _calculate_influence_scores(balanced_data, data.shape[0])
-      cg_scores[data_by_label[label]["indices"]] += vi_scores
+      cg_scores[data_by_label[label]['indices']] += vi_scores
 
   return cg_scores / np.maximum(num_repetitions, 1)
 
@@ -60,12 +62,12 @@ def complexity_gap_score(
 def _group_data_by_label(embeddings: np.ndarray, labels: np.ndarray):
   data_by_label = {}
   for i, (embedding, label) in enumerate(zip(embeddings, labels, strict=True)):
-    data_by_label.setdefault(label, {"data": [], "indices": []})
+    data_by_label.setdefault(label, {'data': [], 'indices': []})
     data_float = embedding.astype(np.float64)
-    data_by_label[label]["data"].append(
+    data_by_label[label]['data'].append(
         data_float / np.linalg.norm(data_float, axis=-1, keepdims=True)
     )
-    data_by_label[label]["indices"].append(i)
+    data_by_label[label]['indices'].append(i)
   return data_by_label
 
 

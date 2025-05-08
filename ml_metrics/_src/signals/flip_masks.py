@@ -14,9 +14,11 @@
 """Flip Masks."""
 
 from ml_metrics._src.aggregates import types
+from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
 
+@telemetry.WithTelemetry('ml_metrics', 'signals', 'binary_flip_mask')
 def binary_flip_mask(
     base_prediction: types.NumbersT,
     model_prediction: types.NumbersT,
@@ -30,6 +32,7 @@ def binary_flip_mask(
   return np.logical_xor(base_prediction, model_prediction).astype(int)
 
 
+@telemetry.WithTelemetry('ml_metrics', 'signals', 'neg_to_pos_flip_mask')
 def neg_to_pos_flip_mask(
     base_prediction: types.NumbersT,
     model_prediction: types.NumbersT,
@@ -45,6 +48,7 @@ def neg_to_pos_flip_mask(
   return np.logical_and(base_under_threshold, model_over_threshold).astype(int)
 
 
+@telemetry.WithTelemetry('ml_metrics', 'signals', 'pos_to_neg_flip_mask')
 def pos_to_neg_flip_mask(
     base_prediction: types.NumbersT,
     model_prediction: types.NumbersT,

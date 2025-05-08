@@ -15,12 +15,14 @@
 
 import io
 
+from ml_metrics._src.tools.telemetry import telemetry
 from PIL import Image
 
 
 MEGAPIXELS = 1024 * 1024
 
 
+@telemetry.WithTelemetry('ml_metrics', 'signals', 'content_metadata')
 def content_metadata(image_bytes: bytes) -> dict[str, int | float | str]:
   """Extracts the content metadata of an image."""
 
