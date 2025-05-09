@@ -278,17 +278,12 @@ class Counter(base.CallableMetric, base.HasAsAggFn, Generic[_T]):
     return self._counter
 
 
-@dataclasses.dataclass(kw_only=True, eq=True)
-class Mean(base.CallableMetric):
-  """Computes the mean and variance of a batch of values."""
-
-  # TODO(b/345249574): (1) Introduce StatsEnum to indicate the metrics to be
-  # computed. (2) Remove score_batch_fn.
+@dataclasses.dataclass(slots=True, kw_only=True)
+class Count(base.CallableMetric):
+  """Computes the count of a batch of values."""
 
   batch_score_fn: Callable[..., types.NumbersT] | None = None
   _count: types.NumbersT = 0
-  _mean: types.NumbersT = np.nan
-  _input_shape: tuple[int, ...] = ()
 
   def as_agg_fn(
       self,
@@ -301,6 +296,37 @@ class Mean(base.CallableMetric):
         nested=nested,
         agg_preprocess_fn=self.batch_score_fn if nested else None,
     )
+
+  @property
+  def count(self) -> types.NumbersT:
+    return self._count
+
+  def new(self, *batch: types.NumbersT) -> types.NumbersT:
+    """Computes the sufficient statistics of a batch of values."""
+    if not self.batch_score_fn and len(batch) > 1:
+      raise ValueError(
+          'Multi-column inputs requires a batch_score_fn to convert it to a'
+          f' single column, but received {len(batch)} columns.'
+      )
+    batch = self.batch_score_fn(*batch) if self.batch_score_fn else batch[0]
+    return self.__class__(_count=len(batch))
+
+  def merge(self, other: Self):
+    self._count += other.count
+
+  def result(self) -> Self:
+    return self.count
+
+  def __str__(self):
+    return f'count: {self.count}'
+
+
+@dataclasses.dataclass(kw_only=True, eq=True)
+class Mean(Count):
+  """Computes the mean and variance of a batch of values."""
+
+  _mean: types.NumbersT = np.nan
+  _input_shape: tuple[int, ...] = ()
 
   def new(self, batch: types.NumbersT) -> types.NumbersT:
     """Computes the sufficient statistics of a batch of values.
@@ -329,10 +355,6 @@ class Mean(base.CallableMetric):
   @property
   def mean(self) -> types.NumbersT:
     return self._mean
-
-  @property
-  def count(self) -> types.NumbersT:
-    return self._count
 
   @property
   def total(self) -> types.NumbersT:
