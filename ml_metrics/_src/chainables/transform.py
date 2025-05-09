@@ -1155,9 +1155,9 @@ class TreeTransform(Generic[TreeFnT]):
 
   def add_aggregate(
       self,
+      fn: types.MaybeResolvable[aggregates.Aggregatable],
       *,
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      fn: types.MaybeResolvable[aggregates.Aggregatable],
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       disable_slicing: bool = False,
   ) -> Self:
@@ -1171,8 +1171,21 @@ class TreeTransform(Generic[TreeFnT]):
       )
     return self._maybe_new_agg_transform(fn)
 
-  def add_agg(self, **kwargs) -> Self:
-    return self.add_aggregate(**kwargs)
+  def add_agg(
+      self,
+      fn: types.MaybeResolvable[aggregates.Aggregatable],
+      *,
+      output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+      input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+      disable_slicing: bool = False,
+  ) -> Self:
+    """Alias for add_aggregate."""
+    return self.add_aggregate(
+        fn,
+        output_keys=output_keys,
+        input_keys=input_keys,
+        disable_slicing=disable_slicing,
+    )
 
   def add_slice(
       self,

@@ -296,7 +296,7 @@ class TransformTest(parameterized.TestCase):
     t = dataclasses.replace(t, name='')
     t = t.aggregate(MockAverageFn(), output_keys='c')
     seen_ids.add(t.id)
-    t = t.add_aggregate(output_keys='d', fn=MockAverageFn()).add_slice('a')
+    t = t.add_aggregate(MockAverageFn(), output_keys='d').add_slice('a')
     seen_ids.add(t.id)
     # Each new transform should create a unique id.
     self.assertLen(seen_ids, 6)
@@ -327,7 +327,8 @@ class TransformTest(parameterized.TestCase):
         .assign('c', fn=lambda x: x + 1, input_keys='b')
     )
     p = p.agg(MockAverageFn(), output_keys='c').add_aggregate(
-        output_keys='d', fn=MockAverageFn()
+        MockAverageFn(),
+        output_keys='d',
     )
     self.assertEqual(p.output_keys, {'c', 'b'})
     self.assertEqual(p.agg_output_keys, {'c', 'd'})
@@ -879,8 +880,8 @@ class TransformTest(parameterized.TestCase):
         transform.TreeTransform()
         .apply(lambda x: x * 10)
         .agg()
-        .add_agg(fn=MockAverageFn(), output_keys='a')
-        .add_agg(fn=MockAverageFn(), output_keys='b')
+        .add_agg(MockAverageFn(), output_keys='a')
+        .add_agg(MockAverageFn(), output_keys='b')
     )
     it_p = p.make().iterate([1, 2, 3])
     self.assertEqual([10, 20, 30], list(it_p))
@@ -943,19 +944,19 @@ class TransformTest(parameterized.TestCase):
   def test_aggregate_invalid_keys(self):
     with self.assertRaisesRegex(KeyError, 'Cannot mix SELF with other keys'):
       transform.TreeTransform().agg(MockAverageFn()).add_aggregate(
-          fn=MockAverageFn(), output_keys='a'
+          MockAverageFn(), output_keys='a'
       )
 
     with self.assertRaisesRegex(KeyError, 'Cannot mix SELF with other keys'):
       transform.TreeTransform().aggregate(
           MockAverageFn(), output_keys='a'
-      ).add_aggregate(fn=MockAverageFn())
+      ).add_aggregate(MockAverageFn())
 
   def test_aggregate_duplicate_keys(self):
     with self.assertRaisesRegex(KeyError, 'Duplicate output_keys'):
       transform.TreeTransform().aggregate(
           MockAverageFn(), output_keys='a'
-      ).add_aggregate(fn=MockAverageFn(), output_keys=('a', 'b'))
+      ).add_aggregate(MockAverageFn(), output_keys=('a', 'b'))
 
   @parameterized.named_parameters([
       dict(
@@ -1024,8 +1025,8 @@ class TransformTest(parameterized.TestCase):
             disable_slicing=True,
         )
         .add_aggregate(
+            MockAverageFn(return_dict_key='avg_result'),
             input_keys='b',
-            fn=MockAverageFn(return_dict_key='avg_result'),
             output_keys=dict(avg_b='avg_result'),
         )
         .add_slice('a')
