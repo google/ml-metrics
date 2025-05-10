@@ -283,6 +283,10 @@ class TransformDataSourceTest(parameterized.TestCase):
 
 class TransformTest(parameterized.TestCase):
 
+  def setUp(self):
+    super().setUp()
+    self.maxDiff = None
+
   def test_transform_unique_ids_with_each_op(self):
     seen_ids = set()
     t = transform.TreeTransform()
@@ -1288,31 +1292,51 @@ class TransformTest(parameterized.TestCase):
       assert state.agg_state is not None
       actual_fn.merge_states([state.agg_state], strict_states_cnt=2)
 
-  def test_flatten_transform(self):
-    input_iterator = [[1, 2, 3], [2, 3, 4]]
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='split_agg',
+          split_agg=True,
+      ),
+      dict(
+          testcase_name='normal',
+          split_agg=False,
+      ),
+  ])
+  def test_flatten_transform(self, split_agg):
     t = (
         transform.TreeTransform()
         # consecutive datasource, asign, and apply form one tranform.
-        .data_source(lazy_fns.trace(test_utils.NoLenIter)(input_iterator))
-        .apply(iter_utils.iterate_fn(lambda x: x + 1), output_keys='a')
-        .assign('b', fn=iter_utils.iterate_fn(lambda x: x + 1), input_keys='a')
-        .apply(iter_utils.iterate_fn(lambda x: x + 10))
-        .agg(MockAverageFn())
+        .data_source(lazy_fns.trace(test_utils.NoLenIter)(range(6)))
+        .apply(lambda x: x + 1, output_keys='a')
+        .assign('b', fn=lambda x: x + 10, input_keys='a')
+        .batch(2)
+        .agg(MockAverageFn(), input_keys='b', output_keys='avg_b')
+        .add_agg(fn=MockAverageFn(), input_keys='a', output_keys='avg_a')
     )
+    it = t.make().iterate()
+    results = list(it)
+    agg_result = it.agg_result
 
-    transforms = t.flatten_transform()
+    transforms = t.flatten_transform(split_agg=split_agg)
     self.assertTrue(all(t is not None for t in transforms))
-    self.assertLen(transforms, 1)
-    self.assertSequenceEqual(transforms, t.flatten_transform())
-    other_transforms = t.flatten_transform()
-    self.assertTrue(all(t is not None for t in other_transforms))
-    self.assertEqual(transforms[0], other_transforms[0])
-    self.assertTrue(
-        all(
-            x != y
-            for x, y in zip(transforms[1:], other_transforms[1:], strict=True)
-        )
-    )
+    if split_agg:
+      self.assertLen(transforms, 2)
+      self.assertEmpty(transforms[0].agg_fns)
+      self.assertNotEmpty(transforms[1].agg_fns)
+      it = transforms[0].make().iterate()
+      it = transforms[1].make().iterate(it)
+      actual, actual_agg = list(it), it.agg_result
+      self.assertEqual(actual, results)
+      self.assertEqual(actual_agg, agg_result)
+    else:
+      self.assertLen(transforms, 1)
+      self.assertNotEmpty(transforms[0].agg_fns)
+      self.assertIs(transforms[0], t)
+
+  def test_flatten_transform_with_empty_transform(self):
+    self.assertEmpty(transform.TreeTransform().flatten_transform())
+    self.assertEmpty(transform.TreeTransform().agg().flatten_transform())
+    self.assertEmpty(transform.TreeTransform().apply().flatten_transform())
 
   @parameterized.named_parameters([
       dict(

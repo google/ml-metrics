@@ -1008,7 +1008,7 @@ class TreeTransform(Generic[TreeFnT]):
 
   def batch(
       self,
-      batch_size: int = 0,
+      batch_size: int,
       *,
       batch_fn: Callable[..., Any] | None = None,
   ):
@@ -1118,19 +1118,30 @@ class TreeTransform(Generic[TreeFnT]):
     if batch_size or fn_batch_size:
       raise ValueError('(fn_)batch_size is deprecated, use batch() instead.')
 
-    fn = tree_fns.TreeFn(
-        output_keys=output_keys,
-        fn=fn,
-        input_keys=input_keys,
-    )
+    if fn or not (input_keys == output_keys and input_keys is tree.Key.SELF):
+      fn = tree_fns.TreeFn(
+          output_keys=output_keys,
+          fn=fn,
+          input_keys=input_keys,
+      )
     return self._maybe_new_transform(fn)
 
-  def flatten_transform(self) -> list[TreeTransform]:
+  def flatten_transform(self, split_agg: bool = False) -> list[TreeTransform]:
     """Flatten all the chain of transforms into a list."""
-    if self.input_transform is None:
-      return [] if self.is_noop else [self]
-    ancestors = self.input_transform.flatten_transform()
-    return ancestors + [self.maybe_replace(input_transform=None)]
+    if self.input_transform is not None:
+      ancestors = self.input_transform.flatten_transform()
+      current = self.maybe_replace(input_transform=None)
+      return ancestors + current.flatten_transform(split_agg=split_agg)
+
+    if self.is_noop:
+      return []
+
+    if not split_agg:
+      return [self]
+
+    t = self.maybe_replace(agg_fns=(), slicers=()).flatten_transform()
+    t_agg = self.maybe_replace(fns=(), data_source_=None).flatten_transform()
+    return t + t_agg
 
   def _maybe_new_agg_transform(
       self,
