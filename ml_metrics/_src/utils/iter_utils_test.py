@@ -376,7 +376,7 @@ class IterUtilsTest(parameterized.TestCase):
           iterator.enqueue_from_iterator, test_utils.range_with_exc(10, 9)
       )
       with self.assertRaises(ValueError):
-        _ = iterator.get_batch(block=True)
+        _ = iterator.get_batch(min_batch_size=10)
 
   def test_iterator_queue_flush_normal(self):
     iterator = iter_utils.IteratorQueue(2)
@@ -388,8 +388,8 @@ class IterUtilsTest(parameterized.TestCase):
       qsize = iterator._queue.qsize()
       try:
         result += iterator.get_batch()
-        result += iterator.get_batch(2, block=True)
-        result += iterator.get_batch(block=True)
+        result += iterator.get_batch(2)
+        result += iterator.get_batch(min_batch_size=10)
       except StopIteration:
         pass
     self.assertLessEqual(qsize, 2)
@@ -407,7 +407,7 @@ class IterUtilsTest(parameterized.TestCase):
       while iterator._queue.qsize() < num_examples:
         time.sleep(0)
       iterator.maybe_stop()
-      result = iterator.get_batch(block=True)
+      result = iterator.get_batch(min_batch_size=10)
     self.assertGreaterEqual(len(result), num_examples)
     self.assertLess(len(result), 10)
 

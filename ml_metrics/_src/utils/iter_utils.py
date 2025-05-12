@@ -600,7 +600,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
       self._states_lock.release()
 
   def get_batch(
-      self, max_batch_size: int = 0, *, block: bool = False
+      self, max_batch_size: int = 0, *, min_batch_size: int = 1
   ) -> list[_ValueT]:
     """Gets elements from the queue, waits for timeout if empty.
 
@@ -608,19 +608,20 @@ class IteratorQueue(IterableQueue[_ValueT]):
       max_batch_size: The number of elements to be dequeued. If 0, it will wait
         for at least one element. If set, it will wait at most max_batch_size
         elements.
-      block: Whether to block until there are `max_batch_size` elements before
-        returning, only applicable when `max_batch_size` is positive.
+      min_batch_size: The minimum number of elements to be dequeued. Default to
+        1 so that get_batch() default block on getting one element.
 
     Returns:
       A list of dequeued elements.
     """
     max_batch_size = max_batch_size or self._max_batch_size
     result = []
+    #  Dequeue all elements in the queue if max_batch_size is not set.
     while not max_batch_size or len(result) < max_batch_size:
       try:
         result.append(self.get_nowait())
       except (queue.Empty, asyncio.QueueEmpty) as e:
-        if not block and result:
+        if len(result) >= min_batch_size:
           break
 
         if result:
@@ -650,7 +651,7 @@ class IteratorQueue(IterableQueue[_ValueT]):
 
   def get(self) -> _ValueT:
     """Gets an element from the queue, waits for timeout if empty."""
-    return self.get_batch(max_batch_size=1, block=True)
+    return self.get_batch(1, min_batch_size=1)
 
   def put_nowait(self, value: _ValueT = _SKIP, *, stop_iteration=None) -> None:
     """Puts a value to the queue, raises if queue is full immediately."""
