@@ -323,7 +323,58 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual([2, 3, 4], list(t.make().iterate(range(1, 4))))
     self.assertEqual(2, t.make()(1))
 
-  def test_output_keys(self):
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='apply',
+          transform_fn=lambda p: p.apply(len, output_keys='b'),
+          expected={'b'},
+      ),
+      dict(
+          testcase_name='assign',
+          transform_fn=lambda p: p.assign('b', fn=len),
+          expected={'a', 'b'},
+      ),
+      dict(
+          testcase_name='assign_apply',
+          transform_fn=lambda p: p.assign('b', fn=len).apply(output_keys='c'),
+          expected={'c'},
+      ),
+      dict(
+          testcase_name='assign_select',
+          transform_fn=lambda p: p.assign('b', fn=len).select('b'),
+          expected={'b'},
+      ),
+      dict(
+          testcase_name='apply_select',
+          transform_fn=lambda p: p.apply(output_keys='b', fn=len).select('b'),
+          expected={'b'},
+      ),
+      dict(
+          testcase_name='filter',
+          transform_fn=lambda p: p.filter(lambda x: x > 0, input_keys='a'),
+          expected={'a'},
+      ),
+      dict(
+          testcase_name='batch',
+          transform_fn=lambda p: p.batch(2),
+          expected={'a'},
+      ),
+      dict(
+          testcase_name='assign_batch',
+          transform_fn=lambda p: p.assign('b', fn=len).batch(2),
+          expected={'a', 'b'},
+      ),
+      dict(
+          testcase_name='assign_filter',
+          transform_fn=lambda p: p.assign('b').filter(len, input_keys='a'),
+          expected={'a', 'b'},
+      ),
+  ])
+  def test_output_keys(self, transform_fn, expected):
+    p = transform_fn(transform.TreeTransform().apply(len, output_keys='a'))
+    self.assertEqual(p.output_keys, expected)
+
+  def test_output_keys_aggregate(self):
     p = (
         transform.TreeTransform()
         .apply(len, output_keys='a')

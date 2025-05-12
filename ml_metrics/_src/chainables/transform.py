@@ -908,11 +908,12 @@ class TreeTransform(Generic[TreeFnT]):
     result = set()
     for fn in self.fns:
       non_dict_keys, dict_keys = mit.partition(_is_dict, fn.output_keys)
-      # Aggregate and Assign/Apply Ops are separated into different transforms.
-      # The base TreeFn means this is an Apply Op.
-      if type(fn) is tree_fns.TreeFn:  # pylint: disable=unidiomatic-typecheck
-        result = set()
-      result.update(itertools.chain(non_dict_keys, *dict_keys))
+      new_keys = set(itertools.chain(non_dict_keys, *dict_keys))
+      # Assign's output_keys (assign_keys) need to be merged.
+      if isinstance(fn, tree_fns.Assign):
+        result.update(new_keys)
+        continue
+      result = new_keys
     return result
 
   @property
@@ -1064,7 +1065,8 @@ class TreeTransform(Generic[TreeFnT]):
     Returns:
       A TreeTransform that sinks the input of this transform.
     """
-    fn = tree_fns.Sink(fn=sink, input_keys=input_keys)
+    # The output_keys here is for `self.output_keys`, which is not used in Sink.
+    fn = tree_fns.Sink(fn=sink, input_keys=input_keys, output_keys=input_keys)
     return self._maybe_new_transform(fn)
 
   # TODO: b/356633410 - support rebatching.

@@ -329,10 +329,6 @@ class Sink(TreeFn[types.SinkT, _T]):
     super().__post_init__()
     if not isinstance(super()._actual_fn, types.SinkT):
       raise TypeError(f'The fn is not a sink, got {type(self._actual_fn)=}')
-    if self.output_keys and self.output_keys[0] != tree.Key.SELF:
-      raise ValueError(
-          f'Sink should not have output_keys, got {self.output_keys=}'
-      )
 
   @property
   def _actual_fn(self) -> _CallableSink:
