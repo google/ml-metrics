@@ -1457,21 +1457,17 @@ class R2TjurTest(parameterized.TestCase):
     )
 
 
-class RRegressionTest(parameterized.TestCase):
+class PartialCrossFeatureStatsTest(absltest.TestCase):
 
-  @parameterized.named_parameters(
-      dict(testcase_name='centered', center=True),
-      dict(testcase_name='not_centered', center=False),
-  )
-  def test_r_regression_merge(self, center):
+  def test_partial_cross_feature_stats_merge(self):
     x_1 = (1, 2, 3, 4)
     y_1 = (10, 9, 2.5, 6)
 
     x_2 = (5, 6, 7)
     y_2 = (4, 3, 2)
 
-    state_1 = rolling_stats.RRegression(center=center).add(x_1, y_1)
-    state_2 = rolling_stats.RRegression(center=center).add(x_2, y_2)
+    state_1 = rolling_stats.RRegression().add(x_1, y_1)
+    state_2 = rolling_stats.RRegression().add(x_2, y_2)
     result = state_1.merge(state_2)
 
     expected_result = rolling_stats.RRegression(
@@ -1484,6 +1480,68 @@ class RRegressionTest(parameterized.TestCase):
     )
 
     self.assertEqual(result, expected_result)
+
+
+class CovarianceTest(absltest.TestCase):
+
+  def test_covariance_single_output(self):
+    x = (1, 2, 3, 4, 5, 6, 7)
+    y = (10, 9, 2.5, 6, 4, 3, 2)
+
+    # covariance(X, Y) = [sum(XY) - sum(X) * sum(Y) / num_samples] / num_samples
+    # = (111.5 - 28 * 36.5 / 7) / 7 = -4.928571428571429
+    expected_result = -4.928571428571429
+
+    actual_result = rolling_stats.Covariance().add(x, y).result()
+
+    self.assertAlmostEqual(actual_result, expected_result, places=10)
+
+  def test_covariance_single_output_as_agg_fn(self):
+    x = (1, 2, 3, 4, 5, 6, 7)
+    y = (10, 9, 2.5, 6, 4, 3, 2)
+
+    # covariance(X, Y) = [sum(XY) - sum(X) * sum(Y) / num_samples] / num_samples
+    # = (111.5 - 28 * 36.5 / 7) / 7 = -4.928571428571429
+    expected_result = -4.928571428571429
+
+    actual_result = rolling_stats.Covariance().as_agg_fn()(x, y)
+
+    self.assertAlmostEqual(actual_result, expected_result, places=10)
+
+  def test_covariance_multi_output(self):
+    x1 = (10, 9, 2.5, 6, 4, 3, 2)
+    x2 = (8, 6, 7, 5, 3, 0, 9)
+    y = (1, 2, 3, 4, 5, 6, 7)
+
+    # covariance(X, Y) = [sum(XY) - sum(X) * sum(Y) / num_samples] / num_samples
+    # covariance(x1, y) = (111.5 - 36.5 * 28 / 7) / 7 = -4.928571428571429
+    # covariance(x2, y) = (139 - 38 * 28 / 7) / 7 = -1.8571428571428572
+    expected_result = (-4.928571428571429, -1.8571428571428572)
+
+    x_all = np.array((x1, x2)).T
+
+    actual_result = rolling_stats.Covariance().add(x_all, y).result()
+
+    np.testing.assert_almost_equal(actual_result, expected_result)
+
+  def test_covariance_multi_output_as_agg_fn(self):
+    x1 = (10, 9, 2.5, 6, 4, 3, 2)
+    x2 = (8, 6, 7, 5, 3, 0, 9)
+    y = (1, 2, 3, 4, 5, 6, 7)
+
+    # covariance(X, Y) = [sum(XY) - sum(X) * sum(Y) / num_samples] / num_samples
+    # covariance(x1, y) = (111.5 - 36.5 * 28 / 7) / 7 = -4.928571428571429
+    # covariance(x2, y) = (139 - 38 * 28 / 7) / 7 = -1.8571428571428572
+    expected_result = (-4.928571428571429, -1.8571428571428572)
+
+    x_all = np.array((x1, x2)).T
+
+    actual_result = rolling_stats.Covariance().as_agg_fn()(x_all, y)
+
+    np.testing.assert_almost_equal(actual_result, expected_result)
+
+
+class RRegressionTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
       dict(
