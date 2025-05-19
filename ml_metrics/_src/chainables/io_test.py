@@ -124,6 +124,60 @@ class SequenceDataSourceTest(parameterized.TestCase):
     )
     self.assertEqual([0, 1, 3, 4, 0, 1, 2, 4], list(ds))
 
+  @parameterized.named_parameters([
+      dict(testcase_name='[0]', at=0, expected=0),
+      dict(testcase_name='[1]', at=1, expected=1),
+      dict(testcase_name='[-1]', at=8, expected=8),
+      dict(testcase_name='[:9]', at=slice(9), expected=list(range(9))),
+      dict(testcase_name='[:-1]', at=slice(-1), expected=list(range(8))),
+      dict(testcase_name='[2:-1]', at=slice(2, -1), expected=list(range(2, 8))),
+      dict(testcase_name='[3:7]', at=slice(3, 7), expected=list(range(3, 7))),
+      dict(testcase_name='[:]', at=slice(None), expected=list(range(9))),
+  ])
+  def test_sequence_getitem_single_shard(self, at, expected):
+    ds = io.SequenceDataSource.from_sequences([range(4), range(4, 9)])
+    self.assertEqual(expected, ds[at])
+
+  @parameterized.named_parameters([
+      dict(testcase_name='shard0[0]', shard=0, at=0, expected=0),
+      dict(testcase_name='shard0[1]', shard=0, at=1, expected=1),
+      dict(testcase_name='shard0[-1]', shard=0, at=-1, expected=4),
+      dict(testcase_name='shard1[0]', shard=1, at=0, expected=5),
+      dict(testcase_name='shard1[1]', shard=1, at=1, expected=6),
+      dict(testcase_name='shard1[-1]', shard=1, at=-1, expected=8),
+      dict(
+          testcase_name='shard0[:]',
+          shard=0,
+          at=slice(None),
+          expected=list(range(5)),
+      ),
+      dict(
+          testcase_name='shard1[:]',
+          shard=1,
+          at=slice(None),
+          expected=list(range(5, 9)),
+      ),
+      dict(
+          testcase_name='shard0[1:-1]',
+          shard=0,
+          at=slice(1, -1),
+          expected=list(range(1, 4)),
+      ),
+      dict(
+          testcase_name='shard1[1:-1]',
+          shard=1,
+          at=slice(1, -1),
+          expected=list(range(6, 8)),
+      ),
+  ])
+  def test_sequence_getitem_two_shards(self, shard, at, expected):
+    ds = io.SequenceDataSource.from_sequences([range(4), range(4, 9)])
+    self.assertEqual(expected, ds.shard(shard, 2)[at])
+
+  def test_sequence_getitem_raise(self):
+    with self.assertRaisesRegex(IndexError, 'Index 4 is out of range'):
+      _ = io.SequenceDataSource(range(3))[4]
+
 
 class IterableDataSourceTest(parameterized.TestCase):
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
 import dataclasses as dc
-from typing import Self, TypeVar
+from typing import Any, Self, TypeVar
 
 from ml_metrics._src import types
 from ml_metrics._src.utils import iter_utils
@@ -106,6 +106,23 @@ class SequenceDataSource(types.Recoverable, Iterable[_T]):
 
   def __iter__(self) -> Iterator[_T]:
     return self.iterate()
+
+  def __getitem__(self, index: int | Any) -> _T:
+    """Iterates the data source given a shard index."""
+    if isinstance(index, slice):
+      start, stop, step = index.start, index.stop, index.step
+      start = start or 0  # Convert None to 0.
+      start += self.start
+      start = min(start, self.end)
+      if stop is None:
+        stop = self.end
+      else:
+        stop = self.end + stop if stop < 0 else self.start + stop
+        stop = min(stop, self.end)
+      return list(self.data[slice(start, stop, step)])
+
+    index = self.end + index if index < 0 else self.start + index
+    return self.data[index]
 
 
 class SequenceIterator(types.Recoverable, Iterator[_T]):
