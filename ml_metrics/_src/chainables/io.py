@@ -37,26 +37,35 @@ class SequenceDataSource(types.Recoverable, Iterable[_T]):
   """A shardable sequence data source."""
   data: types.RandomAccessible[_T]
   ignore_error: bool = dc.field(kw_only=True, default=False)
+  batch_size: dc.InitVar[int] = 0
   _shard_state: ShardConfig = dc.field(default_factory=ShardConfig)
   _start: int = 0
   _end: int | None = None
 
-  def __post_init__(self):
+  def __post_init__(self, batch_size: int):
     data = self.data
     if not hasattr(data, '__getitem__') or not hasattr(data, '__len__'):
       raise TypeError(f'data is not indexable, got {type(data)=}')
     # Use MergedSequences even for a single sequence to enforce iterating by
     # random access so that the iterator is continuable after exception.
-    if not isinstance(self.data, iter_utils.MergedSequences):
-      object.__setattr__(self, 'data', iter_utils.MergedSequences([self.data]))
+    sequences = [self.data]
+    if isinstance(self.data, iter_utils.MergedSequences):
+      sequences = self.data.sequences
+    data = iter_utils.MergedSequences(sequences, batch_size)
+    object.__setattr__(self, 'data', data)
 
   @classmethod
   def from_sequences(
       cls,
       sequences: Iterable[types.RandomAccessible[_T]],
+      batch_size: int = 0,
       ignore_error: bool = False,
   ) -> Self:
-    return cls(iter_utils.MergedSequences(sequences), ignore_error=ignore_error)
+    return cls(
+        iter_utils.MergedSequences(sequences),
+        ignore_error=ignore_error,
+        batch_size=batch_size,
+    )
 
   def shard(self, shard_index: int, num_shards: int, offset: int = 0) -> Self:
     if num_shards < 1:

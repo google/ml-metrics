@@ -15,6 +15,7 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 from ml_metrics._src.chainables import io
+from ml_metrics._src.utils import iter_utils
 from ml_metrics._src.utils import test_utils
 
 
@@ -123,6 +124,16 @@ class SequenceDataSourceTest(parameterized.TestCase):
         ignore_error=True,
     )
     self.assertEqual([0, 1, 3, 4, 0, 1, 2, 4], list(ds))
+
+  def test_sequence_batch_size(self):
+    batch_size = 2
+    ds = io.SequenceDataSource.from_sequences(
+        [range(4), range(4, 10)], batch_size=batch_size
+    )
+    sliced = ds.data[:3]
+    self.assertIsInstance(sliced, iter_utils._RangeIterator)
+    self.assertEqual(sliced._batch_size, batch_size)
+    self.assertEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], list(ds))
 
   @parameterized.named_parameters([
       dict(testcase_name='[0]', at=0, expected=0),
