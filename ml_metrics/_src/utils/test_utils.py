@@ -102,7 +102,9 @@ class SequenceWithExc:
     return i
 
 
-def assert_nested_container_equal(test: unittest.TestCase, a, b, strict=False):
+def assert_nested_container_equal(
+    test: unittest.TestCase, a, b, *, strict=False, places=7
+):
   """Asserts that two nested containers are equal."""
   try:
     if strict:
@@ -112,16 +114,20 @@ def assert_nested_container_equal(test: unittest.TestCase, a, b, strict=False):
           sorted(a.items()), sorted(b.items()), strict=True
       ):
         test.assertEqual(k_a, k_b)
-        assert_nested_container_equal(test, v_a, v_b, strict=strict)
+        assert_nested_container_equal(
+            test, v_a, v_b, strict=strict, places=places
+        )
     elif isinstance(a, str) and isinstance(b, str):
       test.assertEqual(a, b)
     elif hasattr(a, '__array__') and hasattr(b, '__array__'):
       np.testing.assert_allclose(a, b)
     elif isinstance(a, Iterable) and isinstance(b, Iterable):
       for a_elem, b_elem in zip(a, b, strict=True):
-        assert_nested_container_equal(test, a_elem, b_elem, strict=strict)
+        assert_nested_container_equal(
+            test, a_elem, b_elem, strict=strict, places=places
+        )
     else:
-      test.assertAlmostEqual(a, b)
+      test.assertAlmostEqual(a, b, places=places)
   except Exception as e:  # pylint: disable=broad-except
     test.fail(f'Failed to compare {a} and {b}: {e}')
 
