@@ -16,10 +16,11 @@
 from __future__ import annotations
 
 import collections
+from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping
 import dataclasses as dc
 import functools
 import itertools as it
-from typing import Any, Callable, Generic, Hashable, Iterable, Iterator, Mapping, Self, TypeVar
+from typing import Any, Generic, Self, TypeVar
 
 from ml_metrics._src import types
 from ml_metrics._src.aggregates import base as aggregates
