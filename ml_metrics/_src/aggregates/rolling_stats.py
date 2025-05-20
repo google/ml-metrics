@@ -257,7 +257,7 @@ class Histogram(base.CallableMetric, base.HasAsAggFn):
 class Counter(base.CallableMetric, base.HasAsAggFn, Generic[_T]):
   """An CallableMetric version of collections.Counter."""
 
-  batched_inputs: bool = True
+  batched_inputs: bool = False
   input_fn: Callable[..., _T] | None = None
   _counter: collections.Counter[_T | tuple[_T, ...]] = dataclasses.field(
       default_factory=collections.Counter
