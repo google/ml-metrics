@@ -160,7 +160,7 @@ class _RunnerIterator(iter_utils.MultiplexIterator[_ValueT]):
     return self._runner.has_agg
 
   @property
-  def agg_result(self) -> tree.TreeMapView:
+  def agg_result(self) -> tree.TreeLike:
     return self._runner.get_result(self.agg_state or {})
 
   def from_state(self, state: _IteratorState) -> _RunnerIterator:
@@ -375,19 +375,26 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
 
   def get_result(self, state: _AggState) -> tree.TreeMapView:
     """Gets the result from the aggregation state."""
-    result = tree.TreeMapView()
+    result = {}
     for key, fn_state in state.items():
+      assert isinstance(key.metrics, tuple), f'{key.metrics}'
       outputs = self.agg_fns[key.metrics].get_result(fn_state)
-      flattened_keys = key.metrics
-      # Only convert str key to MetricKey format when there is slices.
-      if key.slice != tree_fns.SliceKey():
-        assert isinstance(key.metrics, tuple), f'{key.metrics}'
-        flattened_keys = tuple(
-            MetricKey(metric, key.slice) for metric in key.metrics
-        )
+      flattened_keys = tuple(
+          MetricKey(metric, key.slice) for metric in key.metrics
+      )
       outputs = tree.TreeMapView(outputs)[key.metrics]
-      result = result.copy_and_set(flattened_keys, outputs)
-    return result
+      for k, output in zip(flattened_keys, outputs, strict=True):
+        result[k] = output
+    # Only removes the slices when there is no slicing at all.
+    unwrapped = {}
+    for k, v in result.items():
+      if not k.slice:
+        k = k.metrics
+      assert k not in unwrapped, f'{k=}, {unwrapped.keys()=}'
+      unwrapped[k] = v
+    if len(unwrapped) == 1 and tuple(unwrapped) == ('',):
+      unwrapped = {tree.Key.SELF: unwrapped['']}
+    return tree.TreeMapView().copy_and_update(unwrapped)
 
   def _actual_inputs(self, inputs, data_source) -> list[Iterable[Any]]:
     """Selects the inputs when user provided one."""
@@ -1075,7 +1082,7 @@ class TreeTransform(Generic[TreeFnT]):
       fn: types.MaybeResolvable[aggregates.Aggregatable] | None = None,
       *,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+      output_keys: TreeMapKey | TreeMapKeys = '',
       disable_slicing: bool = False,
   ) -> AggregateTransform:
     """Create an aggregate transform on the previous transform."""
@@ -1095,7 +1102,7 @@ class TreeTransform(Generic[TreeFnT]):
       fn: types.MaybeResolvable[aggregates.Aggregatable] | None = None,
       *,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+      output_keys: TreeMapKey | TreeMapKeys = '',
       disable_slicing: bool = False,
   ) -> AggregateTransform:
     """Alias for aggregate."""
@@ -1170,7 +1177,7 @@ class TreeTransform(Generic[TreeFnT]):
       self,
       fn: types.MaybeResolvable[aggregates.Aggregatable],
       *,
-      output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+      output_keys: TreeMapKey | TreeMapKeys = '',
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       disable_slicing: bool = False,
   ) -> Self:
@@ -1188,7 +1195,7 @@ class TreeTransform(Generic[TreeFnT]):
       self,
       fn: types.MaybeResolvable[aggregates.Aggregatable],
       *,
-      output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+      output_keys: TreeMapKey | TreeMapKeys = '',
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       disable_slicing: bool = False,
   ) -> Self:
@@ -1233,6 +1240,8 @@ class TreeTransform(Generic[TreeFnT]):
     Returns:
       The AggregateTransform with slices.
     """
+    if not self.agg_fns:
+      raise ValueError(f'Cannot add slice without aggregate, {self.agg_fns=}')
     slicer = tree_fns.Slicer.new(
         input_keys=keys,
         slice_fn=slice_fn,

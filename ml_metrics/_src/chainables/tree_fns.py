@@ -349,6 +349,8 @@ class Sink(TreeFn[types.SinkT, _T]):
 
 @dc.dataclass(frozen=True)
 class SliceKey:
+  """A key that represents a slice."""
+
   features: tuple[tree.TreeMapKey, ...] = ()
   values: tuple[Hashable, ...] = ()
 
@@ -361,6 +363,10 @@ class SliceKey:
           f' {self.features=} and {self.values=}. It is possible slice_name is'
           ' not matching with the slice_fn output.'
       )
+
+  def __len__(self) -> int:
+    assert len(self.features) == len(self.values), f'got {self}'
+    return len(self.features)
 
 
 @dc.dataclass(frozen=True)

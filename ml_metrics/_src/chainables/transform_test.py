@@ -998,20 +998,29 @@ class TransformTest(parameterized.TestCase):
 
   def test_aggregate_invalid_keys(self):
     with self.assertRaisesRegex(KeyError, 'Cannot mix SELF with other keys'):
-      transform.TreeTransform().agg(MockAverageFn()).add_aggregate(
-          MockAverageFn(), output_keys='a'
-      )
+      transform.TreeTransform().agg(
+          MockAverageFn(), output_keys=tree.Key.SELF
+      ).add_aggregate(MockAverageFn(), output_keys='a')
 
     with self.assertRaisesRegex(KeyError, 'Cannot mix SELF with other keys'):
       transform.TreeTransform().aggregate(
           MockAverageFn(), output_keys='a'
-      ).add_aggregate(MockAverageFn())
+      ).add_aggregate(MockAverageFn(), output_keys=tree.Key.SELF)
 
   def test_aggregate_duplicate_keys(self):
     with self.assertRaisesRegex(KeyError, 'Duplicate output_keys'):
       transform.TreeTransform().aggregate(
           MockAverageFn(), output_keys='a'
       ).add_aggregate(MockAverageFn(), output_keys=('a', 'b'))
+
+    with self.assertRaisesRegex(KeyError, 'Duplicate output_keys'):
+      transform.TreeTransform().aggregate(MockAverageFn()).add_aggregate(
+          MockAverageFn()
+      )
+
+  def test_add_slice_without_agg_raises_error(self):
+    with self.assertRaisesRegex(ValueError, 'Cannot add slice without agg'):
+      transform.TreeTransform().add_slice('a')
 
   @parameterized.named_parameters([
       dict(
@@ -1069,7 +1078,25 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual(expected, agg1.get_result(state1))
     self.assertEqual(expected, agg2.get_result(state2))
 
-  def test_aggregate_with_slices(self):
+  def test_aggregate_with_slices_single(self):
+    inputs = {'a': [1, 2, 1], 'b': [1, 1, 1]}
+    agg = (
+        transform.TreeTransform()
+        .aggregate(
+            MockAverageFn(),
+            input_keys='a',
+            output_keys='avg_a',
+        )
+        .add_slice('b')
+    )
+    expected = {
+        'avg_a': [4.0 / 3],
+        MetricKey('avg_a', SliceKey(('b',), (1,))): [4.0 / 3],
+    }
+    actual = agg.make()(inputs)
+    self.assertEqual(expected, actual)
+
+  def test_aggregate_with_slices_multiple_aggs(self):
     inputs = {'a': [1, 2, 1], 'b': [1, 9, 5]}
     agg = (
         transform.TreeTransform()
@@ -1096,7 +1123,30 @@ class TransformTest(parameterized.TestCase):
         MetricKey('avg_b', SliceKey(('b',), (9,))): [9 / 3],
         MetricKey('avg_b', SliceKey(('b',), (5,))): [5 / 3],
     }
-    self.assertEqual(expected, agg.make()(inputs))
+    actual = agg.make()(inputs)
+    self.assertEqual(expected, actual)
+
+  @parameterized.named_parameters([
+      dict(
+          testcase_name='default_metric_name_with_slice',
+          add_slice=True,
+          expected={'': [1], MetricKey('', SliceKey(('b',), (1,))): [1]},
+      ),
+      dict(
+          testcase_name='default_metric_name_no_slice',
+          add_slice=False,
+          expected=[1],
+      ),
+  ])
+  def test_aggregate_with_slices_default_metric_name(self, add_slice, expected):
+    p = transform.TreeTransform().aggregate(
+        MockAverageFn(),
+        input_keys='a',
+    )
+    if add_slice:
+      p = p.add_slice('b')
+    actual = p.make()({'a': [1, 1, 1], 'b': [1, 1, 1]})
+    self.assertEqual(expected, actual)
 
   def test_aggregate_with_slice_within_values(self):
     inputs = {'a': [1, 2, 1], 'b': [1, 9, 5]}
