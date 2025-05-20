@@ -193,31 +193,90 @@ class HistogramTest(parameterized.TestCase):
       hist_1.merge(hist_2)
 
 
-class CounterTest(absltest.TestCase):
+class CounterTest(parameterized.TestCase):
 
-  def test_counter_call(self):
+  def test_call(self):
     counter = rolling_stats.Counter()
     result = counter(['a', 'b'])
     self.assertEqual({'a': 1, 'b': 1}, result)
 
-  def test_counter_agg_fn_call(self):
+  def test_agg_fn_call(self):
     counter = rolling_stats.Counter().as_agg_fn()
     result = counter(['a', 'b'])
     self.assertEqual({'a': 1, 'b': 1}, result)
 
-  def test_counter_update(self):
+  def test_update(self):
     counter = rolling_stats.Counter()
     for x in ['a b'.split(' '), 'c a'.split(' ')]:
       counter.add(x)
     self.assertEqual({'a': 2, 'b': 1, 'c': 1}, counter.result())
 
-  def test_counter_merge(self):
+  def test_merge(self):
     counter_1 = rolling_stats.Counter()
     counter_2 = rolling_stats.Counter()
     counter_2.add(['a', 'b'])
     counter_1.add(['a', 'b'])
     counter_1.merge(counter_2)
     self.assertEqual({'a': 2, 'b': 2}, counter_1.result())
+
+  def test_unbatched_inputs(self):
+    counter = rolling_stats.Counter(batched_inputs=False)
+    for x in ['a', 'a', 'b']:
+      counter.add(x)
+    self.assertEqual({'a': 2, 'b': 1}, counter.result())
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='batched_inputs',
+          batched=True,
+          input_keys=('a', 'b'),
+          expected={(1, 2): 2, (2, 2): 1},
+      ),
+      dict(
+          testcase_name='unbatched_inputs',
+          batched=False,
+          input_keys=('a', 'b'),
+          expected={(1, 2): 2, (2, 2): 1},
+      ),
+      dict(
+          testcase_name='batched_inputs_with_input_fn',
+          batched=True,
+          input_fn=lambda a, b: f'{a},{b}',
+          input_keys=('a', 'b'),
+          expected={'1,2': 2, '2,2': 1},
+      ),
+      dict(
+          testcase_name='unbatched_inputs_with_input_fn',
+          batched=False,
+          input_fn=lambda a, b: f'{a},{b}',
+          input_keys=('a', 'b'),
+          expected={'1,2': 2, '2,2': 1},
+      ),
+      dict(
+          testcase_name='unbatched_single_inputs',
+          batched=False,
+          input_keys='a',
+          expected={1: 2, 2: 1},
+      ),
+      dict(
+          testcase_name='batched_single_inputs',
+          batched=True,
+          input_keys='a',
+          expected={1: 2, 2: 1},
+      ),
+  )
+  def test_in_pipeline(self, batched, input_keys, expected, input_fn=None):
+    p = transform.TreeTransform()
+    if batched:
+      p = p.select(input_keys).batch(2)
+    p = p.agg(
+        rolling_stats.Counter(batched_inputs=batched, input_fn=input_fn),
+        input_keys=input_keys,
+        output_keys='counter',
+    )
+    inputs = [{'a': 1, 'b': 2}, {'a': 1, 'b': 2}, {'a': 2, 'b': 2}]
+    actual = p.make()(input_iterator=inputs)
+    test_utils.assert_nested_container_equal(self, expected, actual['counter'])
 
 
 def get_expected_mean_and_variance(batches, batch_score_fn=None):

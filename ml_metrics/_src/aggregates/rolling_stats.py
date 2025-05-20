@@ -18,6 +18,7 @@ import abc
 import collections
 from collections.abc import Callable, Iterable
 import dataclasses
+import itertools
 import math
 from typing import Any, Generic, Self, TypeVar
 
@@ -256,7 +257,9 @@ class Histogram(base.CallableMetric, base.HasAsAggFn):
 class Counter(base.CallableMetric, base.HasAsAggFn, Generic[_T]):
   """An CallableMetric version of collections.Counter."""
 
-  _counter: collections.Counter[_T] = dataclasses.field(
+  batched_inputs: bool = True
+  input_fn: Callable[..., _T] | None = None
+  _counter: collections.Counter[_T | tuple[_T, ...]] = dataclasses.field(
       default_factory=collections.Counter
   )
 
@@ -265,16 +268,28 @@ class Counter(base.CallableMetric, base.HasAsAggFn, Generic[_T]):
     return self._counter
 
   def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(self.__class__)
+    return base.as_agg_fn(
+        self.__class__,
+        batched_inputs=self.batched_inputs,
+        input_fn=self.input_fn,
+    )
 
-  def new(self, inputs: Iterable[_T]) -> Self:
+  def new(self, *inputs: tuple[Iterable[_T] | _T]) -> Self:
+    if self.batched_inputs:
+      inputs = zip(*inputs)
+    else:
+      inputs = [inputs]
+    if self.input_fn:
+      inputs = itertools.starmap(self.input_fn, inputs)
+    # For single column inputs, unwrap the tuple to a single element.
+    inputs = (elem[0] if len(elem) == 1 else elem for elem in inputs)
     return self.__class__(_counter=collections.Counter(inputs))
 
   def merge(self, other: Self) -> Self:
     self._counter.update(other.counter)
     return self
 
-  def result(self) -> collections.Counter[_T]:
+  def result(self) -> collections.Counter[_T | tuple[_T, ...]]:
     return self._counter
 
 
