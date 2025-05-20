@@ -76,6 +76,7 @@ Map = Mapping[TreeMapKeyT, Any]
 TreeTransformT = TypeVar('TreeTransformT', bound='TreeTransform')
 TreeFn = tree_fns.TreeFn
 _ValueT = TypeVar('_ValueT')
+_Aggregatable = aggregates.Aggregatable | aggregates.HasAsAggFn
 
 _LOGGING_INTERVAL_SECS = 60
 _DEFAULT_NUM_THREADS = 0
@@ -1072,7 +1073,7 @@ class TreeTransform(Generic[TreeFnT]):
   # TODO: b/356633410 - support rebatching.
   def aggregate(
       self,
-      fn: types.MaybeResolvable[aggregates.Aggregatable] | None = None,
+      fn: types.MaybeResolvable[_Aggregatable] | None = None,
       *,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       output_keys: TreeMapKey | TreeMapKeys = '',
@@ -1092,7 +1093,7 @@ class TreeTransform(Generic[TreeFnT]):
 
   def agg(
       self,
-      fn: types.MaybeResolvable[aggregates.Aggregatable] | None = None,
+      fn: types.MaybeResolvable[_Aggregatable] | None = None,
       *,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       output_keys: TreeMapKey | TreeMapKeys = '',
@@ -1156,7 +1157,7 @@ class TreeTransform(Generic[TreeFnT]):
     agg_fns = self.agg_fns + (fn,)
     return dataclasses.replace(self, agg_fns=agg_fns)
 
-  def _maybe_new_transform(self, fn) -> TreeTransform:
+  def _maybe_new_transform(self, fn: tree_fns.TreeFn) -> TreeTransform:
     """Breaks apart the transform when this is an aggregate or source."""
     if not fn:
       return self
@@ -1168,7 +1169,7 @@ class TreeTransform(Generic[TreeFnT]):
 
   def add_aggregate(
       self,
-      fn: types.MaybeResolvable[aggregates.Aggregatable],
+      fn: types.MaybeResolvable[_Aggregatable],
       *,
       output_keys: TreeMapKey | TreeMapKeys = '',
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
@@ -1186,7 +1187,7 @@ class TreeTransform(Generic[TreeFnT]):
 
   def add_agg(
       self,
-      fn: types.MaybeResolvable[aggregates.Aggregatable],
+      fn: types.MaybeResolvable[_Aggregatable],
       *,
       output_keys: TreeMapKey | TreeMapKeys = '',
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,

@@ -262,7 +262,7 @@ class UnboundesSamplerTest(absltest.TestCase):
 
   def test_with_transform_without_input_keys(self):
     t = transform.TreeTransform().agg(
-        fn=rolling_stats.UnboundedSampler().as_agg_fn(),
+        fn=rolling_stats.UnboundedSampler(),
         output_keys='samples',
     )
     it = t.make().iterate([['a', 'b'], ['c']])
@@ -276,7 +276,7 @@ class UnboundesSamplerTest(absltest.TestCase):
 
   def test_with_transform_with_input_keys(self):
     t = transform.TreeTransform().agg(
-        fn=rolling_stats.UnboundedSampler().as_agg_fn(),
+        fn=rolling_stats.UnboundedSampler(),
         output_keys=('a', 'b'),
         input_keys=('a', 'b'),
     )
@@ -620,11 +620,7 @@ class MeanAndVarianceTest(parameterized.TestCase):
     self.assertEqual(4, count.result())
 
   def test_count_as_agg_fn(self):
-    p = (
-        transform.TreeTransform()
-        .batch(2)
-        .agg(rolling_stats.Count().as_agg_fn())
-    )
+    p = transform.TreeTransform().batch(2).agg(rolling_stats.Count())
     # auto-batch for single element
     self.assertEqual({'': 3}, p.make()(input_iterator=range(3)))
 
