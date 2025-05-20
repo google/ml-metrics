@@ -386,14 +386,7 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
       for k, output in zip(flattened_keys, outputs, strict=True):
         result[k] = output
     # Only removes the slices when there is no slicing at all.
-    unwrapped = {}
-    for k, v in result.items():
-      if not k.slice:
-        k = k.metrics
-      assert k not in unwrapped, f'{k=}, {unwrapped.keys()=}'
-      unwrapped[k] = v
-    if len(unwrapped) == 1 and tuple(unwrapped) == ('',):
-      unwrapped = {tree.Key.SELF: unwrapped['']}
+    unwrapped = {(k if k.slice else k.metrics): v for k, v in result.items()}
     return tree.TreeMapView().copy_and_update(unwrapped)
 
   def _actual_inputs(self, inputs, data_source) -> list[Iterable[Any]]:

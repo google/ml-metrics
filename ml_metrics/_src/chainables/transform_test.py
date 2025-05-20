@@ -200,14 +200,14 @@ class TransformDataSourceTest(parameterized.TestCase):
     num_shards = 2
     it = p.make(shard=io.ShardConfig(0, num_shards)).iterate()
     self.assertEqual(1, next(it))
-    self.assertEqual([1], it.agg_result)
+    self.assertEqual({'': [1]}, it.agg_result)
     # Recover from the iterator state, the results of the original and the new
     # iterator should be the same.
     it_new = p.make().iterate().from_state(it.state)
     self.assertEqual([2], list(it))
     self.assertEqual([2], list(it_new))
-    self.assertEqual([(1 + 2) / 2], it.agg_result)
-    self.assertEqual([(1 + 2) / 2], it_new.agg_result)
+    self.assertEqual({'': [(1 + 2) / 2]}, it.agg_result)
+    self.assertEqual({'': [(1 + 2) / 2]}, it_new.agg_result)
 
   def test_sequence_data_source_apply_ignore_error(self):
     def foo(x):
@@ -1135,7 +1135,7 @@ class TransformTest(parameterized.TestCase):
       dict(
           testcase_name='default_metric_name_no_slice',
           add_slice=False,
-          expected=[1],
+          expected={'': [1]},
       ),
   ])
   def test_aggregate_with_slices_default_metric_name(self, add_slice, expected):
@@ -1347,26 +1347,25 @@ class TransformTest(parameterized.TestCase):
         .agg(MockAverageFn())
     )
     actual_fn = t.make()
-    self.assertEqual([13.5], actual_fn())
-    self.assertEqual(
-        [13.5], actual_fn(input_iterator=test_utils.NoLenIter(input_iterator))
-    )
+    self.assertEqual({'': [13.5]}, actual_fn())
+    actual = actual_fn(input_iterator=test_utils.NoLenIter(input_iterator))
+    self.assertEqual({'': [13.5]}, actual)
     it = actual_fn.iterate()
     # Aggregation state is accumulated when iterating.
     self.assertIsNotNone(it.agg_state)
-    np.testing.assert_array_equal([np.nan], it.agg_result)
+    self.assertDictEqual({'': [np.nan]}, it.agg_result)
     _ = next(it)
     assert it.agg_state is not None
     # First batch is [1, 2, 3] + 11 = [12, 13, 14], state is (sum=39, count=3).
     self.assertEqual((39, 3), next(iter(it.agg_state.values())))
-    np.testing.assert_array_equal([3.0 + 10], it.agg_result)
+    self.assertDictAlmostEqual({'': [3.0 + 10]}, it.agg_result)
     # Exhausting the iterator is necessary to get the aggregate result.
     mit.last(it)
     self.assertEqual((81, 6), next(iter(it.agg_state.values())))
-    self.assertEqual([13.5], it.agg_result)
+    self.assertDictAlmostEqual({'': [13.5]}, it.agg_result)
 
     mit.last(result := actual_fn.iterate(test_utils.NoLenIter(input_iterator)))
-    self.assertEqual([13.5], result.agg_result)
+    self.assertDictAlmostEqual({'': [13.5]}, result.agg_result)
 
   def test_multiple_aggregates_raises_error(self):
     with self.assertRaisesRegex(ValueError, 'more than one aggregations'):
@@ -1467,8 +1466,8 @@ class TransformTest(parameterized.TestCase):
     it = t.make().iterate()
     self.assertLen(it._iterators, len(set(names)))
     self.assertEqual([[12, 13, 14], [13, 14, 15]], list(it))
-    self.assertEqual([13.5], actual_fn())
-    self.assertEqual([13.5], actual_fn(input_iterator=input_iterator))
+    self.assertEqual({'': [13.5]}, actual_fn())
+    self.assertEqual({'': [13.5]}, actual_fn(input_iterator=input_iterator))
     self.assertLen(t.flatten_transform(), len(expected_transforms))
     self.assertEqual(expected_transforms, list(t.named_transforms()))
 
@@ -1495,7 +1494,7 @@ class TransformTest(parameterized.TestCase):
         .agg(MockAverageFn())
     )
     actual = p.make()()
-    self.assertEqual([3.0], actual)
+    self.assertEqual({'': [3.0]}, actual)
 
   def test_iterator_queue_with_transform(self):
     inputs = [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
@@ -1509,7 +1508,7 @@ class TransformTest(parameterized.TestCase):
       thread_pool.submit(iterator.enqueue_from_iterator, p.make())
       result = iterator.get_batch(min_batch_size=len(inputs))
     self.assertEqual(inputs, result)
-    self.assertEqual([3.0], iterator.returned[0].agg_result)
+    self.assertEqual({'': [3.0]}, iterator.returned[0].agg_result)
 
   def test_transform_maybe_stop(self):
     datasource = test_utils.range_with_sleep(256, 0.3)

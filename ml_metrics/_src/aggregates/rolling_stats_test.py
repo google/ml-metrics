@@ -626,7 +626,7 @@ class MeanAndVarianceTest(parameterized.TestCase):
         .agg(rolling_stats.Count().as_agg_fn())
     )
     # auto-batch for single element
-    self.assertEqual(3, p.make()(input_iterator=range(3)))
+    self.assertEqual({'': 3}, p.make()(input_iterator=range(3)))
 
   def test_count_str(self):
     count = rolling_stats.Count()
