@@ -1205,7 +1205,6 @@ class TreeTransform(Generic[TreeFnT]):
       keys: TreeMapKey | TreeMapKeys,
       slice_name: str | tuple[str, ...] = (),
       slice_fn: tree_fns.SliceIteratorFn | None = None,
-      slice_mask_fn: tree_fns.SliceMaskIteratorFn | None = None,
       replace_mask_false_with: Any = tree.DEFAULT_FILTER,
   ) -> 'AggregateTransform':
     """Adds a slice and stack it on the existing slicers.
@@ -1225,9 +1224,8 @@ class TreeTransform(Generic[TreeFnT]):
     Args:
       keys: input keys for the slicer.
       slice_name: the slice name, default to same as keys, but is required when
-        slice_fn or slice_mask_fn is provided.
+        slice_fn is provided.
       slice_fn: optional callable that returns an iterable of slices.
-      slice_mask_fn: deprecated, do not use.
       replace_mask_false_with: the value to replace the false values in the
         mask. When not set, the maksing behavior is to filter out the entries
         with False values in the mask.
@@ -1235,8 +1233,6 @@ class TreeTransform(Generic[TreeFnT]):
     Returns:
       The AggregateTransform with slices.
     """
-    if slice_mask_fn is not None:
-      raise ValueError('slice_mask_fn is deprecated, do not use.')
     slicer = tree_fns.Slicer.new(
         input_keys=keys,
         slice_fn=slice_fn,
