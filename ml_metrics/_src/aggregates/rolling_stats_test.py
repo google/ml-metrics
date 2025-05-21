@@ -635,6 +635,39 @@ class FixedSizeSampleTest(parameterized.TestCase):
     self.assertEqual(sampler.result(), actual)
 
 
+class CountTest(parameterized.TestCase):
+
+  def test_count_normal(self):
+    self.assertEqual(3, rolling_stats.Count()(['a', 'b', 'c']))
+
+  def test_count_merge(self):
+    count1 = rolling_stats.Count()
+    count2 = rolling_stats.Count()
+    count1.add(['a', 'b', 'c'])
+    count2.add(['a', 'b', 'c'])
+    count1.merge(count2)
+    self.assertEqual(6, count1.result())
+
+  def test_batched(self):
+    p = transform.TreeTransform().batch(2).agg(rolling_stats.Count())
+    self.assertEqual({'': 3}, p.make()(input_iterator=range(3)))
+
+  def test_unbatched(self):
+    p = transform.TreeTransform().agg(rolling_stats.Count(batched_inputs=False))
+    self.assertEqual({'': 3}, p.make()(input_iterator=range(3)))
+
+  def test_count_fn(self):
+    p = transform.TreeTransform().agg(
+        rolling_stats.Count(batched_inputs=False, count_fn=len)
+    )
+    self.assertEqual({'': 4}, p.make()(input_iterator=['aa', 'bb']))
+
+  def test_str(self):
+    count = rolling_stats.Count()
+    count.add(['a', 'b', 'c'])
+    self.assertEqual('count: 3', str(count))
+
+
 class MeanAndVarianceTest(parameterized.TestCase):
 
   def assertDataclassAlmostEqual(
@@ -656,40 +689,6 @@ class MeanAndVarianceTest(parameterized.TestCase):
           np.testing.assert_allclose(value, got[key])
       except AssertionError:
         self.fail(f'Failed to assert {key}: {value} == {got[key]}')
-
-  def test_count_normal(self):
-    self.assertEqual(3, rolling_stats.Count()(['a', 'b', 'c']))
-
-  def test_count_merge(self):
-    count1 = rolling_stats.Count()
-    count2 = rolling_stats.Count()
-    count1.add(['a', 'b', 'c'])
-    count2.add(['a', 'b', 'c'])
-    count1.merge(count2)
-    self.assertEqual(6, count1.result())
-
-  def test_count_multi_column_inputs(self):
-    # Simulate two column of inputs that requires a batch_score_fn to process.
-    batches = [(1, 1), (2, 2)]
-    count = rolling_stats.Count(batch_score_fn=lambda *batch: list(batch))
-    for batch in batches:
-      count.add(*batch)
-    self.assertEqual(4, count.result())
-
-  def test_count_as_agg_fn(self):
-    p = transform.TreeTransform().batch(2).agg(rolling_stats.Count())
-    # auto-batch for single element
-    self.assertEqual({'': 3}, p.make()(input_iterator=range(3)))
-
-  def test_count_str(self):
-    count = rolling_stats.Count()
-    count.add(['a', 'b', 'c'])
-    self.assertEqual('count: 3', str(count))
-
-  def test_count_multi_column_no_batch_score_fn_raise(self):
-    count = rolling_stats.Count()
-    with self.assertRaisesRegex(ValueError, 'inputs requires a batch_score_fn'):
-      count.add(1, 2)
 
   def test_mean_normal(self):
     # This only tests that Mean().get_result() returns the mean value directly.

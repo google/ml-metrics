@@ -297,51 +297,59 @@ class Counter(base.CallableMetric, base.HasAsAggFn, Generic[_T]):
 class Count(base.CallableMetric):
   """Computes the count of a batch of values."""
 
-  batch_score_fn: Callable[..., types.NumbersT] | None = None
-  _count: types.NumbersT = 0
+  batched_inputs: bool = True
+  count_fn: Callable[..., types.NumbersT] | None = None
+  _count: int = 0
 
-  def as_agg_fn(
-      self,
-      *,
-      nested: bool = False,
-  ) -> base.AggregateFn:
+  def as_agg_fn(self) -> base.AggregateFn:
     return base.as_agg_fn(
         self.__class__,
-        batch_score_fn=self.batch_score_fn if not nested else None,
-        nested=nested,
-        agg_preprocess_fn=self.batch_score_fn if nested else None,
+        batched_inputs=self.batched_inputs,
+        count_fn=self.count_fn,
     )
 
   @property
   def count(self) -> types.NumbersT:
     return self._count
 
-  def new(self, *batch: types.NumbersT) -> types.NumbersT:
+  def new(self, inputs: types.NumbersT) -> types.NumbersT:
     """Computes the sufficient statistics of a batch of values."""
-    if not self.batch_score_fn and len(batch) > 1:
-      raise ValueError(
-          'Multi-column inputs requires a batch_score_fn to convert it to a'
-          f' single column, but received {len(batch)} columns.'
-      )
-    batch = self.batch_score_fn(*batch) if self.batch_score_fn else batch[0]
-    return self.__class__(_count=len(batch))
+    if not self.count_fn:
+      if self.batched_inputs:
+        return dataclasses.replace(self, _count=len(inputs))
+
+      return dataclasses.replace(self, _count=1)
+
+    if not self.batched_inputs:
+      inputs = [inputs]
+    return dataclasses.replace(self, _count=sum(map(self.count_fn, inputs)))
 
   def merge(self, other: Self):
     self._count += other.count
 
-  def result(self) -> Self:
-    return self.count
+  def result(self) -> int | tuple[int, ...]:
+    return self._count
 
   def __str__(self):
-    return f'count: {self.count}'
+    return f'count: {self.result()}'
 
 
 @dataclasses.dataclass(kw_only=True, eq=True)
-class Mean(Count):
+class Mean(base.CallableMetric):
   """Computes the mean and variance of a batch of values."""
 
+  batch_score_fn: Callable[..., types.NumbersT] | None = None
+  _count: types.NumbersT = 0
   _mean: types.NumbersT = np.nan
   _input_shape: tuple[int, ...] = ()
+
+  def as_agg_fn(self, *, nested: bool = False) -> base.AggregateFn:
+    return base.as_agg_fn(
+        self.__class__,
+        batch_score_fn=self.batch_score_fn if not nested else None,
+        nested=nested,
+        agg_preprocess_fn=self.batch_score_fn if nested else None,
+    )
 
   def new(self, batch: types.NumbersT) -> types.NumbersT:
     """Computes the sufficient statistics of a batch of values.
@@ -366,6 +374,10 @@ class Mean(Count):
         _mean=np.nanmean(batch, axis=0),
         _input_shape=batch.shape if batch.size else (),
     )
+
+  @property
+  def count(self) -> types.NumbersT:
+    return self._count
 
   @property
   def mean(self) -> types.NumbersT:
