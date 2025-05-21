@@ -62,6 +62,8 @@ class TreeFn(Generic[_FnT, _T]):
       corresponding input in sequence of the keys in `input_keys`.
     replace_mask_false_with: If provided, replace False in the mask with this
       value.
+    input_batch_size: Tracker for the input batch size, unbatched inputs when
+      this is 0 (default).
     batch_size: Overrides the output batch size, has to be set when
       fn_batch_size is set.
     lazy: If True, the underlying function is lazy, normally, this means it
@@ -78,6 +80,7 @@ class TreeFn(Generic[_FnT, _T]):
   replace_mask_false_with: Any = dc.field(
       default=tree.DEFAULT_FILTER, repr=False
   )
+  input_batch_size: int = 0
   batch_size: int = 0
   ignore_error: bool = False
   _cached_fn: _FnT | None = None
