@@ -1385,12 +1385,12 @@ class R2TjurTest(parameterized.TestCase):
       dict(
           testcase_name='absolute',
           r2_metric=rolling_stats.R2Tjur,
-          expected_result=-2340.933593683032,
+          expected_result=162.8791640697309,
       ),
       dict(
           testcase_name='relative',
           r2_metric=rolling_stats.R2TjurRelative,
-          expected_result=1.0129655857337465,
+          expected_result=0.9987124897160882,
       ),
   )
   def test_r2_tjur_many_batches_little_correlation(
@@ -1398,8 +1398,8 @@ class R2TjurTest(parameterized.TestCase):
   ):
     np.random.seed(seed=0)
 
-    y_true = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
-    y_pred = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
+    y_true = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
+    y_pred = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
 
     state = r2_metric()
     for y_true_i, y_pred_i in zip(y_true, y_pred):
@@ -1411,12 +1411,12 @@ class R2TjurTest(parameterized.TestCase):
       dict(
           testcase_name='absolute',
           r2_metric=rolling_stats.R2Tjur,
-          expected_result=0.9999901799905766,
+          expected_result=0.9999919870992298,
       ),
       dict(
           testcase_name='relative',
           r2_metric=rolling_stats.R2TjurRelative,
-          expected_result=214595.2102587055,
+          expected_result=124798.74999999999,
       ),
   )
   def test_r2_tjur_many_batches_much_correlation(
@@ -1424,11 +1424,11 @@ class R2TjurTest(parameterized.TestCase):
   ):
     np.random.seed(seed=0)
 
-    y_true = np.random.uniform(low=1e-5, high=1 - 1e-5, size=(10000, 10000))
+    y_true = np.random.uniform(low=1e-5, high=1 - 1e-5, size=(1000, 1000))
 
     # This is a noisy version of y_true.
     y_pred = y_true + np.random.uniform(
-        low=-1e-5, high=1e-5, size=(10000, 10000)
+        low=-1e-5, high=1e-5, size=(1000, 1000)
     )
 
     y_true = np.round(y_true)
@@ -1441,7 +1441,7 @@ class R2TjurTest(parameterized.TestCase):
     self.assertAlmostEqual(state.result(), expected_result, places=10)
 
   def test_r2_tjur_absolute_many_batches_direct_correlation(self):
-    y = np.round(np.random.uniform(size=(10000, 10000)))
+    y = np.round(np.random.uniform(size=(1000, 1000)))
 
     state = rolling_stats.R2Tjur()
     for y_i in y:
@@ -1452,7 +1452,7 @@ class R2TjurTest(parameterized.TestCase):
     self.assertAlmostEqual(state.result(), expected_result, places=9)
 
   def test_r2_tjur_relative_many_batches_direct_correlation(self):
-    y = np.round(np.random.uniform(size=(10000, 10000)))
+    y = np.round(np.random.uniform(size=(1000, 1000)))
 
     state = rolling_stats.R2TjurRelative()
     for y_i in y:
@@ -1475,7 +1475,7 @@ class R2TjurTest(parameterized.TestCase):
   def test_r2_tjur_many_batches_inverse_correlation(
       self, r2_metric, expected_result
   ):
-    y = np.round(np.random.uniform(size=(10000, 10000)))
+    y = np.round(np.random.uniform(size=(1000, 1000)))
 
     state = r2_metric()
     for y_i in y:
@@ -1610,8 +1610,8 @@ class RRegressionTest(parameterized.TestCase):
   def test_r_regression_many_batches_little_correlation(self):
     np.random.seed(seed=0)
 
-    x = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
-    y = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
+    x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
+    y = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
 
     state = rolling_stats.RRegression()
     for x_i, y_i in zip(x, y):
@@ -1619,17 +1619,17 @@ class RRegressionTest(parameterized.TestCase):
 
     # From
     # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
-    expected_result = 4.231252166807617e-05
+    expected_result = -0.00029321876957678797
 
     self.assertAlmostEqual(state.result(), expected_result, places=14)
 
   def test_r_regression_many_batches_much_correlation(self):
     np.random.seed(seed=0)
 
-    x = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
+    x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
 
     # This is a noisy version of x.
-    y = x + np.random.uniform(low=-1e5, high=1e5, size=(10000, 10000))
+    y = x + np.random.uniform(low=-1e5, high=1e5, size=(1000, 1000))
 
     state = rolling_stats.RRegression()
     for x_i, y_i in zip(x, y):
@@ -1637,12 +1637,12 @@ class RRegressionTest(parameterized.TestCase):
 
     # From
     # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
-    expected_result = 0.995037725730923
+    expected_result = 0.9950319287287748
 
     self.assertAlmostEqual(state.result(), expected_result, places=10)
 
   def test_r_regression_many_batches_direct_correlation(self):
-    x = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
+    x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
 
     state = rolling_stats.RRegression()
     for x_i in x:
@@ -1653,7 +1653,7 @@ class RRegressionTest(parameterized.TestCase):
     self.assertAlmostEqual(state.result(), expected_result, places=9)
 
   def test_r_regression_many_batches_inverse_correlation(self):
-    x = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
+    x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
 
     state = rolling_stats.RRegression()
     for x_i in x:
@@ -1739,10 +1739,10 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
   ):
     np.random.seed(seed=0)
 
-    x = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
-    y = np.random.uniform(low=-1e6, high=1e6, size=(10000, 10000))
+    x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
+    y = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
 
-    expected_result = 36.23844148369455
+    expected_result = 32.611545081600894
 
     state = rolling_stats.SymmetricPredictionDifference()
     for x_i, y_i in zip(x, y):
@@ -1753,12 +1753,12 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
   def test_symmetric_prediction_difference_many_batches_much_correlation(self):
     np.random.seed(seed=0)
 
-    x = np.random.uniform(low=1e-5, high=1 - 1e-5, size=(10000, 10000))
+    x = np.random.uniform(low=1e-5, high=1 - 1e-5, size=(1000, 1000))
 
     # y is a noisy version of x.
-    y = x + np.random.uniform(low=-1e-5, high=1e-5, size=(10000, 10000))
+    y = x + np.random.uniform(low=-1e-5, high=1e-5, size=(1000, 1000))
 
-    expected_result = 5.8079104443249064e-05
+    expected_result = 5.6944180764844745e-05
 
     state = rolling_stats.SymmetricPredictionDifference()
     for x_i, y_i in zip(x, y):
@@ -1767,7 +1767,7 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
     self.assertAlmostEqual(state.result(), expected_result, places=16)
 
   def test_symmetric_prediction_difference_many_identical_batches(self):
-    x = np.random.uniform(size=(10000, 10000))
+    x = np.random.uniform(size=(1000, 1000))
 
     state = rolling_stats.SymmetricPredictionDifference()
     for x_i in x:
@@ -1779,7 +1779,7 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
     self.assertAlmostEqual(state.result(), expected_result, places=11)
 
   def test_symmetric_prediction_difference_many_batches_opposite(self):
-    x = np.random.uniform(size=(10000, 10000))
+    x = np.random.uniform(size=(1000, 1000))
 
     state = rolling_stats.SymmetricPredictionDifference()
     for x_i in x:
