@@ -62,8 +62,11 @@ class TreeFn(Generic[_FnT, _T]):
       corresponding input in sequence of the keys in `input_keys`.
     replace_mask_false_with: If provided, replace False in the mask with this
       value.
-    batch_size: Overrides the output batch size, has to be set when
-      fn_batch_size is set.
+    input_batch_size: Tracker for the input batch size, unbatched inputs when
+      this is 0 (default).
+    batch_size: Rebatch the output to `batch_size`.
+    output_batch_size: The batch size of the output with consideration of the
+      `input_batch_size` and `batch_size`.
     lazy: If True, the underlying function is lazy, normally, this means it
       needs to be constructed at runtime.
     id: A string that serves as an identifier for the TreeFn instance.
@@ -78,6 +81,7 @@ class TreeFn(Generic[_FnT, _T]):
   replace_mask_false_with: Any = dc.field(
       default=tree.DEFAULT_FILTER, repr=False
   )
+  input_batch_size: int = 0
   batch_size: int = 0
   ignore_error: bool = False
   _cached_fn: _FnT | None = None
@@ -134,6 +138,11 @@ class TreeFn(Generic[_FnT, _T]):
     if isinstance(self.output_keys, tuple):
       return len(self.output_keys)
     return 1 if self.output_keys else 0
+
+  @property
+  def output_batch_size(self) -> int:
+    """Returns the output batch size."""
+    return self.batch_size or self.input_batch_size
 
   def maybe_make(self: Self) -> Self:
     """Explicitly instantiate the lazy_fn of a tree_fn."""

@@ -742,6 +742,7 @@ class TreeTransform(Generic[TreeFnT]):
             'label_id',
             fn=str,
             input_keys='label_id',
+        ).batch(64)  # normally aggregates takes a batch of inputs.
         # Metrics.
         ).aggregate(
             input_keys=('label_id', 'pred_id'),
@@ -767,6 +768,8 @@ class TreeTransform(Generic[TreeFnT]):
     id: the id of the transform, unique for each transform.
     is_noop: whether the transform is a no-op, e.g., no function to execute.
       This is useful at the beginning of a chain by calling `Transform()`.
+    batch_size: the batch size of the output of the transform, being 0 if not
+      explicitly batched (the inputs can still be batched).
   """
 
   name: str = ''
@@ -807,6 +810,10 @@ class TreeTransform(Generic[TreeFnT]):
   @property
   def is_noop(self):
     return not self.agg_fns and not self.fns and self.data_source_ is None
+
+  @property
+  def batch_size(self) -> int:
+    return self.fns[-1].output_batch_size if self.fns else 0
 
   def __hash__(self):
     return hash(self._id)
@@ -965,7 +972,10 @@ class TreeTransform(Generic[TreeFnT]):
     # The output_keys here is mostly for correct `self.output_keys`, which is
     # not used in FilterFn when filtering.
     fn = tree_fns.FilterFn(
-        fn=fn, input_keys=input_keys, output_keys=tuple(self.output_keys)
+        fn=fn,
+        input_keys=input_keys,
+        output_keys=tuple(self.output_keys),
+        input_batch_size=self.batch_size,
     )
     return self._maybe_new_transform(fn)
 
@@ -989,6 +999,7 @@ class TreeTransform(Generic[TreeFnT]):
         output_keys=assign_keys,
         fn=fn,
         input_keys=input_keys,
+        input_batch_size=self.batch_size,
     )
     self._check_assign_keys(fn.output_keys)
     return self._maybe_new_transform(fn)
@@ -1005,7 +1016,11 @@ class TreeTransform(Generic[TreeFnT]):
       raise ValueError('batch_size is deprecated, use batch() instead.')
 
     output_keys = output_keys or input_keys
-    fn = tree_fns.Select(input_keys=input_keys, output_keys=output_keys)
+    fn = tree_fns.Select(
+        input_keys=input_keys,
+        output_keys=output_keys,
+        input_batch_size=self.batch_size,
+    )
     return self._maybe_new_transform(fn)
 
   def batch(
@@ -1037,6 +1052,7 @@ class TreeTransform(Generic[TreeFnT]):
     fn = lambda *args: tuple(batch_fn(arg) for arg in args)
     keys = tuple(self.output_keys) or tree.Key.SELF
     fn = tree_fns.TreeFn(
+        input_batch_size=self.batch_size,
         batch_size=batch_size,
         fn=fn,
         input_keys=keys,
@@ -1067,7 +1083,12 @@ class TreeTransform(Generic[TreeFnT]):
       A TreeTransform that sinks the input of this transform.
     """
     # The output_keys here is for `self.output_keys`, which is not used in Sink.
-    fn = tree_fns.Sink(fn=sink, input_keys=input_keys, output_keys=input_keys)
+    fn = tree_fns.Sink(
+        fn=sink,
+        input_keys=input_keys,
+        output_keys=input_keys,
+        input_batch_size=self.batch_size,
+    )
     return self._maybe_new_transform(fn)
 
   # TODO: b/356633410 - support rebatching.
@@ -1126,6 +1147,7 @@ class TreeTransform(Generic[TreeFnT]):
           output_keys=output_keys,
           fn=fn,
           input_keys=input_keys,
+          input_batch_size=self.batch_size,
       )
     return self._maybe_new_transform(fn)
 
@@ -1182,6 +1204,7 @@ class TreeTransform(Generic[TreeFnT]):
           fn=fn,
           input_keys=input_keys,
           disable_slicing=disable_slicing,
+          input_batch_size=self.batch_size,
       )
     return self._maybe_new_agg_transform(fn)
 

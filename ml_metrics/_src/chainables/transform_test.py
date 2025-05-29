@@ -374,6 +374,19 @@ class TransformTest(parameterized.TestCase):
     p = transform_fn(transform.TreeTransform().apply(len, output_keys='a'))
     self.assertEqual(p.output_keys, expected)
 
+  def test_output_batch_size(self):
+    p = (
+        transform.TreeTransform()
+        .apply(lambda x: x + 1, output_keys='a')
+        .batch(2)
+        .assign('b', fn=lambda x: x + 1, input_keys='a')
+    )
+    self.assertEqual(p.batch_size, 2)
+    p = p.apply(lambda x: x + 1)
+    self.assertEqual(p.batch_size, 2)
+    p = p.batch(3, batch_fn=lambda x: x).agg(MockAverageFn(), output_keys='c')
+    self.assertEqual(p.batch_size, 3)
+
   def test_output_keys_aggregate(self):
     p = (
         transform.TreeTransform()
