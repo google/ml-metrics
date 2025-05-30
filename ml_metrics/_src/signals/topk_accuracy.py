@@ -5,7 +5,9 @@ from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
 
-@telemetry.WithTelemetry('ml_metrics', 'signals', 'topk_accuracy')
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='signal', reference='topk_accuracy'
+)
 def topk_accurate(
     y_pred: types.NumbersT,
     label: int,

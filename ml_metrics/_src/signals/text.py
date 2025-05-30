@@ -177,9 +177,6 @@ def average_word_length(text: str) -> float:
   return sum(len(word) for word in words) / len(words)
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='signal', reference='average_word_length'
-)
 def _get_words(text: str) -> list[str]:
   """Returns the words in the text."""
   return re.sub(r'[^a-zA-Z ]', '', text).split()

@@ -13,7 +13,9 @@ from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
 
-@telemetry.WithTelemetry('ml_metrics', 'signals', 'complexity_gap_score')
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='signal', reference='complexity_gap_score'
+)
 def complexity_gap_score(
     labels: types.NumbersT,
     embeddings: types.NumbersT,
