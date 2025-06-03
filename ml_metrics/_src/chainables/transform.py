@@ -45,7 +45,7 @@ Following is an example of an evaluation pipeline where:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence, Sized
 import copy
 import dataclasses
 import enum
@@ -109,9 +109,11 @@ class _IteratorState:
   agg_state: _AggState | None
 
 
+AUTO_SIZE = -1
+
+
 class _RunnerIterator(iter_utils.MultiplexIterator[_ValueT]):
   """An iterator that returns the last value."""
-  data_sources: Sequence[Iterable[_ValueT]]
   agg_state: _AggState
 
   def __init__(
@@ -123,9 +125,9 @@ class _RunnerIterator(iter_utils.MultiplexIterator[_ValueT]):
       with_result: bool = True,
       with_agg_state: bool = True,
       state: Any = None,
+      data_source_size: int = 0,
   ):
     self._runner = runner
-    self._data_sources = data_sources
     self._ignore_error = ignore_error
     self._with_result = with_result
     # Only keep the states relevant to the runner.
@@ -133,6 +135,13 @@ class _RunnerIterator(iter_utils.MultiplexIterator[_ValueT]):
         k: v for k, v in state.items() if k.metrics in self._runner.agg_fns
     }
     self._with_agg = state and with_agg_state
+    self._total = data_source_size
+    if data_source_size == AUTO_SIZE:
+      total = sum(len(ds) for ds in data_sources if isinstance(ds, Sized))
+      if batch_size := runner.transform.batch_size:
+        total, residual = divmod(total, batch_size)
+        total = total + 1 if residual else total
+      self._total = total
 
     def iter_fn(
         input_iterator: Iterable[tree.TreeLike] = (),
@@ -146,7 +155,7 @@ class _RunnerIterator(iter_utils.MultiplexIterator[_ValueT]):
 
     self.batch_index = 0
     super().__init__(
-        data_sources=self._data_sources,
+        data_sources=data_sources,
         iter_fn=iter_fn,
         parallism=self._runner.num_threads,
         name=self._runner.name,
@@ -180,6 +189,9 @@ class _RunnerIterator(iter_utils.MultiplexIterator[_ValueT]):
         copy.deepcopy(super().state),
         agg_state=copy.deepcopy(self.agg_state),
     )
+
+  def __len__(self) -> int:
+    return self._total or self.batch_index
 
   def __next__(self) -> _ValueT:
     logging.log_every_n_seconds(
@@ -249,6 +261,7 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
   slicers: list[tree_fns.Slicer]
   data_source: Iterable[Any] | None
   num_threads: int
+  transform: TreeTransform
 
   @classmethod
   def from_transform(
@@ -297,6 +310,7 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
         slicers=slice_fns,
         data_source=data_source,
         num_threads=transform.num_threads,
+        transform=transform,
     )
 
   @property
@@ -424,6 +438,7 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
       with_agg_state: bool = True,
       state: Any = None,
       ignore_error: bool = False,
+      data_source_size: int = 0,
   ) -> _RunnerIterator[_ValueT]:
     """An iterator runner that takes an data_source runs the transform.
 
@@ -439,6 +454,8 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
         iteration.
       state: an optional initial aggregation state.
       ignore_error: whether to ignore the error when running the transform.
+      data_source_size: the total number of elements in the data_source. 
+        If AUTO_LEN, the length of the data_source will be used.
 
     Returns:
       An iterator that also optionally keeps the aggregation result and state.
@@ -450,6 +467,7 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
         with_result=with_result,
         with_agg_state=with_agg_state,
         state=state or self.create_state(),
+        data_source_size=data_source_size,
     )
 
 
@@ -463,8 +481,6 @@ class _ChainedRunnerIterator(Iterable[_ValueT]):
       with_agg_state: bool,
       with_agg_result: bool,
       state: Any = None,
-      total: int = 0,
-      single_batch: bool = False,
   ):
     self._iterators = list(iterators)
     assert all(isinstance(it, _RunnerIterator) for it in self._iterators)
@@ -472,8 +488,6 @@ class _ChainedRunnerIterator(Iterable[_ValueT]):
     self._prev_ticker = time.time()
     self._with_agg = state and (with_agg_state or with_agg_result)
     self._with_agg_result = with_agg_result
-    self._total = total
-    self._single_batch = single_batch
 
   def maybe_stop(self):
     for it in self._iterators:
@@ -492,8 +506,6 @@ class _ChainedRunnerIterator(Iterable[_ValueT]):
       batch_output = next(self._iterators[-1])
       return batch_output if self._with_result else None
     except StopIteration as e:
-      if self._single_batch:
-        raise
       returned = None
       if self._with_agg:
         # This can collect the agg_state and the agg_result at the end of
@@ -510,7 +522,7 @@ class _ChainedRunnerIterator(Iterable[_ValueT]):
     return self
 
   def __len__(self) -> int:
-    return self._total
+    return len(self._iterators[-1])
 
   @property
   def agg_result(self) -> tree.TreeLike[Any] | None:
@@ -621,6 +633,8 @@ class ChainedRunner(Iterable[_ValueT]):
       )
     if inputs is not None:
       return io.SequenceDataSource([inputs])
+    if data_source is None:
+      data_source = self.data_source
     return data_source
 
   def iterate(
@@ -632,19 +646,22 @@ class ChainedRunner(Iterable[_ValueT]):
       with_agg_result: bool = True,
       state: Any = None,
       ignore_error: bool = False,
-      total: int | None = 0,
-      single_batch: bool = False,
+      data_source_size: int = 0,
   ) -> _ChainedRunnerIterator[Any]:
     """An iterator runner that takes an data_source runs the transform."""
     iterators = []
     iterator = self._actual_inputs(None, data_source)
+    if data_source_size == AUTO_SIZE:
+      data_source_size = len(iterator) if isinstance(iterator, Sized) else 0
     for r in self._runners:
       iterator = r.iterate(
           iterator,
           with_agg_state=with_agg_state,
           state=state if r.has_agg else None,
           ignore_error=ignore_error,
+          data_source_size=data_source_size,
       )
+      data_source_size = len(iterator)
       iterators.append(iterator)
     return _ChainedRunnerIterator(
         iterators,
@@ -652,8 +669,6 @@ class ChainedRunner(Iterable[_ValueT]):
         with_agg_state=with_agg_state,
         with_agg_result=with_agg_result,
         state=state or self.create_state(),
-        total=total,
-        single_batch=single_batch,
     )
 
   def __iter__(self):
@@ -674,7 +689,6 @@ class ChainedRunner(Iterable[_ValueT]):
     iter_result = self.iterate(
         data_source=self._actual_inputs(inputs, input_iterator),
         ignore_error=ignore_error,
-        single_batch=True,
     )
     result = mit.last(iter_result)
     if iter_result.agg_result is not None:

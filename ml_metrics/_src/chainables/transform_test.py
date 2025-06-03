@@ -280,6 +280,11 @@ class TransformDataSourceTest(parameterized.TestCase):
     ):
       _ = list(p.make(shard=io.ShardConfig(shard_index=1)))
 
+  def test_data_source_size(self):
+    p = transform.TreeTransform().data_source(range(100)).apply(lambda x: x + 1)
+    it = p.make().iterate(data_source_size=transform.AUTO_SIZE)
+    self.assertLen(it, 100)
+
 
 class TransformTest(parameterized.TestCase):
 
@@ -1546,7 +1551,7 @@ class TransformTest(parameterized.TestCase):
         transform.TreeTransform()
         .data_source(test_utils.NoLenIter(inputs))
     )
-    self.assertLen(p.make().iterate(total=len(inputs)), len(inputs))
+    self.assertLen(p.make().iterate(data_source_size=len(inputs)), len(inputs))
 
 
 if __name__ == '__main__':
