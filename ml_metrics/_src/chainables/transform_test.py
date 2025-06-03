@@ -889,7 +889,7 @@ class TransformTest(parameterized.TestCase):
   def test_select_with_rebatch(self):
     t = (
         transform.TreeTransform()
-        .select(('a', 'b'))
+        .select('a', 'b')
         .batch(batch_size=3, batch_fn=lambda x: x)
     )
     inputs = [
@@ -931,7 +931,7 @@ class TransformTest(parameterized.TestCase):
         {'a': 2, 'b': 3},
         {'a': 4, 'b': 5},
     ]
-    t = transform.TreeTransform.new().select(('a', 'b')).batch(batch_size=2)
+    t = transform.TreeTransform.new().select('a', 'b').batch(batch_size=2)
     actual = list(t.make().iterate(inputs))
     expected = [{'a': [0, 2], 'b': [1, 3]}, {'a': [4], 'b': [5]}]
     self.assertEqual(expected, actual)

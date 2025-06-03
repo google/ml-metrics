@@ -1020,7 +1020,8 @@ class TreeTransform(Generic[TreeFnT]):
 
   def select(
       self,
-      input_keys: TreeMapKeys | TreeMapKey,
+      input_keys: tuple[TreeMapKey, ...] | TreeMapKey,
+      *other_input_keys: TreeMapKey,
       output_keys: TreeMapKeys | None = None,
       batch_size: int = 0,
   ) -> TreeTransform:
@@ -1028,7 +1029,10 @@ class TreeTransform(Generic[TreeFnT]):
     # TODO: b/413743757 - remove batch_size.
     if batch_size:
       raise ValueError('batch_size is deprecated, use batch() instead.')
+    if isinstance(input_keys, Mapping):
+      raise TypeError(f'illegal mapping for select op: {input_keys=}')
 
+    input_keys = tree.normalize_keys(input_keys) + other_input_keys
     output_keys = output_keys or input_keys
     fn = tree_fns.Select(
         input_keys=input_keys,
