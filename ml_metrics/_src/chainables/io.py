@@ -20,6 +20,7 @@ from typing import Any, Self, TypeVar
 
 from ml_metrics._src import types
 from ml_metrics._src.utils import iter_utils
+from ml_metrics._src.tools.telemetry import telemetry
 
 _T = TypeVar('_T')
 
@@ -43,6 +44,11 @@ class SequenceDataSource(types.Recoverable, Iterable[_T]):
   _end: int | None = None
 
   def __post_init__(self, batch_size: int):
+    telemetry.increment_counter(
+        api='ml_metrics',
+        category='data_source',
+        reference=self.__class__.__name__,
+    )
     data = self.data
     if not hasattr(data, '__getitem__') or not hasattr(data, '__len__'):
       raise TypeError(f'data is not indexable, got {type(data)=}')
