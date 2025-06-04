@@ -16,6 +16,7 @@
 from collections.abc import Sequence
 from ml_metrics._src.aggregates import retrieval
 from ml_metrics._src.aggregates import types
+from ml_metrics._src.tools.telemetry import telemetry
 
 
 # TODO: b/368688941 - Remove this alias once all users are migrated to the new
@@ -39,6 +40,9 @@ _METRIC_PYDOC_POSTFIX = """
 """
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='topk_retrieval_metrics'
+)
 def topk_retrieval_metrics(
     metrics: Sequence[retrieval.RetrievalMetric],
     *,
@@ -69,6 +73,9 @@ def topk_retrieval_metrics(
   )(y_true, y_pred)
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='precision'
+)
 def precision(
     y_true,
     y_pred,
@@ -86,6 +93,7 @@ def precision(
 precision.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category='metric', reference='ppv')
 def ppv(
     y_true,
     y_pred,
@@ -103,6 +111,9 @@ def ppv(
 ppv.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='recall'
+)
 def recall(
     y_true,
     y_pred,
@@ -120,6 +131,9 @@ def recall(
 recall.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='sensitivity'
+)
 def sensitivity(
     y_true,
     y_pred,
@@ -135,6 +149,7 @@ def sensitivity(
 sensitivity.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category='metric', reference='tpr')
 def tpr(
     y_true,
     y_pred,
@@ -152,6 +167,9 @@ def tpr(
 tpr.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='intersection_over_union'
+)
 def intersection_over_union(
     y_true,
     y_pred,
@@ -167,6 +185,9 @@ def intersection_over_union(
 intersection_over_union.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='positive_predictive_value'
+)
 def positive_predictive_value(
     y_true,
     y_pred,
@@ -182,6 +203,9 @@ def positive_predictive_value(
 positive_predictive_value.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='f1_score'
+)
 def f1_score(
     y_true,
     y_pred,
@@ -199,6 +223,9 @@ def f1_score(
 f1_score.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='miss_rate'
+)
 def miss_rate(
     y_true,
     y_pred,
@@ -216,6 +243,9 @@ def miss_rate(
 miss_rate.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='mean_average_precision'
+)
 def mean_average_precision(
     y_true,
     y_pred,
@@ -231,6 +261,9 @@ def mean_average_precision(
 mean_average_precision.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='mean_reciprocal_rank'
+)
 def mean_reciprocal_rank(
     y_true,
     y_pred,
@@ -246,6 +279,9 @@ def mean_reciprocal_rank(
 mean_reciprocal_rank.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='TopKRetrievalAggFn'
+)
 def accuracy(
     y_true,
     y_pred,
@@ -261,6 +297,9 @@ def accuracy(
 accuracy.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='dcg_score'
+)
 def dcg_score(
     y_true,
     y_pred,
@@ -276,6 +315,9 @@ def dcg_score(
 dcg_score.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='ndcg_score'
+)
 def ndcg_score(
     y_true,
     y_pred,
@@ -291,6 +333,9 @@ def ndcg_score(
 ndcg_score.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='fowlkes_mallows_index'
+)
 def fowlkes_mallows_index(
     y_true,
     y_pred,
@@ -306,6 +351,9 @@ def fowlkes_mallows_index(
 fowlkes_mallows_index.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='false_discovery_rate'
+)
 def false_discovery_rate(
     y_true,
     y_pred,
@@ -321,6 +369,9 @@ def false_discovery_rate(
 false_discovery_rate.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='threat_score'
+)
 def threat_score(
     y_true,
     y_pred,

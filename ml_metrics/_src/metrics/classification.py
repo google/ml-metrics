@@ -22,6 +22,7 @@ from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import classification
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.metrics import utils
+from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
 
@@ -82,6 +83,9 @@ class CalibrationHistogram(base.MergeableMetric):
   _bin_edges: np.ndarray = dataclasses.field(init=False)
 
   def __post_init__(self):
+    telemetry.increment_counter(
+        api='ml_metrics', category='metric', reference=self.__class__.__name__
+    )
     default_hist, self._bin_edges = np.histogram(
         a=(), bins=self.bins, range=self.range
     )
@@ -188,6 +192,9 @@ class ClassificationAggFn(base.AggregateFn):
       dtype: type[Any] | None = None,
       k_list: Sequence[int] | None = None,
   ):
+    telemetry.increment_counter(
+        api='ml_metrics', category='metric', reference=self.__class__.__name__
+    )
     if average == types.AverageType.SAMPLES:
       if k_list:
         raise ValueError('k_list is not supported for average=SAMPLES')
@@ -236,6 +243,9 @@ class ClassificationAggFn(base.AggregateFn):
     return self.agg_fn.merge_states(states)
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='classification_metrics'
+)
 def classification_metrics(
     metrics: Sequence[_StrOrMetric] | _StrOrMetric,
     *,
@@ -287,6 +297,9 @@ def classification_metrics(
   )(y_true, y_pred)
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='precision'
+)
 def precision(
     y_true,
     y_pred,
@@ -313,6 +326,7 @@ def precision(
 precision.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category='metric', reference='ppv')
 def ppv(
     y_true,
     y_pred,
@@ -339,6 +353,9 @@ def ppv(
 ppv.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='recall'
+)
 def recall(
     y_true,
     y_pred,
@@ -365,6 +382,9 @@ def recall(
 recall.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='f1_score'
+)
 def f1_score(
     y_true,
     y_pred,
@@ -391,6 +411,9 @@ def f1_score(
 f1_score.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='accuracy'
+)
 def accuracy(
     y_true,
     y_pred,
@@ -417,6 +440,9 @@ def accuracy(
 accuracy.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='binary_accuracy'
+)
 def binary_accuracy(
     y_true,
     y_pred,
@@ -443,6 +469,9 @@ def binary_accuracy(
 binary_accuracy.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='sensitivity'
+)
 def sensitivity(
     y_true,
     y_pred,
@@ -469,6 +498,7 @@ def sensitivity(
 sensitivity.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category='metric', reference='tpr')
 def tpr(
     y_true,
     y_pred,
@@ -495,6 +525,9 @@ def tpr(
 tpr.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='specificity'
+)
 def specificity(
     y_true,
     y_pred,
@@ -521,6 +554,7 @@ def specificity(
 specificity.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category='metric', reference='tnr')
 def tnr(
     y_true,
     y_pred,
@@ -547,6 +581,9 @@ def tnr(
 tnr.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='fall_out'
+)
 def fall_out(
     y_true,
     y_pred,
@@ -573,6 +610,7 @@ def fall_out(
 fall_out.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category='metric', reference='fpr')
 def fpr(
     y_true,
     y_pred,
@@ -599,6 +637,9 @@ def fpr(
 fpr.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='miss_rate'
+)
 def miss_rate(
     y_true,
     y_pred,
@@ -625,6 +666,7 @@ def miss_rate(
 miss_rate.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category='metric', reference='fnr')
 def fnr(
     y_true,
     y_pred,
@@ -651,6 +693,9 @@ def fnr(
 fnr.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='negative_prediction_value'
+)
 def negative_prediction_value(
     y_true,
     y_pred,
@@ -677,6 +722,7 @@ def negative_prediction_value(
 negative_prediction_value.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category='metric', reference='nvp')
 def nvp(
     y_true,
     y_pred,
@@ -703,6 +749,9 @@ def nvp(
 nvp.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='false_discovery_rate'
+)
 def false_discovery_rate(
     y_true,
     y_pred,
@@ -729,6 +778,9 @@ def false_discovery_rate(
 false_discovery_rate.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='false_omission_rate'
+)
 def false_omission_rate(
     y_true,
     y_pred,
@@ -755,6 +807,9 @@ def false_omission_rate(
 false_omission_rate.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='threat_score'
+)
 def threat_score(
     y_true,
     y_pred,
@@ -781,6 +836,9 @@ def threat_score(
 threat_score.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='positive_likelihood_ratio'
+)
 def positive_likelihood_ratio(
     y_true,
     y_pred,
@@ -807,6 +865,9 @@ def positive_likelihood_ratio(
 positive_likelihood_ratio.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='negative_likelihood_ratio'
+)
 def negative_likelihood_ratio(
     y_true,
     y_pred,
@@ -833,6 +894,9 @@ def negative_likelihood_ratio(
 negative_likelihood_ratio.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='diagnostic_odds_ratio'
+)
 def diagnostic_odds_ratio(
     y_true,
     y_pred,
@@ -859,6 +923,9 @@ def diagnostic_odds_ratio(
 diagnostic_odds_ratio.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='positive_predictive_value'
+)
 def positive_predictive_value(
     y_true,
     y_pred,
@@ -885,6 +952,9 @@ def positive_predictive_value(
 positive_predictive_value.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='intersection_over_union'
+)
 def intersection_over_union(
     y_true,
     y_pred,
@@ -911,6 +981,9 @@ def intersection_over_union(
 intersection_over_union.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='prevalence'
+)
 def prevalence(
     y_true,
     y_pred,
@@ -937,6 +1010,9 @@ def prevalence(
 prevalence.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='prevalence_threshold'
+)
 def prevalence_threshold(
     y_true,
     y_pred,
@@ -963,6 +1039,11 @@ def prevalence_threshold(
 prevalence_threshold.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics',
+    category='metric',
+    reference='matthews_correlation_coefficient',
+)
 def matthews_correlation_coefficient(
     y_true,
     y_pred,
@@ -989,6 +1070,9 @@ def matthews_correlation_coefficient(
 matthews_correlation_coefficient.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='informedness'
+)
 def informedness(
     y_true,
     y_pred,
@@ -1015,6 +1099,9 @@ def informedness(
 informedness.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='markedness'
+)
 def markedness(
     y_true,
     y_pred,
@@ -1041,6 +1128,9 @@ def markedness(
 markedness.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='balanced_accuracy'
+)
 def balanced_accuracy(
     y_true,
     y_pred,

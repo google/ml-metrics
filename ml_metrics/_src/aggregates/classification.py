@@ -26,6 +26,7 @@ from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
 from ml_metrics._src.utils import iter_utils
 from ml_metrics._src.utils import math_utils
+from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
 AverageType = types.AverageType
@@ -586,6 +587,9 @@ class ConfusionMatrixAggFn(base.AggregateFn):
   dtype: type[Any] | None = None
 
   def __post_init__(self):
+    telemetry.increment_counter(
+        api='ml_metrics', category='metric', reference=self.__class__.__name__
+    )
     if self.average == AverageType.SAMPLES:
       raise ValueError(
           '"samples" average is unsupported, use the Samplewise version.'
@@ -804,6 +808,9 @@ class SamplewiseClassification(base.MergeableMetric, base.HasAsAggFn):
   )
 
   def __post_init__(self):
+    telemetry.increment_counter(
+        api='ml_metrics', category='metric', reference=self.__class__.__name__
+    )
     if self.input_type == InputType.BINARY:
       raise ValueError(
           'Samples average is not available for Binary classification.'
