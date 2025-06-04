@@ -27,6 +27,7 @@ from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
 from ml_metrics._src.utils import math_utils
+from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
 
@@ -448,6 +449,9 @@ class TopKRetrieval(base.MergeableMetric, base.HasAsAggFn):
   )
 
   def __post_init__(self, input_type: InputType):
+    telemetry.increment_counter(
+        api='ml_metrics', category='metric', reference=self.__class__.__name__
+    )
     if InputType(input_type) not in (
         InputType.MULTICLASS_MULTIOUTPUT,
         InputType.MULTICLASS,
@@ -620,6 +624,9 @@ class TopKRetrieval(base.MergeableMetric, base.HasAsAggFn):
     return dict(zip(self._metrics, result))
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category='metric', reference='TopKRetrievalAggFn'
+)
 def TopKRetrievalAggFn(**kwargs) -> base.AggregateFn:  # pylint: disable=invalid-name
   """Convenient alias as a AggregateFn constructor."""
   return TopKRetrieval(**kwargs).as_agg_fn()
