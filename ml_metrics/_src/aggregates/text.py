@@ -20,7 +20,7 @@ import re
 
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import utils
-
+from ml_metrics._src.tools.telemetry import telemetry
 
 FrequencyState = utils.FrequencyState
 
@@ -63,6 +63,9 @@ class TopKWordNGrams(base.MergeableMetric, base.HasAsAggFn):
   )
 
   def __post_init__(self):
+    telemetry.increment_counter(
+        api='ml_metrics', category='metric', reference=self.__class__.__name__
+    )
     if self.k <= 0 or self.n <= 0:
       raise ValueError(
           f'k and n must be positive integers but k={self.k} and n={self.n} was'
@@ -135,6 +138,9 @@ class PatternFrequency(base.MergeableMetric, base.HasAsAggFn):
   )
 
   def __post_init__(self):
+    telemetry.increment_counter(
+        api='ml_metrics', category='metric', reference=self.__class__.__name__
+    )
     if not self.patterns:
       raise ValueError('Patterns must not be empty.')
 
