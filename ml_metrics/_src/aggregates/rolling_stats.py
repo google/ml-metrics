@@ -25,12 +25,14 @@ from typing import Any, Generic, Self, TypeVar
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.utils import math_utils
+from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
 _EPSNEG = np.finfo(float).epsneg
 _T = TypeVar('_T')
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(kw_only=True)
 class UnboundedSampler(base.CallableMetric, base.HasAsAggFn):
   """Stores all the inputs in memory."""
@@ -68,6 +70,7 @@ class UnboundedSampler(base.CallableMetric, base.HasAsAggFn):
     return self._samples[0]
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
 class FixedSizeSample(base.MergeableMetric, base.HasAsAggFn):
   """Generates a fixed size sample of the data stream.
@@ -168,6 +171,7 @@ HistogramResult = collections.namedtuple(
 )
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True, kw_only=True)
 class Histogram(base.CallableMetric, base.HasAsAggFn):
   """Computes the Histogram of the inputs.
@@ -253,6 +257,7 @@ class Histogram(base.CallableMetric, base.HasAsAggFn):
     )
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True, kw_only=True)
 class Counter(base.CallableMetric, base.HasAsAggFn, Generic[_T]):
   """An CallableMetric version of collections.Counter."""
@@ -334,6 +339,7 @@ class Count(base.CallableMetric):
     return f'count: {self.result()}'
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(kw_only=True, eq=True)
 class Mean(base.CallableMetric):
   """Computes the mean and variance of a batch of values."""
@@ -412,6 +418,7 @@ class Mean(base.CallableMetric):
     return f'mean: {self.mean}'
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(kw_only=True, eq=True)
 class MeanAndVariance(Mean):
   """Computes the mean and variance of a batch of values."""
@@ -468,6 +475,7 @@ class MeanAndVariance(Mean):
     )
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 class Var(MeanAndVariance):
 
   def result(self) -> types.NumbersT:
@@ -477,6 +485,7 @@ class Var(MeanAndVariance):
     return f'var: {self.var}'
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 # TODO(b/345249574): Add a preprocessing function of len per row.
 @dataclasses.dataclass(slots=True)
 class MinMaxAndCount(base.MergeableMetric):
@@ -538,6 +547,7 @@ class MinMaxAndCount(base.MergeableMetric):
     return self
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
 class ValueAccumulator(base.CallableMetric):
   """This stores and accumulates all the values."""
@@ -642,6 +652,7 @@ class _R2TjurBase(abc.ABC, base.MergeableMetric):
     pass
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 class R2Tjur(_R2TjurBase):
 
   def result(self) -> types.NumbersT:
@@ -654,6 +665,7 @@ class R2Tjur(_R2TjurBase):
     )
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 class R2TjurRelative(_R2TjurBase):
 
   def result(self) -> types.NumbersT:
@@ -668,6 +680,7 @@ class R2TjurRelative(_R2TjurBase):
     )
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
 class RRegression(base.MergeableMetric):
   """Computes the Pearson Correlation Coefficient (PCC).
@@ -791,6 +804,7 @@ class RRegression(base.MergeableMetric):
     return numerator / denominator
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
 class SymmetricPredictionDifference(base.MergeableMetric):
   """Computes the Symmetric Prediction Difference.
