@@ -20,6 +20,7 @@ from typing import Any, Self, TypeVar
 
 from ml_metrics._src import types
 from ml_metrics._src.utils import iter_utils
+from ml_metrics._src.tools.telemetry import telemetry
 
 _T = TypeVar('_T')
 
@@ -32,9 +33,13 @@ class ShardConfig:
   parent: ShardConfig | None = dc.field(default=None, kw_only=True)
 
 
+@telemetry.WithTelemetry(
+    api='ml_metrics', category=telemetry.CATEGORY.DATA_SOURCE
+)
 @dc.dataclass(frozen=True)
 class SequenceDataSource(types.Recoverable, Iterable[_T]):
   """A shardable sequence data source."""
+
   data: types.RandomAccessible[_T]
   ignore_error: bool = dc.field(kw_only=True, default=False)
   batch_size: dc.InitVar[int] = 0

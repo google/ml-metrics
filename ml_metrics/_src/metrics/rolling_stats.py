@@ -15,6 +15,7 @@
 
 from ml_metrics._src.aggregates import rolling_stats
 from ml_metrics._src.aggregates import types
+from ml_metrics._src.tools.telemetry import telemetry
 
 
 _METRIC_PYDOC_POSTFIX = """
@@ -29,6 +30,7 @@ _METRIC_PYDOC_POSTFIX = """
 """
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 def var(batch: types.NumbersT) -> float:
   """Computes the variance in a batch."""
   return rolling_stats.MeanAndVariance().add(batch).var
@@ -37,6 +39,7 @@ def var(batch: types.NumbersT) -> float:
 var.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 def stddev(batch: types.NumbersT) -> float:
   """Computes the standard deviation in a batch."""
   return rolling_stats.MeanAndVariance().add(batch).stddev
@@ -45,6 +48,7 @@ def stddev(batch: types.NumbersT) -> float:
 stddev.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 def mean(batch: types.NumbersT) -> float:
   """Computes the mean in a batch."""
   return rolling_stats.MeanAndVariance().add(batch).mean
@@ -53,6 +57,7 @@ def mean(batch: types.NumbersT) -> float:
 mean.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 def count(batch: types.NumbersT) -> int:
   """Computes the number of elements in a batch."""
   return rolling_stats.MeanAndVariance().add(batch).count
@@ -61,6 +66,7 @@ def count(batch: types.NumbersT) -> int:
 count.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@telemetry.WithTelemetry(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 def total(batch: types.NumbersT) -> float:
   """Computes the total sum of a batch."""
   return rolling_stats.MeanAndVariance().add(batch).total
