@@ -39,9 +39,8 @@ class HistogramTest(parameterized.TestCase):
     histogram_2 = rolling_stats.Histogram(range=bin_range, bins=bins).add(
         input_2
     )
-
-    actual_histogram = histogram_1.merge(histogram_2)
-    result = actual_histogram.result()
+    histogram_1.merge(histogram_2)
+    result = histogram_1.result()
 
     expected_histogram = (
         # Input values in each bin:
@@ -53,17 +52,12 @@ class HistogramTest(parameterized.TestCase):
     )
     expected_bin_edges = (0, 0.2, 0.4, 0.6, 0.8, 1)
 
-    self.assertEqual(actual_histogram.bins, 5)
-    self.assertSequenceEqual(actual_histogram.range, bin_range)
+    self.assertEqual(histogram_1.bins, 5)
+    self.assertSequenceEqual(histogram_1.range, bin_range)
 
-    np.testing.assert_equal(
-        actual_histogram.hist, expected_histogram
-    )
+    np.testing.assert_equal(histogram_1.hist, expected_histogram)
     np.testing.assert_equal(result.hist, expected_histogram)
-
-    np.testing.assert_allclose(
-        actual_histogram.bin_edges, expected_bin_edges
-    )
+    np.testing.assert_allclose(histogram_1.bin_edges, expected_bin_edges)
     np.testing.assert_allclose(result.bin_edges, expected_bin_edges)
 
   def test_histogram_simple(self):
@@ -1068,34 +1062,31 @@ class MinMaxAndCountTest(parameterized.TestCase):
     batch_1 = (1, 2, 3, 4, 5, 6, 7, 8, 9)  # len(batch_1) = 9
     batch_2 = (8, 6, 7, 5, 3, 0, 9)  # len(batch_2) = 7
     batch_3 = (5, 4, 3, 2, 1)  # len(batch_3) = 5
-
     expected_result = rolling_stats.MinMaxAndCount(
         _count=21,  # len(batch_1) + len(batch_2) + len(batch_3)
-        _min=5,  # min(len(batch_1), len(batch_2), len(batch_3))
-        _max=9,  # max(len(batch_1), len(batch_2), len(batch_3))
+        _min=0,  # min(batch_1, batch_2, batch_3)
+        _max=9,  # max(batch_1, batch_2, batch_3)
     )
-
-    state_1 = rolling_stats.MinMaxAndCount(batch_score_fn=len).add(batch_1)
-    state_2 = rolling_stats.MinMaxAndCount(batch_score_fn=len).add(batch_2)
-    state_3 = rolling_stats.MinMaxAndCount(batch_score_fn=len).add(batch_3)
-
-    self.assertEqual(state_1.merge(state_2).merge(state_3), expected_result)
+    min_max_count = rolling_stats.MinMaxAndCount()
+    state_1 = min_max_count.new(batch_1)
+    state_2 = min_max_count.new(batch_2)
+    state_3 = min_max_count.new(batch_3)
+    state_1.merge(state_2)
+    state_1.merge(state_3)
+    self.assertEqual(state_1, expected_result)
 
   def test_min_max_and_count_len(self):
     batch_1 = (1, 2, 3, 4, 5, 6, 7, 8, 9)  # len(batch_1) = 9
     batch_2 = (8, 6, 7, 5, 3, 0, 9)  # len(batch_2) = 7
     batch_3 = (5, 4, 3, 2, 1)  # len(batch_3) = 5
-
     expected_properties_dict = {
-        'count': 21,  # len(batch_1) + len(batch_2) + len(batch_3)
+        'count': 3,
         'min': 5,  # min(len(batch_1), len(batch_2), len(batch_3))
         'max': 9,  # max(len(batch_1), len(batch_2), len(batch_3))
     }
-
     state = rolling_stats.MinMaxAndCount(batch_score_fn=len)
     for batch in (batch_1, batch_2, batch_3):
       state.add(batch)
-
     for property_name, value in expected_properties_dict.items():
       self.assertEqual(getattr(state, property_name), value)
 
@@ -1103,18 +1094,15 @@ class MinMaxAndCountTest(parameterized.TestCase):
     batch_1 = ((1, 2, 3, 4, 5, 6, 7, 8, 9), (2, 4, 6, 8, 10, 12, 14, 16, 18))
     batch_2 = ((1, 2, 3, 4, 5, 6, 7), (8, 6, 7, 5, 3, 0, 9))
     batch_3 = ((1, 2, 3, 4, 5), (5, 4, 3, 2, 1))
-
     expected_properties_dict = {
-        'count': 42,  # 2 * 9 + 2 * 7 + 2 * 5 = 42
+        'count': 3,  # 2 * 9 + 2 * 7 + 2 * 5 = 42
         'min': 10,  # min(2 * 9, 2 * 7, 2 * 5) = 2 * 5 = 10
         'max': 18,  # max(2 * 9, 2 * 7, 2 * 5) = 2 * 9 = 18
     }
-
     num_elem = lambda input: sum([len(batch) for batch in input])
     state = rolling_stats.MinMaxAndCount(batch_score_fn=num_elem)
     for batch in (batch_1, batch_2, batch_3):
       state.add(batch)
-
     for property_name, value in expected_properties_dict.items():
       self.assertEqual(getattr(state, property_name), value)
 
@@ -1122,12 +1110,14 @@ class MinMaxAndCountTest(parameterized.TestCase):
       dict(
           testcase_name='mo_batch_score_fn',
           batch_score_fn=None,
+          expected_count=35,  # 2 * 9 + 7 + 2 * 5 = 35
           expected_min=0,  # min(batch_1, batch_2, batch_3) = 0
           expected_max=18,  # max(batch_1, batch_2, batch_3) = 18
       ),
       dict(
           testcase_name='np_sum',
           batch_score_fn=np.sum,
+          expected_count=3,
           # min(sum(batch_1), sum(batch_2), sum(batch_3)) = min(135, 38, 30)
           expected_min=30,
           # max(sum(batch_1), sum(batch_2), sum(batch_3)) = max(135, 38, 30)
@@ -1135,22 +1125,19 @@ class MinMaxAndCountTest(parameterized.TestCase):
       ),
   )
   def test_min_max_and_count_mixed_dim_inputs_np_sum(
-      self, batch_score_fn, expected_min, expected_max
+      self, batch_score_fn, expected_count, expected_min, expected_max
   ):
     batch_1 = ((1, 2, 3, 4, 5, 6, 7, 8, 9), (2, 4, 6, 8, 10, 12, 14, 16, 18))
     batch_2 = (8, 6, 7, 5, 3, 0, 9)
     batch_3 = ((1, 2, 3, 4, 5), (5, 4, 3, 2, 1))
-
     expected_properties_dict = {
-        'count': 35,  # 2 * 9 + 7 + 2 * 5 = 35
+        'count': expected_count,
         'min': expected_min,
         'max': expected_max,
     }
-
     state = rolling_stats.MinMaxAndCount(batch_score_fn=batch_score_fn)
     for batch in (batch_1, batch_2, batch_3):
       state.add(batch)
-
     for property_name, value in expected_properties_dict.items():
       self.assertEqual(getattr(state, property_name), value)
 
@@ -1159,6 +1146,7 @@ class MinMaxAndCountTest(parameterized.TestCase):
           testcase_name='axis_none',
           batch_score_fn=None,
           axis=None,
+          expected_count=54,  # 3 * 2 * 9
           expected_min=0,  # min of all elements
           expected_max=18,  # max of all elements
       ),
@@ -1166,6 +1154,7 @@ class MinMaxAndCountTest(parameterized.TestCase):
           testcase_name='axis_0',
           batch_score_fn=None,
           axis=0,
+          expected_count=6,  # 3 * 2
           # np.minimum.reduce((
           # (1, 2, 3, 4, 5, 6, 7, 8, 9),
           # (1, 2, 3, 4, 3, 0, 7, 0, 0),
@@ -1185,6 +1174,7 @@ class MinMaxAndCountTest(parameterized.TestCase):
           testcase_name='axis_1',
           batch_score_fn=None,
           axis=1,
+          expected_count=27,  # 3 * 9
           # np.minimum.reduce(((1, 2), (0, 0), (1, 4))) = [0 0]
           expected_min=(0, 0),
           # np.maximum.reduce(((9, 18), (7, 9), (5, 4))) = [ 9 18]
@@ -1192,7 +1182,7 @@ class MinMaxAndCountTest(parameterized.TestCase):
       ),
   )
   def test_min_max_and_count_axis(
-      self, batch_score_fn, axis, expected_min, expected_max
+      self, batch_score_fn, axis, expected_count, expected_min, expected_max
   ):
     batch_1 = ((1, 2, 3, 4, 5, 6, 7, 8, 9), (2, 4, 6, 8, 10, 12, 14, 16, 18))
     batch_2 = ((1, 2, 3, 4, 5, 6, 7, 0, 0), (8, 6, 7, 5, 3, 0, 9, 9, 9))
@@ -1203,54 +1193,40 @@ class MinMaxAndCountTest(parameterized.TestCase):
     )
     for batch in (batch_1, batch_2, batch_3):
       state.add(batch)
-
-    self.assertEqual(state.count, 54)  # 3 * 2 * 9
+    self.assertEqual(state.count, expected_count)
     np.testing.assert_array_equal(state.min, expected_min)
     np.testing.assert_array_equal(state.max, expected_max)
 
   def test_min_max_and_count_one_large_batch(self):
     num_inputs = 1000000
-
     inputs = np.random.random_sample(size=num_inputs)
-
-    expected_properties = ('count', 'min', 'max')
-
     minmax = rolling_stats.MinMaxAndCount(batch_score_fn=len).as_agg_fn()
     actual_result = minmax(inputs)
-
-    for property_name in expected_properties:
-      self.assertEqual(getattr(actual_result, property_name), num_inputs)
+    self.assertEqual(actual_result.count, 1)
+    self.assertEqual(actual_result.min, num_inputs)
+    self.assertEqual(actual_result.max, num_inputs)
 
   def test_min_max_and_count_many_batches(self):
     num_batches = 1000
     batch_size = 10000
     inputs = np.random.random_sample(size=(num_batches, batch_size))
-
     expected_properties_dict = {
-        'count': num_batches * batch_size,
+        'count': num_batches,
         'min': batch_size,
         'max': batch_size,
     }
-
     state = rolling_stats.MinMaxAndCount(batch_score_fn=len)
     for input_batch in inputs:
       state.add(input_batch)
-
     for property_name, value in expected_properties_dict.items():
       self.assertEqual(getattr(state, property_name), value)
 
   def test_min_max_and_count_empty_input(self):
     empty_batch = ()
-
-    expected_properties = ('count', 'min', 'max')
-
-    actual_result = rolling_stats.MinMaxAndCount(batch_score_fn=len).add(
-        empty_batch
-    )
-
-    for property_name in expected_properties:
-      # All properties should be 0 for an empty batch.
-      self.assertEqual(getattr(actual_result, property_name), 0)
+    actual_result = rolling_stats.MinMaxAndCount()(empty_batch)
+    self.assertEqual(actual_result.count, 0)
+    self.assertEqual(actual_result.min, np.inf)
+    self.assertEqual(actual_result.max, -np.inf)
 
 
 class ValueAccumulatorTest(parameterized.TestCase):
@@ -1320,21 +1296,17 @@ class R2TjurTest(parameterized.TestCase):
   def test_r2_tjur_merge(self, r2_metric):
     y_true_1 = (0, 1)
     y_pred_1 = (0.8, 0.3)
-
     y_true_2 = 1
     y_pred_2 = 0.9
-
-    state_1 = r2_metric().add(y_true_1, y_pred_1)
-    state_2 = r2_metric().add(y_true_2, y_pred_2)
-    result = state_1.merge(state_2)
+    result = r2_metric().new(y_true_1, y_pred_1)
+    state_2 = r2_metric().new(y_true_2, y_pred_2)
+    result.merge(state_2)
 
     # sum(y_true) = 0.0 + 1.0 + 1.0  = 2.0
     # sum(y_true * y_pred) = 0.0 * 0.8 + 1.0 * 0.3 + 1.0 * 0.9 = 1.2
     # sum(1 - y_true) = 1.0 + 0.0 + 0.0 = 1.0
     # sum((1 - y_true) * y_pred) = 1.0 * 0.8 + 0.0 * 0.3 + 0.0 * 0.9 = 0.8
-
     expected_result = r2_metric(2.0, 1.2, 1.0, 0.8)
-
     self.assertEqual(result, expected_result)
 
   @parameterized.named_parameters(
@@ -1354,9 +1326,7 @@ class R2TjurTest(parameterized.TestCase):
   def test_r2_tjur_simple(self, r2_metric, expected_result):
     y_true = (0, 1, 1)
     y_pred = (0.8, 0.3, 0.9)
-
     actual_result = r2_metric().add(y_true, y_pred).result()
-
     self.assertAlmostEqual(actual_result, expected_result)
 
   @parameterized.named_parameters(
@@ -1373,12 +1343,9 @@ class R2TjurTest(parameterized.TestCase):
   )
   def test_r2_tjur_one_large_batch(self, r2_metric, expected_result):
     np.random.seed(seed=0)
-
     y_true = np.random.rand(1000000)
     y_pred = np.random.rand(1000000)
-
     actual_result = r2_metric().as_agg_fn()(y_true, y_pred)
-
     self.assertAlmostEqual(actual_result, expected_result, places=14)
 
   @parameterized.named_parameters(
@@ -1397,14 +1364,11 @@ class R2TjurTest(parameterized.TestCase):
       self, r2_metric, expected_result
   ):
     np.random.seed(seed=0)
-
     y_true = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
     y_pred = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
-
     state = r2_metric()
     for y_true_i, y_pred_i in zip(y_true, y_pred):
       state.add(y_true_i, y_pred_i)
-
     self.assertAlmostEqual(state.result(), expected_result)
 
   @parameterized.named_parameters(
@@ -1423,41 +1387,31 @@ class R2TjurTest(parameterized.TestCase):
       self, r2_metric, expected_result
   ):
     np.random.seed(seed=0)
-
     y_true = np.random.uniform(low=1e-5, high=1 - 1e-5, size=(1000, 1000))
-
     # This is a noisy version of y_true.
     y_pred = y_true + np.random.uniform(
         low=-1e-5, high=1e-5, size=(1000, 1000)
     )
-
     y_true = np.round(y_true)
     y_pred = np.round(y_pred)
-
     state = r2_metric()
     for y_true_i, y_pred_i in zip(y_true, y_pred):
       state.add(y_true_i, y_pred_i)
-
     self.assertAlmostEqual(state.result(), expected_result, places=10)
 
   def test_r2_tjur_absolute_many_batches_direct_correlation(self):
     y = np.round(np.random.uniform(size=(1000, 1000)))
-
     state = rolling_stats.R2Tjur()
     for y_i in y:
       state.add(y_i, y_i)
-
     expected_result = 1
-
     self.assertAlmostEqual(state.result(), expected_result, places=9)
 
   def test_r2_tjur_relative_many_batches_direct_correlation(self):
     y = np.round(np.random.uniform(size=(1000, 1000)))
-
     state = rolling_stats.R2TjurRelative()
     for y_i in y:
       state.add(y_i, y_i)
-
     self.assertTrue(math.isnan(state.result()))
 
   @parameterized.named_parameters(
@@ -1476,11 +1430,9 @@ class R2TjurTest(parameterized.TestCase):
       self, r2_metric, expected_result
   ):
     y = np.round(np.random.uniform(size=(1000, 1000)))
-
     state = r2_metric()
     for y_i in y:
       state.add(y_i, 1 - y_i)
-
     self.assertAlmostEqual(state.result(), expected_result, places=9)
 
   @parameterized.named_parameters(
@@ -1489,7 +1441,6 @@ class R2TjurTest(parameterized.TestCase):
   )
   def test_r2_tjur_absolute_returns_nan(self, y_true):
     y_pred = (1, 0, 1)
-
     self.assertTrue(
         math.isnan(rolling_stats.R2Tjur().add(y_true, y_pred).result())
     )
@@ -1518,14 +1469,11 @@ class RRegressionTest(parameterized.TestCase):
   def test_r_regression_merge(self, center):
     x_1 = (1, 2, 3, 4)
     y_1 = (10, 9, 2.5, 6)
-
     x_2 = (5, 6, 7)
     y_2 = (4, 3, 2)
-
     state_1 = rolling_stats.RRegression(center=center).add(x_1, y_1)
     state_2 = rolling_stats.RRegression(center=center).add(x_2, y_2)
-    result = state_1.merge(state_2)
-
+    state_1.merge(state_2)
     expected_result = rolling_stats.RRegression(
         num_samples=7,  # len(x_1) + len(x_2)
         sum_x=28,  # 1 + 2 + 3 + 4 + 5 + 6 + 7
@@ -1534,8 +1482,7 @@ class RRegressionTest(parameterized.TestCase):
         sum_yy=252.25,  # 10^2 + 9^2 + 2.5^2 + 6^2 + 4^2 + 3^2 + 2^2
         sum_xy=111.5,  # 1*10 + 2*9 + 3*2.5 + 4*6 + 5*4 + 6*3 + 7*2
     )
-
-    self.assertEqual(result, expected_result)
+    self.assertEqual(state_1, expected_result)
 
   @parameterized.named_parameters(
       dict(
@@ -1560,9 +1507,7 @@ class RRegressionTest(parameterized.TestCase):
   def test_r_regression_single_output(self, center, expected_result):
     x = (1, 2, 3, 4, 5, 6, 7)
     y = (10, 9, 2.5, 6, 4, 3, 2)
-
     actual_result = rolling_stats.RRegression(center=center).as_agg_fn()(x, y)
-
     self.assertAlmostEqual(actual_result, expected_result, places=10)
 
   @parameterized.named_parameters(
@@ -1584,83 +1529,62 @@ class RRegressionTest(parameterized.TestCase):
     x1 = (10, 9, 2.5, 6, 4, 3, 2)
     x2 = (8, 6, 7, 5, 3, 0, 9)
     y = (1, 2, 3, 4, 5, 6, 7)
-
     x_all = np.array((x1, x2)).T
-
-    actual_result = (
-        rolling_stats.RRegression(center=center).add(x_all, y).result()
-    )
-
+    actual_result = rolling_stats.RRegression(center=center)(x_all, y)
     np.testing.assert_almost_equal(actual_result, expected_result)
 
   def test_r_regression_one_large_batch(self):
     np.random.seed(seed=0)
-
     x = np.random.rand(1000000)
     y = np.random.rand(1000000)
+    pr_regression = rolling_stats.RRegression()
+    pr_regression.add(x, y)
+    actual_result = pr_regression.result()
 
-    actual_result = rolling_stats.RRegression().add(x, y).result()
-
-    # From
     # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
     expected_result = -0.0002932187695762664
-
     self.assertAlmostEqual(actual_result, expected_result, places=13)
 
   def test_r_regression_many_batches_little_correlation(self):
     np.random.seed(seed=0)
-
     x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
     y = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
-
     state = rolling_stats.RRegression()
     for x_i, y_i in zip(x, y):
       state.add(x_i, y_i)
 
-    # From
     # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
     expected_result = -0.00029321876957678797
-
     self.assertAlmostEqual(state.result(), expected_result, places=14)
 
   def test_r_regression_many_batches_much_correlation(self):
     np.random.seed(seed=0)
 
     x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
-
     # This is a noisy version of x.
     y = x + np.random.uniform(low=-1e5, high=1e5, size=(1000, 1000))
-
     state = rolling_stats.RRegression()
     for x_i, y_i in zip(x, y):
       state.add(x_i, y_i)
 
-    # From
     # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
     expected_result = 0.9950319287287748
-
     self.assertAlmostEqual(state.result(), expected_result, places=10)
 
   def test_r_regression_many_batches_direct_correlation(self):
     x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
-
     state = rolling_stats.RRegression()
     for x_i in x:
       state.add(x_i, x_i)
-
     expected_result = 1
-
     self.assertAlmostEqual(state.result(), expected_result, places=9)
 
   def test_r_regression_many_batches_inverse_correlation(self):
     x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
-
     state = rolling_stats.RRegression()
     for x_i in x:
       state.add(x_i, -x_i)
-
     expected_result = -1
-
     self.assertAlmostEqual(state.result(), expected_result, places=9)
 
   @parameterized.named_parameters(
@@ -1668,20 +1592,16 @@ class RRegressionTest(parameterized.TestCase):
       dict(testcase_name='0_input', x=(0, 0), y=(0, 0)),
   )
   def test_r_regression_returns_nan(self, x, y):
-    self.assertTrue(math.isnan(rolling_stats.RRegression().add(x, y).result()))
+    self.assertTrue(math.isnan(rolling_stats.RRegression()(x, y)))
 
   def test_r_regression_valid_and_0_input(self):
     x_valid = (10, 9, 2.5, 6, 4, 3, 2)
     x_0 = (0, 0, 0, 0, 0, 0, 0)
     y = (1, 2, 3, 4, 5, 6, 7)
-
     x_all = np.array((x_valid, x_0)).T
-
-    actual_result = rolling_stats.RRegression().add(x_all, y).result()
-
+    actual_result = rolling_stats.RRegression()(x_all, y)
     # From sklearn.feature_selection.r_regression(x_all, y)
     expected_result = (-0.82850388, float('nan'))
-
     np.testing.assert_almost_equal(actual_result, expected_result)
 
 
@@ -1690,110 +1610,83 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
   def test_symmetric_prediction_difference_merge(self):
     x_1 = (0, 1)
     y_1 = (0.8, 0.3)
-
     x_2 = 1
     y_2 = 0.9
-
     state_1 = rolling_stats.SymmetricPredictionDifference().add(x_1, y_1)
     state_2 = rolling_stats.SymmetricPredictionDifference().add(x_2, y_2)
-    result = state_1.merge(state_2)
-
+    state_1.merge(state_2)
     # sum_half_pointwise_rel_diff =
     # (|0 - 0.8| / |0 + 0.8|
     # + |1 - 0.3| / |1 + 0.3|
     # + |1 - 0.9| / |1 + 0.9|)
     # = 1.59109311741
-
-    self.assertEqual(result.num_samples, 3)
+    self.assertEqual(state_1.num_samples, 3)
     self.assertAlmostEqual(
-        result.sum_half_pointwise_rel_diff, 1.59109311741, places=11
+        state_1.sum_half_pointwise_rel_diff, 1.59109311741, places=11
     )
 
   def test_symmetric_prediction_difference_simple(self):
     x = (0, 1, 1)
     y = (0.8, 0.3, 0.9)
-
     expected_result = 1.06072874494  # 2 * 1.59109311741 / 3 = 1.06072874494
-
     spd = rolling_stats.SymmetricPredictionDifference().as_agg_fn()
     actual_result = spd(x, y)
-
     self.assertAlmostEqual(actual_result, expected_result, places=11)
 
   def test_symmetric_prediction_difference_one_large_batch(self):
     np.random.seed(seed=0)
-
     x = np.random.uniform(low=-1e6, high=1e6, size=1000000)
     y = np.random.uniform(low=-1e6, high=1e6, size=1000000)
-
     actual_result = (
         rolling_stats.SymmetricPredictionDifference().add(x, y).result()
     )
-
     expected_result = 32.611545081600894
-
     self.assertAlmostEqual(actual_result, expected_result, places=10)
 
   def test_symmetric_prediction_difference_many_batches_little_correlation(
       self,
   ):
     np.random.seed(seed=0)
-
     x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
     y = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
-
     expected_result = 32.611545081600894
-
     state = rolling_stats.SymmetricPredictionDifference()
     for x_i, y_i in zip(x, y):
       state.add(x_i, y_i)
-
     self.assertAlmostEqual(state.result(), expected_result, places=10)
 
   def test_symmetric_prediction_difference_many_batches_much_correlation(self):
     np.random.seed(seed=0)
-
     x = np.random.uniform(low=1e-5, high=1 - 1e-5, size=(1000, 1000))
-
     # y is a noisy version of x.
     y = x + np.random.uniform(low=-1e-5, high=1e-5, size=(1000, 1000))
-
     expected_result = 5.6944180764844745e-05
-
     state = rolling_stats.SymmetricPredictionDifference()
     for x_i, y_i in zip(x, y):
       state.add(x_i, y_i)
-
     self.assertAlmostEqual(state.result(), expected_result, places=16)
 
   def test_symmetric_prediction_difference_many_identical_batches(self):
     x = np.random.uniform(size=(1000, 1000))
-
     state = rolling_stats.SymmetricPredictionDifference()
     for x_i in x:
       # sum_half_pointwise_rel_diff should be 0 for every point.
       state.add(x_i, x_i)
-
     expected_result = 0
-
     self.assertAlmostEqual(state.result(), expected_result, places=11)
 
   def test_symmetric_prediction_difference_many_batches_opposite(self):
     x = np.random.uniform(size=(1000, 1000))
-
     state = rolling_stats.SymmetricPredictionDifference()
     for x_i in x:
       # sum_half_pointwise_rel_diff should remain 0 because all of the pointwise
       # average relative differences are undefined.
       state.add(x_i, -x_i)
-
     expected_result = 0
-
     self.assertAlmostEqual(state.result(), expected_result, places=11)
 
   def test_symmetric_prediction_difference_absolute_returns_nan(self):
     x_empty = ()
-
     self.assertTrue(
         math.isnan(
             rolling_stats.SymmetricPredictionDifference()
@@ -1806,15 +1699,12 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
     # x.shape != y.shape
     x = (1, 2, 3)
     y = (4, 5)
-
     expected_error_message = (
         r'SymmetricPredictionDifference\.add\(\) requires x and y to have the'
         r' same shape, but recieved x=\[1\. 2\. 3\.\] and y=\[4\. 5\.\] with'
         r' x.shape=\(3\,\) and y.shape=\(2\,\)'
     )
-
     metric = rolling_stats.SymmetricPredictionDifference()
-
     with self.assertRaisesRegex(ValueError, expected_error_message):
       metric.add(x, y)
 

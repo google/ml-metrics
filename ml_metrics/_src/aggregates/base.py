@@ -81,7 +81,7 @@ class CallableMetric(MergeableMetric, Callable[..., Any]):
 
   @abc.abstractmethod
   def new(self, *args, **kwargs) -> Self:
-    """Calculate the sufficient statistics, should be idempotent."""
+    """Returns an instance with the sufficient statistics reset and updated."""
 
   def add(self, *args, **kwargs):
     """Updates the sufficient statistics with a batch of inputs."""

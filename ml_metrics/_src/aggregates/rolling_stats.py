@@ -54,13 +54,12 @@ class UnboundedSampler(base.CallableMetric, base.HasAsAggFn):
     samples = tuple(list(input_) for input_ in inputs)
     return self.__class__(_samples=samples, _multi_input=multi_input)
 
-  def merge(self, other: Self) -> Self:
+  def merge(self, other: Self) -> None:
     if not self._samples:
       self._samples = tuple([] for _ in other.samples)
       self._multi_input = other.multi_input
     for samples, others in zip(self._samples, other.samples, strict=True):
       samples.extend(others)
-    return self
 
   def result(self) -> tuple[list[Any], ...] | list[Any]:
     if self._multi_input:
@@ -149,7 +148,7 @@ class FixedSizeSample(base.MergeableMetric, base.HasAsAggFn):
   def add(self, inputs: types.NumbersT):
     self._add_samples_to_reservoir(inputs, n=len(inputs))
 
-  def merge(self, other: FixedSizeSample):
+  def merge(self, other: FixedSizeSample) -> None:
     if self.seed != other.seed:
       raise ValueError(
           'The seeds of the two samplers must be equal, but recieved'
@@ -224,7 +223,7 @@ class Histogram(base.CallableMetric, base.HasAsAggFn):
         _bin_edges=new_bin_edges,
     )
 
-  def merge(self, other: Self) -> Self:
+  def merge(self, other: Self) -> None:
     hist, bin_edges = other.hist, other.bin_edges
     if not np.array_equal(bin_edges, self._bin_edges):
       # Self hist and new hist have different bin edges.
@@ -245,7 +244,6 @@ class Histogram(base.CallableMetric, base.HasAsAggFn):
             ' respectively.'
         )
     self._hist = self._hist + hist
-    return self
 
   def result(self) -> HistogramResult:
     return HistogramResult(
@@ -285,9 +283,8 @@ class Counter(base.CallableMetric, base.HasAsAggFn, Generic[_T]):
     inputs = (elem[0] if len(elem) == 1 else elem for elem in inputs)
     return self.__class__(_counter=collections.Counter(inputs))
 
-  def merge(self, other: Self) -> Self:
+  def merge(self, other: Self) -> None:
     self._counter.update(other.counter)
-    return self
 
   def result(self) -> collections.Counter[_T | tuple[_T, ...]]:
     return self._counter
@@ -324,7 +321,7 @@ class Count(base.CallableMetric):
       inputs = [inputs]
     return dataclasses.replace(self, _count=sum(map(self.count_fn, inputs)))
 
-  def merge(self, other: Self):
+  def merge(self, other: Self) -> None:
     self._count += other.count
 
   def result(self) -> int | tuple[int, ...]:
@@ -352,7 +349,7 @@ class Mean(base.CallableMetric):
     )
 
   def new(self, batch: types.NumbersT) -> types.NumbersT:
-    """Computes the sufficient statistics of a batch of values.
+    """Returns a new instance with the sufficient statistics reset and updated.
 
     If `batch_score_fn` is provided, it will evaluate the batch and assign a
     score to each item. Subsequently, the statistics are computed based on
@@ -391,7 +388,7 @@ class Mean(base.CallableMetric):
   def input_shape(self) -> tuple[int, ...]:
     return self._input_shape
 
-  def merge(self, other: Mean):
+  def merge(self, other: Self) -> None:
     if np.all(np.isnan(other.mean)):
       return
     self._input_shape = self._input_shape or other.input_shape
@@ -437,7 +434,7 @@ class MeanAndVariance(Mean):
   def stddev(self) -> types.NumbersT:
     return np.sqrt(self._var)
 
-  def merge(self, other: MeanAndVariance):
+  def merge(self, other: Self) -> None:
     if np.all(np.isnan(other.var)):
       return
     prev_mean, prev_count = np.copy(self._mean), np.copy(self._count)
@@ -479,7 +476,7 @@ class Var(MeanAndVariance):
 
 # TODO(b/345249574): Add a preprocessing function of len per row.
 @dataclasses.dataclass(slots=True)
-class MinMaxAndCount(base.MergeableMetric):
+class MinMaxAndCount(base.CallableMetric):
   """Computes the Min, Max, and Count.
 
   Given a batch of inputs, MinMaxAndCount computes the following statistics:
@@ -492,7 +489,7 @@ class MinMaxAndCount(base.MergeableMetric):
   axis: int | None = None
   _count: int = 0
   _min: int = np.inf
-  _max: int = 0
+  _max: int = -np.inf
 
   def as_agg_fn(self) -> base.AggregateFn:
     return base.as_agg_fn(self.__class__, self.batch_score_fn, self.axis)
@@ -516,25 +513,22 @@ class MinMaxAndCount(base.MergeableMetric):
   def max(self) -> int:
     return self._max
 
-  def add(self, inputs: types.NumbersT) -> 'MinMaxAndCount':
-    self._count += np.asarray(inputs).size
-
+  def new(self, inputs: types.NumbersT) -> Self:
     if self.batch_score_fn is not None:
       inputs = self.batch_score_fn(inputs)
+    inputs = np.asarray(inputs)
+    return self.__class__(
+        _count=np.size(inputs, axis=self.axis),
+        _min=np.min(inputs, axis=self.axis) if inputs.size else np.inf,
+        _max=np.max(inputs, axis=self.axis) if inputs.size else -np.inf,
+    )
 
-    self._min = np.minimum(self._min, np.min(inputs, axis=self.axis))
-    self._max = np.maximum(self._max, np.max(inputs, axis=self.axis))
-
-    return self
-
-  def merge(self, other: 'MinMaxAndCount') -> 'MinMaxAndCount':
+  def merge(self, other: Self) -> None:
     self._count += other.count
-    self._min = np.min((self._min, other.min), axis=self.axis)
-    self._max = np.max((self._max, other.max), axis=self.axis)
+    self._min = np.minimum(self._min, other.min)
+    self._max = np.maximum(self._max, other.max)
 
-    return self
-
-  def result(self) -> 'MinMaxAndCount':
+  def result(self) -> Self:
     return self
 
 
@@ -577,7 +571,7 @@ class ValueAccumulator(base.CallableMetric):
 
 
 @dataclasses.dataclass(slots=True)
-class _R2TjurBase(abc.ABC, base.MergeableMetric):
+class R2Tjur(abc.ABC, base.CallableMetric):
   """Base class for Tjur's R^2.
 
   Also known as Tjur's D or Tjur's coefficient of discrimination, the Tjur
@@ -605,7 +599,7 @@ class _R2TjurBase(abc.ABC, base.MergeableMetric):
   def as_agg_fn(self) -> base.AggregateFn:
     return base.as_agg_fn(self.__class__)
 
-  def __eq__(self, other: '_R2TjurBase') -> bool:
+  def __eq__(self, other: Self) -> bool:
     return (
         self.sum_y_true == other.sum_y_true
         and self.sum_y_pred == other.sum_y_pred
@@ -613,36 +607,22 @@ class _R2TjurBase(abc.ABC, base.MergeableMetric):
         and self.sum_neg_y_pred == other.sum_neg_y_pred
     )
 
-  def add(
-      self, y_true: types.NumbersT, y_pred: types.NumbersT
-  ) -> '_R2TjurBase':
+  def new(self, y_true: types.NumbersT, y_pred: types.NumbersT) -> Self:
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
-
     neg_y_true = 1 - y_true
+    return self.__class__(
+        sum_y_true=np.sum(y_true),
+        sum_y_pred=np.sum(y_true * y_pred),
+        sum_neg_y_true=np.sum(neg_y_true),
+        sum_neg_y_pred=np.sum(neg_y_true * y_pred),
+    )
 
-    self.sum_y_true += np.sum(y_true)
-    self.sum_y_pred += np.sum(y_true * y_pred)
-    self.sum_neg_y_true += np.sum(neg_y_true)
-    self.sum_neg_y_pred += np.sum(neg_y_true * y_pred)
-
-    return self
-
-  def merge(self, other: '_R2TjurBase') -> '_R2TjurBase':
+  def merge(self, other: Self) -> None:
     self.sum_y_true += other.sum_y_true
     self.sum_y_pred += other.sum_y_pred
     self.sum_neg_y_true += other.sum_neg_y_true
     self.sum_neg_y_pred += other.sum_neg_y_pred
-
-    return self
-
-  @abc.abstractmethod
-  def result(self) -> types.NumbersT:
-    """Must be overwritten by the specific Tjur's R^2 Metric."""
-    pass
-
-
-class R2Tjur(_R2TjurBase):
 
   def result(self) -> types.NumbersT:
     if math.isclose(self.sum_y_true, 0) or math.isclose(self.sum_neg_y_true, 0):
@@ -654,7 +634,7 @@ class R2Tjur(_R2TjurBase):
     )
 
 
-class R2TjurRelative(_R2TjurBase):
+class R2TjurRelative(R2Tjur):
 
   def result(self) -> types.NumbersT:
     if math.isclose(self.sum_y_true, 0) or math.isclose(self.sum_neg_y_pred, 0):
@@ -669,7 +649,7 @@ class R2TjurRelative(_R2TjurBase):
 
 
 @dataclasses.dataclass(slots=True)
-class RRegression(base.MergeableMetric):
+class RRegression(base.CallableMetric):
   """Computes the Pearson Correlation Coefficient (PCC).
 
   The Pearson correlation coefficient (PCC) is a correlation coefficient that
@@ -701,7 +681,7 @@ class RRegression(base.MergeableMetric):
   def as_agg_fn(self) -> base.AggregateFn:
     return base.as_agg_fn(self.__class__, self.center)
 
-  def __eq__(self, other: 'RRegression') -> bool:
+  def __eq__(self, other: Self) -> bool:
     return (
         self.num_samples == other.num_samples
         and self.sum_x == other.sum_x
@@ -711,8 +691,8 @@ class RRegression(base.MergeableMetric):
         and self.sum_xy == other.sum_xy
     )
 
-  def add(self, x: types.NumbersT, y: types.NumbersT) -> 'RRegression':
-    """Updates the Class with the given batch.
+  def new(self, x: types.NumbersT, y: types.NumbersT) -> Self:
+    """Returns a new instance with the sufficient statistics reset and updated.
 
     Args:
       x: The data matrix of shape (n_samples, n_examples).
@@ -723,25 +703,23 @@ class RRegression(base.MergeableMetric):
     """
     x = np.asarray(x)
     y = np.asarray(y)
+    return self.__class__(
+        center=self.center,
+        num_samples=len(y),
+        sum_x=np.sum(x, axis=0),
+        sum_y=np.sum(y),
+        sum_xx=np.sum(x**2, axis=0),
+        sum_yy=np.sum(y**2),
+        sum_xy=np.sum(x * (y if x.ndim == 1 else y[:, np.newaxis]), axis=0),
+    )
 
-    self.num_samples += len(y)
-    self.sum_x += np.sum(x, axis=0)
-    self.sum_y += np.sum(y)
-    self.sum_xx += np.sum(x**2, axis=0)
-    self.sum_yy += np.sum(y**2)
-    self.sum_xy += np.sum(x * (y if x.ndim == 1 else y[:, np.newaxis]), axis=0)
-
-    return self
-
-  def merge(self, other: 'RRegression') -> 'RRegression':
+  def merge(self, other: Self) -> None:
     self.num_samples += other.num_samples
     self.sum_x += other.sum_x
     self.sum_y += other.sum_y
     self.sum_xx += other.sum_xx
     self.sum_yy += other.sum_yy
     self.sum_xy += other.sum_xy
-
-    return self
 
   def result(self) -> types.NumbersT:
     """Calculates the Pearson Correlation Coefficient (PCC).
@@ -792,7 +770,7 @@ class RRegression(base.MergeableMetric):
 
 
 @dataclasses.dataclass(slots=True)
-class SymmetricPredictionDifference(base.MergeableMetric):
+class SymmetricPredictionDifference(base.CallableMetric):
   """Computes the Symmetric Prediction Difference.
 
   Creates a summary model by taking the pointwise symmetric relative prediction
@@ -808,35 +786,26 @@ class SymmetricPredictionDifference(base.MergeableMetric):
   def as_agg_fn(self) -> base.AggregateFn:
     return base.as_agg_fn(self.__class__)
 
-  def add(
-      self, x: types.NumbersT, y: types.NumbersT
-  ) -> 'SymmetricPredictionDifference':
+  def new(self, x: types.NumbersT, y: types.NumbersT) -> Self:
     x = np.asarray(x).astype('float64')
     y = np.asarray(y).astype('float64')
-
     if x.shape != y.shape:
       raise ValueError(
           'SymmetricPredictionDifference.add() requires x and y to have the'
           f' same shape, but recieved x={x} and y={y} with x.shape={x.shape}'
           f' and y.shape={y.shape}'
       )
-
-    self.num_samples += x.size
-
     # TODO: b/356933410 - Add logic for k_epsilon.
-    self.sum_half_pointwise_rel_diff += np.sum(
-        math_utils.safe_divide(np.abs(x - y), np.abs(x + y))
+    return self.__class__(
+        num_samples=x.size,
+        sum_half_pointwise_rel_diff=np.sum(
+            math_utils.safe_divide(np.abs(x - y), np.abs(x + y))
+        ),
     )
 
-    return self
-
-  def merge(
-      self, other: 'SymmetricPredictionDifference'
-  ) -> 'SymmetricPredictionDifference':
+  def merge(self, other: Self) -> None:
     self.num_samples += other.num_samples
     self.sum_half_pointwise_rel_diff += other.sum_half_pointwise_rel_diff
-
-    return self
 
   def result(self) -> float:
     if self.num_samples == 0:
