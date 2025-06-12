@@ -32,5 +32,6 @@ from ml_metrics._src.chainables.transform import TreeTransform as Pipeline
 from ml_metrics._src.chainables.tree import Key
 from ml_metrics._src.chainables.tree import tree_shape
 from ml_metrics._src.chainables.tree import TreeMapView
+from ml_metrics._src.chainables.tree_fns import SliceKey
 from ml_metrics._src.utils import test_utils
 from ml_metrics._src.utils.iter_utils import iterate_fn

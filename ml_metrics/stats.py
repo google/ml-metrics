@@ -33,4 +33,3 @@ from ml_metrics._src.metrics.stats import mean
 from ml_metrics._src.metrics.stats import stddev
 from ml_metrics._src.metrics.stats import total
 from ml_metrics._src.metrics.stats import var
-from ml_metrics.google.metrics.stats import Quantile

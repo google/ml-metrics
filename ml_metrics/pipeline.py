@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2024 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,10 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Public ML metrics utilities."""
+"""Pipeline interfaces."""
 
-# pylint: disable=g-importing-member
-# pylint: disable=unused-import
-from ml_metrics._src.utils.df_utils import metrics_to_df
-from ml_metrics._src.utils.proto_utils import dict_to_tf_example
-from ml_metrics._src.utils.proto_utils import tf_examples_to_dict
+from absl import logging
+from ml_metrics.chainable import *  # pylint: disable=wildcard-import
+
+logging.warning(
+    'chainable: %s',
+    'ml_metrics.pipeline is deprecated, uses ml_metrics.chainable instead.',
+)

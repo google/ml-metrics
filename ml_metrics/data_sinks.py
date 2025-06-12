@@ -15,4 +15,3 @@
 
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
-from ml_metrics.google.data_sinks.hydra import HydraPropertyWriter

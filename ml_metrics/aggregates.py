@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,16 +15,10 @@
 
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
-from ml_metrics._src.aggregates import utils
-from ml_metrics._src.aggregates.base import AggFnNested
 from ml_metrics._src.aggregates.base import Aggregatable
-from ml_metrics._src.aggregates.base import AggregateFn
 from ml_metrics._src.aggregates.base import as_agg_fn
 from ml_metrics._src.aggregates.base import CallableMetric
-from ml_metrics._src.aggregates.base import MergeableMetric
-from ml_metrics._src.aggregates.base import MergeableMetricAggFn
 from ml_metrics._src.aggregates.base import Metric
-from ml_metrics._src.aggregates.base import UserAggregateFn
 from ml_metrics._src.aggregates.keras_metric_wrapper import is_keras_metric
 from ml_metrics._src.aggregates.keras_metric_wrapper import KerasAggregateFn
 from ml_metrics._src.aggregates.types import AverageType
