@@ -182,12 +182,15 @@ class TreeFn(Generic[_FnT, _T]):
     # value or a tuple of values.
     if not isinstance(outputs, tuple):
       outputs = (outputs,)
-    # If the output_keys is SELF, ((SELF,) after output_key normalization).
+    # If the output_keys is SELF, ((SELF,) or () after output_key normalization)
     # We again need to normalize the output due to the duality of tuple or
-    # single value outputs. E.g., input_keys='a' gives (some_values, ) up to
-    # this point, we need to unwrap it to some_values as the return, thus,
-    # skipping the wrapping here because SELF is normalized to (SELF,).
-    output_to_self = self.output_keys[0] == tree.Key.SELF
+    # single value outputs. E.g., input_keys='a' gives a single value output
+    # (some_values,) up to this point, we need to unwrap it to some_values as
+    # the return, thus, skipping the wrapping here because SELF is normalized
+    # to (SELF,).
+    output_to_self = (
+        not self.output_keys or self.output_keys == (tree.Key.SELF,)
+    )
     if output_to_self and len(outputs) > 1:
       outputs = (outputs,)
     return outputs
