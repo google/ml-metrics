@@ -839,6 +839,7 @@ class TreeTransform(Generic[TreeFnT]):
     filtered = {k: v for k, v in kwargs.items() if not _eq(getattr(self, k), v)}
     return dataclasses.replace(self, **filtered) if filtered else self
 
+  # TODO: b/424269199 - deprecates chain in favor of fuse or interleave.
   def chain(self, child: TreeTransform):
     """Chains self with a child transform, fuses it when name is the same."""
     if child.input_transform is not None or child.data_source_ is not None:
@@ -847,8 +848,12 @@ class TreeTransform(Generic[TreeFnT]):
           f' {child.input_transform=} and {child.data_source=}.'
       )
     if self.name == child.name:
-      return self._chain_and_fuse(child)
+      return self.fuse(child)
 
+    return self.interleave(child)
+
+  def interleave(self, child: TreeTransform) -> Self:
+    """Behave like Chain, but also interleave the transforms."""
     prev_chains = self.flatten_transform()
     prev_names = set((t.name for t in prev_chains))
     if child.name in prev_names:
@@ -868,7 +873,7 @@ class TreeTransform(Generic[TreeFnT]):
       input_transform = child.maybe_replace(input_transform=input_transform)
     return input_transform
 
-  def _chain_and_fuse(self, child: TreeTransform):
+  def fuse(self, child: TreeTransform):
     """Behave like Chain, but also fuse all the fns into one transform."""
     if child.is_noop:
       return self

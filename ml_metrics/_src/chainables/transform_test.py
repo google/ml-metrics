@@ -433,7 +433,7 @@ class TransformTest(parameterized.TestCase):
     t3 = transform.TreeTransform.new(name='B').apply(
         iter_utils.iterate_fn(lambda x: x + 1)
     )
-    t = t1.chain(t2).chain(t3)
+    t = t1.interleave(t2).interleave(t3)
     self.assertSameElements(t.named_transforms().keys(), ('', 'A', 'B'))
     # The first group of nodes are identical.
     self.assertEqual(t.named_transforms()[''], t1)
@@ -471,7 +471,7 @@ class TransformTest(parameterized.TestCase):
         fn=iter_utils.iterate_fn(lambda x: x + 1)
     )
     with self.assertRaisesRegex(ValueError, 'Chaining duplicate transform'):
-      _ = t1.chain(t2).chain(t3)
+      _ = t1.interleave(t2).interleave(t3)
 
   def test_transform_named_transforms_with_duplicate_agg_keys(self):
     t1 = transform.TreeTransform.new(name='A').data_source(
@@ -488,7 +488,7 @@ class TransformTest(parameterized.TestCase):
     with self.assertRaisesRegex(
         ValueError, 'Chaining transforms with duplicate aggregation output keys'
     ):
-      _ = t1.chain(t2).chain(t3)
+      _ = t1.interleave(t2).interleave(t3)
 
   def test_transform_equal(self):
     t = transform.TreeTransform()
@@ -1534,7 +1534,7 @@ class TransformTest(parameterized.TestCase):
     p_apply = transform.TreeTransform(name='apply', num_threads=1).apply(
         lambda x: x
     )
-    p = p_ds.chain(p_apply)
+    p = p_ds.interleave(p_apply)
 
     it = p.make().iterate()
     for x in it:

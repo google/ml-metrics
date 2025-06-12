@@ -176,7 +176,7 @@ def sharded_pipeline(
             fn=rolling_stats.MeanAndVariance().as_agg_fn(),
         )
     )
-  return data_pipeline.chain(apply_pipeline).chain(
+  return data_pipeline.interleave(apply_pipeline).interleave(
       transform.TreeTransform.new(name='agg').aggregate(
           output_keys='stats',
           fn=rolling_stats.MeanAndVariance().as_agg_fn(),
