@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2024 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -26,11 +26,4 @@ from ml_metrics._src.aggregates.stats import R2TjurRelative
 from ml_metrics._src.aggregates.stats import RRegression
 from ml_metrics._src.aggregates.stats import SymmetricPredictionDifference
 from ml_metrics._src.aggregates.stats import UnboundedSampler
-from ml_metrics._src.aggregates.stats import ValueAccumulator
 from ml_metrics._src.aggregates.stats import Var
-from ml_metrics._src.metrics.stats import count
-from ml_metrics._src.metrics.stats import mean
-from ml_metrics._src.metrics.stats import stddev
-from ml_metrics._src.metrics.stats import total
-from ml_metrics._src.metrics.stats import var
-from ml_metrics.google.metrics.stats import Quantile

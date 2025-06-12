@@ -13,7 +13,7 @@
 # limitations under the License.
 """Individual statistics metrics."""
 
-from ml_metrics._src.aggregates import rolling_stats
+from ml_metrics._src.aggregates import stats
 from ml_metrics._src.aggregates import types
 
 
@@ -31,7 +31,7 @@ _METRIC_PYDOC_POSTFIX = """
 
 def var(batch: types.NumbersT) -> float:
   """Computes the variance in a batch."""
-  return rolling_stats.MeanAndVariance().add(batch).var
+  return stats.MeanAndVariance().add(batch).var
 
 
 var.__doc__ += _METRIC_PYDOC_POSTFIX
@@ -39,7 +39,7 @@ var.__doc__ += _METRIC_PYDOC_POSTFIX
 
 def stddev(batch: types.NumbersT) -> float:
   """Computes the standard deviation in a batch."""
-  return rolling_stats.MeanAndVariance().add(batch).stddev
+  return stats.MeanAndVariance().add(batch).stddev
 
 
 stddev.__doc__ += _METRIC_PYDOC_POSTFIX
@@ -47,7 +47,7 @@ stddev.__doc__ += _METRIC_PYDOC_POSTFIX
 
 def mean(batch: types.NumbersT) -> float:
   """Computes the mean in a batch."""
-  return rolling_stats.MeanAndVariance().add(batch).mean
+  return stats.MeanAndVariance().add(batch).mean
 
 
 mean.__doc__ += _METRIC_PYDOC_POSTFIX
@@ -55,7 +55,7 @@ mean.__doc__ += _METRIC_PYDOC_POSTFIX
 
 def count(batch: types.NumbersT) -> int:
   """Computes the number of elements in a batch."""
-  return rolling_stats.MeanAndVariance().add(batch).count
+  return stats.MeanAndVariance().add(batch).count
 
 
 count.__doc__ += _METRIC_PYDOC_POSTFIX
@@ -63,7 +63,7 @@ count.__doc__ += _METRIC_PYDOC_POSTFIX
 
 def total(batch: types.NumbersT) -> float:
   """Computes the total sum of a batch."""
-  return rolling_stats.MeanAndVariance().add(batch).total
+  return stats.MeanAndVariance().add(batch).total
 
 
 total.__doc__ += _METRIC_PYDOC_POSTFIX

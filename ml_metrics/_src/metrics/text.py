@@ -15,7 +15,7 @@
 
 from collections.abc import Sequence
 
-from ml_metrics._src.aggregates import rolling_stats
+from ml_metrics._src.aggregates import stats
 from ml_metrics._src.aggregates import text
 from ml_metrics._src.signals import text as text_scores
 from ml_metrics._src.utils import iter_utils
@@ -118,13 +118,13 @@ def pattern_frequency(
 )
 def avg_alphabetical_char_count(
     texts: Sequence[str],
-) -> rolling_stats.MeanAndVariance:
+) -> stats.MeanAndVariance:
   """Average alphabetical character count metric."""
 
   if not list(texts):
     raise ValueError('`texts` must not be empty.')
 
   batch_scorer_fn = iter_utils.iterate_fn(text_scores.alphabetical_char_count)
-  return rolling_stats.MeanAndVariance(
-      batch_score_fn=batch_scorer_fn
-  ).as_agg_fn()(texts)
+  return stats.MeanAndVariance(batch_score_fn=batch_scorer_fn).as_agg_fn()(
+      texts
+  )

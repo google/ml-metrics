@@ -14,7 +14,7 @@
 """Tests for text."""
 
 from absl.testing import parameterized
-from ml_metrics._src.aggregates import rolling_stats
+from ml_metrics._src.aggregates import stats
 from ml_metrics._src.metrics import text
 import numpy as np
 
@@ -213,7 +213,7 @@ class AvgAlphabeticalCharCountTest(absltest.TestCase):
     got_state = text.avg_alphabetical_char_count(
         texts=['ab', 'a b', '', 'ok?']
     )
-    self.assertIsInstance(got_state, rolling_stats.MeanAndVariance)
+    self.assertIsInstance(got_state, stats.MeanAndVariance)
 
     expected_state = get_expected_mean_and_variance_state_result(
         [2, 2, 0, 2]

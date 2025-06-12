@@ -59,8 +59,7 @@ CalibrationHistogramResult = collections.namedtuple(
 )
 
 
-# TODO: b/368067018 - Inherit from
-# ml_metrics._src.aggregates.rolling_stats.Histogram.
+# TODO: b/368067018 - Inherit from ml_metrics._src.aggregates.stats.Histogram.
 @dataclasses.dataclass
 class CalibrationHistogram(base.MergeableMetric):
   """Computes the Histogram of the inputs.

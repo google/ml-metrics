@@ -15,7 +15,7 @@ import dataclasses
 import math
 
 from absl.testing import parameterized
-from ml_metrics._src.aggregates import rolling_stats
+from ml_metrics._src.aggregates import stats
 from ml_metrics._src.chainables import transform
 from ml_metrics._src.utils import test_utils
 import more_itertools as mit
@@ -33,12 +33,8 @@ class HistogramTest(parameterized.TestCase):
     input_1 = (0, 1, 0, 1, 1, 1, 0, 1)
     input_2 = (0.2, 0.8, 0.5, -0.1, 0.5, 0.8, 0.2, 1.1)
 
-    histogram_1 = rolling_stats.Histogram(range=bin_range, bins=bins).add(
-        input_1
-    )
-    histogram_2 = rolling_stats.Histogram(range=bin_range, bins=bins).add(
-        input_2
-    )
+    histogram_1 = stats.Histogram(range=bin_range, bins=bins).add(input_1)
+    histogram_2 = stats.Histogram(range=bin_range, bins=bins).add(input_2)
     histogram_1.merge(histogram_2)
     result = histogram_1.result()
 
@@ -67,7 +63,7 @@ class HistogramTest(parameterized.TestCase):
     input_1 = (0, 1, 0, 1, 1, 1, 0, 1)
     input_2 = (0.2, 0.8, 0.5, -0.1, 0.5, 0.8, 0.2, 1.1)
 
-    histogram = rolling_stats.Histogram(range=bin_range, bins=bins)
+    histogram = stats.Histogram(range=bin_range, bins=bins)
     histogram.add(input_1)
     histogram.add(input_2)
     actual = histogram.result()
@@ -89,7 +85,7 @@ class HistogramTest(parameterized.TestCase):
     bins = (0, 0.2, 0.4, 0.6, 0.8, 1)
     input_1 = (0, 1, 0, 1, 1, 1, 0, 1)
     input_2 = (0.2, 0.8, 0.5, -0.1, 0.5, 0.8, 0.2, 1.1)
-    histogram = rolling_stats.Histogram(bins=bins)
+    histogram = stats.Histogram(bins=bins)
     histogram.add(input_1)
     histogram.add(input_2)
     actual = histogram.result()
@@ -115,9 +111,7 @@ class HistogramTest(parameterized.TestCase):
         low=left_boundary, high=right_boundary, size=num_values
     )
 
-    hist_fn = rolling_stats.Histogram(
-        range=(left_boundary, right_boundary), bins=bins
-    )
+    hist_fn = stats.Histogram(range=(left_boundary, right_boundary), bins=bins)
     actual_result = hist_fn.as_agg_fn()(inputs)
     expected_histogram, expected_bin_edges = np.histogram(
         inputs, bins=bins, range=(left_boundary, right_boundary)
@@ -139,7 +133,7 @@ class HistogramTest(parameterized.TestCase):
         low=left_boundary, high=right_boundary, size=(batches, batch_size)
     )
 
-    state = rolling_stats.Histogram(
+    state = stats.Histogram(
         range=(left_boundary, right_boundary),
         bins=bins,
     )
@@ -172,7 +166,7 @@ class HistogramTest(parameterized.TestCase):
     place_holder_range = (0, 1)
     place_holder_hist = np.array((1, 1, 1, 1))
 
-    hist_1 = rolling_stats.Histogram(
+    hist_1 = stats.Histogram(
         range=place_holder_range,
         bins=4,
         _hist=place_holder_hist,
@@ -190,31 +184,31 @@ class HistogramTest(parameterized.TestCase):
 class CounterTest(parameterized.TestCase):
 
   def test_call(self):
-    counter = rolling_stats.Counter(batched_inputs=True)
+    counter = stats.Counter(batched_inputs=True)
     result = counter(['a', 'b'])
     self.assertEqual({'a': 1, 'b': 1}, result)
 
   def test_agg_fn_call(self):
-    counter = rolling_stats.Counter(batched_inputs=True).as_agg_fn()
+    counter = stats.Counter(batched_inputs=True).as_agg_fn()
     result = counter(['a', 'b'])
     self.assertEqual({'a': 1, 'b': 1}, result)
 
   def test_update(self):
-    counter = rolling_stats.Counter(batched_inputs=True)
+    counter = stats.Counter(batched_inputs=True)
     for x in ['a b'.split(' '), 'c a'.split(' ')]:
       counter.add(x)
     self.assertEqual({'a': 2, 'b': 1, 'c': 1}, counter.result())
 
   def test_merge(self):
-    counter_1 = rolling_stats.Counter(batched_inputs=True)
-    counter_2 = rolling_stats.Counter(batched_inputs=True)
+    counter_1 = stats.Counter(batched_inputs=True)
+    counter_2 = stats.Counter(batched_inputs=True)
     counter_2.add(['a', 'b'])
     counter_1.add(['a', 'b'])
     counter_1.merge(counter_2)
     self.assertEqual({'a': 2, 'b': 2}, counter_1.result())
 
   def test_unbatched_inputs(self):
-    counter = rolling_stats.Counter()
+    counter = stats.Counter()
     for x in ['a', 'a', 'b']:
       counter.add(x)
     self.assertEqual({'a': 2, 'b': 1}, counter.result())
@@ -261,10 +255,10 @@ class CounterTest(parameterized.TestCase):
   )
   def test_in_pipeline(self, batched, input_keys, expected, input_fn=None):
     p = transform.TreeTransform()
-    counter = rolling_stats.Counter(input_fn=input_fn)
+    counter = stats.Counter(input_fn=input_fn)
     if batched:
       p = p.select(input_keys).batch(2)
-      counter = rolling_stats.Counter(batched_inputs=batched, input_fn=input_fn)
+      counter = stats.Counter(batched_inputs=batched, input_fn=input_fn)
     p = p.agg(counter, input_keys=input_keys, output_keys='counter')
     inputs = [{'a': 1, 'b': 2}, {'a': 1, 'b': 2}, {'a': 2, 'b': 2}]
     actual = p.make()(input_iterator=inputs)
@@ -276,7 +270,7 @@ def get_expected_mean_and_variance(batches, batch_score_fn=None):
     batches = [batch_score_fn(batch) for batch in batches]
   batches = np.asarray(batches)
   batch = batches.reshape(-1, *batches.shape[2:])
-  return rolling_stats.MeanAndVariance(
+  return stats.MeanAndVariance(
       batch_score_fn=batch_score_fn,
       _mean=np.nanmean(batch, axis=0),
       _var=np.nanvar(batch, axis=0),
@@ -288,24 +282,24 @@ def get_expected_mean_and_variance(batches, batch_score_fn=None):
 class UnboundesSamplerTest(absltest.TestCase):
 
   def test_default_call(self):
-    sampler = rolling_stats.UnboundedSampler()
+    sampler = stats.UnboundedSampler()
     result = sampler(['a', 'b'])
     self.assertEqual(['a', 'b'], result)
 
   def test_as_agg_fn_call(self):
-    sampler = rolling_stats.UnboundedSampler().as_agg_fn()
+    sampler = stats.UnboundedSampler().as_agg_fn()
     result = sampler(['a', 'b'])
     self.assertEqual(['a', 'b'], result)
 
   def test_batch_update(self):
-    sampler = rolling_stats.UnboundedSampler()
+    sampler = stats.UnboundedSampler()
     sampler.add(['a', 'b'])
     sampler.add(['c', 'd'])
     self.assertEqual(['a', 'b', 'c', 'd'], sampler.result())
 
   def test_merge(self):
-    sampler_1 = rolling_stats.UnboundedSampler()
-    sampler_2 = rolling_stats.UnboundedSampler()
+    sampler_1 = stats.UnboundedSampler()
+    sampler_2 = stats.UnboundedSampler()
     sampler_1.add(['a', 'b'])
     sampler_2.add(['c', 'b'])
     sampler_1.merge(sampler_2)
@@ -313,13 +307,13 @@ class UnboundesSamplerTest(absltest.TestCase):
 
   def test_with_transform_without_input_keys(self):
     t = transform.TreeTransform().agg(
-        fn=rolling_stats.UnboundedSampler(),
+        fn=stats.UnboundedSampler(),
         output_keys='samples',
     )
     it = t.make().iterate([['a', 'b'], ['c']])
     _ = mit.last(it)
     metric_key = transform.MetricKey(metrics=('samples',))
-    expected_state = rolling_stats.UnboundedSampler(
+    expected_state = stats.UnboundedSampler(
         _samples=(['a', 'b', 'c'],), _multi_input=False
     )
     self.assertEqual(expected_state, it.agg_state[metric_key])
@@ -327,7 +321,7 @@ class UnboundesSamplerTest(absltest.TestCase):
 
   def test_with_transform_with_input_keys(self):
     t = transform.TreeTransform().agg(
-        fn=rolling_stats.UnboundedSampler(),
+        fn=stats.UnboundedSampler(),
         output_keys=('a', 'b'),
         input_keys=('a', 'b'),
     )
@@ -412,20 +406,20 @@ class FixedSizeSampleTest(parameterized.TestCase):
       expected_reservoir,
       expected_num_samples_reviewed,
   ):
-    original = rolling_stats.FixedSizeSample(
+    original = stats.FixedSizeSample(
         max_size=5,
         seed=0,
         _reservoir=reservoir_original,
         _num_samples_reviewed=num_samples_original,
     )
-    other = rolling_stats.FixedSizeSample(
+    other = stats.FixedSizeSample(
         max_size=5,
         seed=0,
         _reservoir=reservoir_other,
         _num_samples_reviewed=num_samples_other,
     )
     original.merge(other)
-    expected = rolling_stats.FixedSizeSample(
+    expected = stats.FixedSizeSample(
         max_size=5,
         seed=0,
         _reservoir=expected_reservoir,
@@ -436,13 +430,13 @@ class FixedSizeSampleTest(parameterized.TestCase):
   def test_fixed_size_sample_merge_different_max_sizes(self):
     res_1 = [1, 2, 3, 4, 5]
     res_2 = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-    sampler = rolling_stats.FixedSizeSample(
+    sampler = stats.FixedSizeSample(
         max_size=5,
         seed=0,
         _reservoir=res_1,
         _num_samples_reviewed=10,
     )
-    other = rolling_stats.FixedSizeSample(
+    other = stats.FixedSizeSample(
         max_size=10, seed=0, _reservoir=res_2, _num_samples_reviewed=10
     )
     sampler.merge(other)
@@ -450,13 +444,13 @@ class FixedSizeSampleTest(parameterized.TestCase):
     np.testing.assert_array_equal(sampler.result(), expected_result)
 
   def test_fixed_size_sample_merge_smaller_samples_than_max_size(self):
-    sampler = rolling_stats.FixedSizeSample(
+    sampler = stats.FixedSizeSample(
         max_size=5,
         seed=0,
         _reservoir=[1, 2],
         _num_samples_reviewed=2,
     )
-    other = rolling_stats.FixedSizeSample(
+    other = stats.FixedSizeSample(
         max_size=10, seed=0, _reservoir=[10], _num_samples_reviewed=1
     )
     sampler.merge(other)
@@ -522,7 +516,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
   )
   def test_fixed_size_sample_random_seed(self, random_seed, expected_reservoir):
     stream = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
-    sampler = rolling_stats.FixedSizeSample(max_size=8, seed=random_seed)
+    sampler = stats.FixedSizeSample(max_size=8, seed=random_seed)
     sampler.add(stream)
     np.testing.assert_array_equal(expected_reservoir, sampler.result())
 
@@ -539,7 +533,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
         'Jackfruit',
         'Kiwi',
     )
-    sampler = rolling_stats.FixedSizeSample(max_size=4, seed=0)
+    sampler = stats.FixedSizeSample(max_size=4, seed=0)
     sampler.add(stream)
     expected_reservoir = ('Fig', 'Elderberry', 'Jackfruit', 'Honeydew')
     np.testing.assert_array_equal(expected_reservoir, sampler.result())
@@ -549,7 +543,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
     datastream = np.random.default_rng(0).uniform(
         low=-1e6, high=1e6, size=batch_size
     )
-    sampler = rolling_stats.FixedSizeSample(max_size=10, seed=0)
+    sampler = stats.FixedSizeSample(max_size=10, seed=0)
     sampler.add(datastream)
     expected = (
         780105.0592725971,
@@ -571,7 +565,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
         low=-1e6, high=1e6, size=size
     )
 
-    metric = rolling_stats.FixedSizeSample(max_size=10, seed=0)
+    metric = stats.FixedSizeSample(max_size=10, seed=0)
     for datastream in datastreams:
       metric.add(datastream)
 
@@ -597,7 +591,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
     actual_counter = np.zeros(max_range)
     num_runs = 1000
     for i in range(num_runs):
-      sampler = rolling_stats.FixedSizeSample(max_size=max_size, seed=i)
+      sampler = stats.FixedSizeSample(max_size=max_size, seed=i)
       for batch in mit.batched(np.arange(max_range), 9):
         sampler.add(batch)
       for v in sampler.result():
@@ -611,9 +605,9 @@ class FixedSizeSampleTest(parameterized.TestCase):
     actual_counter = np.zeros(max_range)
     num_runs = 1000
     for i in range(num_runs):
-      sampler = rolling_stats.FixedSizeSample(max_size=max_size, seed=i)
+      sampler = stats.FixedSizeSample(max_size=max_size, seed=i)
       for batch in mit.batched(np.arange(max_range), 9):
-        other = rolling_stats.FixedSizeSample(max_size=max_size, seed=i)
+        other = stats.FixedSizeSample(max_size=max_size, seed=i)
         other.add(batch)
         sampler.merge(other)
       for v in sampler.result():
@@ -622,7 +616,7 @@ class FixedSizeSampleTest(parameterized.TestCase):
     np.testing.assert_array_less(actual_counter - max_size / max_range, 0.03)
 
   def test_as_agg_fn(self):
-    sampler = rolling_stats.FixedSizeSample(max_size=5, seed=0)
+    sampler = stats.FixedSizeSample(max_size=5, seed=0)
     sampler_agg_fn = sampler.as_agg_fn()
     actual = sampler_agg_fn(np.arange(10))
     sampler.add(np.arange(10))
@@ -632,32 +626,32 @@ class FixedSizeSampleTest(parameterized.TestCase):
 class CountTest(parameterized.TestCase):
 
   def test_count_normal(self):
-    self.assertEqual(3, rolling_stats.Count()(['a', 'b', 'c']))
+    self.assertEqual(3, stats.Count()(['a', 'b', 'c']))
 
   def test_count_merge(self):
-    count1 = rolling_stats.Count()
-    count2 = rolling_stats.Count()
+    count1 = stats.Count()
+    count2 = stats.Count()
     count1.add(['a', 'b', 'c'])
     count2.add(['a', 'b', 'c'])
     count1.merge(count2)
     self.assertEqual(6, count1.result())
 
   def test_batched(self):
-    p = transform.TreeTransform().batch(2).agg(rolling_stats.Count())
+    p = transform.TreeTransform().batch(2).agg(stats.Count())
     self.assertEqual({'': 3}, p.make()(input_iterator=range(3)))
 
   def test_unbatched(self):
-    p = transform.TreeTransform().agg(rolling_stats.Count(batched_inputs=False))
+    p = transform.TreeTransform().agg(stats.Count(batched_inputs=False))
     self.assertEqual({'': 3}, p.make()(input_iterator=range(3)))
 
   def test_count_fn(self):
     p = transform.TreeTransform().agg(
-        rolling_stats.Count(batched_inputs=False, count_fn=len)
+        stats.Count(batched_inputs=False, count_fn=len)
     )
     self.assertEqual({'': 4}, p.make()(input_iterator=['aa', 'bb']))
 
   def test_str(self):
-    count = rolling_stats.Count()
+    count = stats.Count()
     count.add(['a', 'b', 'c'])
     self.assertEqual('count: 3', str(count))
 
@@ -686,7 +680,7 @@ class MeanAndVarianceTest(parameterized.TestCase):
 
   def test_mean_normal(self):
     # This only tests that Mean().get_result() returns the mean value directly.
-    state = rolling_stats.Mean().add([1, 2, 3])
+    state = stats.Mean().add([1, 2, 3])
     self.assertIsInstance(state.result(), float)
     self.assertEqual(2.0, state.result())
     state.add([4, 5, 6])
@@ -699,7 +693,7 @@ class MeanAndVarianceTest(parameterized.TestCase):
 
   def test_var_normal(self):
     # This only tests that Var().get_result() returns the variance directly.
-    state = rolling_stats.Var().add([1, 1, 1])
+    state = stats.Var().add([1, 1, 1])
     self.assertIsInstance(state.result(), float)
     self.assertEqual(0, state.result())
     state.add([1, 1, 1])
@@ -774,12 +768,12 @@ class MeanAndVarianceTest(parameterized.TestCase):
       self, num_batch, num_elements_per_batch, num_dimension
   ):
     batches = np.random.randn(num_batch, num_elements_per_batch, num_dimension)
-    state = rolling_stats.MeanAndVariance()
+    state = stats.MeanAndVariance()
 
     last_batch_result = None
     for batch in batches:
       last_batch_result = state.add(batch)
-    self.assertIsInstance(last_batch_result, rolling_stats.MeanAndVariance)
+    self.assertIsInstance(last_batch_result, stats.MeanAndVariance)
 
     expected_last_batch_result = get_expected_mean_and_variance(batches[-1:])
     self.assertDataclassAlmostEqual(
@@ -798,7 +792,7 @@ class MeanAndVarianceTest(parameterized.TestCase):
     batch_score_fn = lambda batch: [
         [x['score1'], x['score2'], x['score3']] for x in batch
     ]
-    state = rolling_stats.MeanAndVariance(batch_score_fn=batch_score_fn)
+    state = stats.MeanAndVariance(batch_score_fn=batch_score_fn)
     state.add(batch)
     expected_state = get_expected_mean_and_variance([batch], batch_score_fn)
     self.assertDataclassAlmostEqual(expected_state, state)
@@ -818,12 +812,12 @@ class MeanAndVarianceTest(parameterized.TestCase):
         ],
     ])
 
-    state = rolling_stats.MeanAndVariance()
+    state = stats.MeanAndVariance()
 
     last_batch_result = None
     for batch in batches:
       last_batch_result = state.add(batch)
-    self.assertIsInstance(last_batch_result, rolling_stats.MeanAndVariance)
+    self.assertIsInstance(last_batch_result, stats.MeanAndVariance)
 
     expected_last_batch_result = get_expected_mean_and_variance(batches[-1:])
     self.assertDataclassAlmostEqual(
@@ -835,7 +829,7 @@ class MeanAndVarianceTest(parameterized.TestCase):
 
   def test_mean_and_variance_add_with_incompatible_shape(self):
     batch = np.array([[1, 2], [2, 3]])
-    state = rolling_stats.MeanAndVariance()
+    state = stats.MeanAndVariance()
     state.add(batch)
     with self.assertRaisesRegex(ValueError, 'Incompatible shape'):
       state.add(np.array([1, 2]))
@@ -843,8 +837,8 @@ class MeanAndVarianceTest(parameterized.TestCase):
   def test_mean_and_variance_merge_with_incompatible_shape(self):
     batch1 = np.array([[1, 2], [2, 3]])
     batch2 = np.array([1, 2])
-    state1 = rolling_stats.MeanAndVariance().add(batch1)
-    state2 = rolling_stats.MeanAndVariance().add(batch2)
+    state1 = stats.MeanAndVariance().add(batch1)
+    state2 = stats.MeanAndVariance().add(batch2)
     with self.assertRaisesRegex(ValueError, 'Incompatible shape'):
       state1.merge(state2)
 
@@ -860,7 +854,7 @@ class MeanAndVarianceTest(parameterized.TestCase):
   ])
   def test_mean_and_variance_batch_with_nan(self, partial_nan):
     batch = [np.nan] * 3 + [1, 2, 3] * int(partial_nan)
-    state = rolling_stats.MeanAndVariance()
+    state = stats.MeanAndVariance()
     state.add(batch)
 
     expected_state = get_expected_mean_and_variance(batch)
@@ -899,8 +893,8 @@ class MeanAndVarianceTest(parameterized.TestCase):
   ):
     self_batch = np.random.randn(int(not is_self_empty), 30, num_dimension)
     other_batch = np.random.randn(int(not is_other_empty), 30, num_dimension)
-    self_state = rolling_stats.MeanAndVariance()
-    other_state = rolling_stats.MeanAndVariance()
+    self_state = stats.MeanAndVariance()
+    other_state = stats.MeanAndVariance()
 
     for batch in self_batch:
       self_state.add(batch)
@@ -934,7 +928,7 @@ class MeanAndVarianceTest(parameterized.TestCase):
     batch = np.array([1, 2, 3, np.nan] * int(add_batch))
     if multi_dimension:
       batch = np.tile(batch, (2, 1))
-    state = rolling_stats.MeanAndVariance()
+    state = stats.MeanAndVariance()
     if add_batch:
       state.add(batch)
 
@@ -949,7 +943,7 @@ class MeanAndVarianceTest(parameterized.TestCase):
       np.testing.assert_allclose(getattr(state.result(), property_name), value)
 
   def test_mean_and_variance_agg_fn(self):
-    agg_fn = rolling_stats.MeanAndVariance().as_agg_fn()
+    agg_fn = stats.MeanAndVariance().as_agg_fn()
     batches = np.arange(3)
     actual = agg_fn(batches)
     self.assertDataclassAlmostEqual(
@@ -979,7 +973,7 @@ class MeanAndVarianceTest(parameterized.TestCase):
       ),
   ])
   def test_mean_and_variance_string_representation(self, batch, expected_str):
-    state = rolling_stats.MeanAndVariance()
+    state = stats.MeanAndVariance()
     state.add(batch)
     self.assertEqual(str(state), expected_str)
 
@@ -1003,8 +997,8 @@ class MeanAndVarianceTest(parameterized.TestCase):
           testcase_name='dict_input',
           inputs={'a': np.array([1, 2, 3]), 'b': np.array([4, 5, 6])},
           expected={
-              'a': rolling_stats.MeanAndVariance()([1, 2, 3]),
-              'b': rolling_stats.MeanAndVariance()([4, 5, 6]),
+              'a': stats.MeanAndVariance()([1, 2, 3]),
+              'b': stats.MeanAndVariance()([4, 5, 6]),
           },
       ),
       dict(
@@ -1015,26 +1009,26 @@ class MeanAndVarianceTest(parameterized.TestCase):
           },
           expected={
               'a': (
-                  rolling_stats.MeanAndVariance()([1, 2, 3]),
-                  rolling_stats.MeanAndVariance()([4, 5, 6]),
+                  stats.MeanAndVariance()([1, 2, 3]),
+                  stats.MeanAndVariance()([4, 5, 6]),
               ),
-              'b': rolling_stats.MeanAndVariance()([7, 8, 9]),
+              'b': stats.MeanAndVariance()([7, 8, 9]),
           },
       ),
       dict(
           testcase_name='list_input',
           inputs=[np.array([1, 2, 3]), np.array([4, 5, 6])],
           expected=[
-              rolling_stats.MeanAndVariance()([1, 2, 3]),
-              rolling_stats.MeanAndVariance()([4, 5, 6]),
+              stats.MeanAndVariance()([1, 2, 3]),
+              stats.MeanAndVariance()([4, 5, 6]),
           ],
       ),
       dict(
           testcase_name='tuple_input',
           inputs=(np.array([1, 2, 3]), np.array([4, 5, 6])),
           expected=(
-              rolling_stats.MeanAndVariance()([1, 2, 3]),
-              rolling_stats.MeanAndVariance()([4, 5, 6]),
+              stats.MeanAndVariance()([1, 2, 3]),
+              stats.MeanAndVariance()([4, 5, 6]),
           ),
       ),
       dict(
@@ -1042,15 +1036,15 @@ class MeanAndVarianceTest(parameterized.TestCase):
           inputs=np.array([[1, 2, 3], [4, 5, 6]]),
           batch_score_fn=lambda x: {'x': x[0], 'y': x[1]},
           expected={
-              'x': rolling_stats.MeanAndVariance()([1, 2, 3]),
-              'y': rolling_stats.MeanAndVariance()([4, 5, 6]),
+              'x': stats.MeanAndVariance()([1, 2, 3]),
+              'y': stats.MeanAndVariance()([4, 5, 6]),
           },
       ),
   ])
   def test_nested_agg_fn_nested(self, inputs, expected, batch_score_fn=None):
-    agg_fn = rolling_stats.MeanAndVariance(
-        batch_score_fn=batch_score_fn
-    ).as_agg_fn(nested=True)
+    agg_fn = stats.MeanAndVariance(batch_score_fn=batch_score_fn).as_agg_fn(
+        nested=True
+    )
     actual = agg_fn(inputs)
     test_utils.assert_nested_container_equal(
         self, expected, actual, strict=True
@@ -1062,12 +1056,12 @@ class MinMaxAndCountTest(parameterized.TestCase):
     batch_1 = (1, 2, 3, 4, 5, 6, 7, 8, 9)  # len(batch_1) = 9
     batch_2 = (8, 6, 7, 5, 3, 0, 9)  # len(batch_2) = 7
     batch_3 = (5, 4, 3, 2, 1)  # len(batch_3) = 5
-    expected_result = rolling_stats.MinMaxAndCount(
+    expected_result = stats.MinMaxAndCount(
         _count=21,  # len(batch_1) + len(batch_2) + len(batch_3)
         _min=0,  # min(batch_1, batch_2, batch_3)
         _max=9,  # max(batch_1, batch_2, batch_3)
     )
-    min_max_count = rolling_stats.MinMaxAndCount()
+    min_max_count = stats.MinMaxAndCount()
     state_1 = min_max_count.new(batch_1)
     state_2 = min_max_count.new(batch_2)
     state_3 = min_max_count.new(batch_3)
@@ -1084,7 +1078,7 @@ class MinMaxAndCountTest(parameterized.TestCase):
         'min': 5,  # min(len(batch_1), len(batch_2), len(batch_3))
         'max': 9,  # max(len(batch_1), len(batch_2), len(batch_3))
     }
-    state = rolling_stats.MinMaxAndCount(batch_score_fn=len)
+    state = stats.MinMaxAndCount(batch_score_fn=len)
     for batch in (batch_1, batch_2, batch_3):
       state.add(batch)
     for property_name, value in expected_properties_dict.items():
@@ -1100,7 +1094,7 @@ class MinMaxAndCountTest(parameterized.TestCase):
         'max': 18,  # max(2 * 9, 2 * 7, 2 * 5) = 2 * 9 = 18
     }
     num_elem = lambda input: sum([len(batch) for batch in input])
-    state = rolling_stats.MinMaxAndCount(batch_score_fn=num_elem)
+    state = stats.MinMaxAndCount(batch_score_fn=num_elem)
     for batch in (batch_1, batch_2, batch_3):
       state.add(batch)
     for property_name, value in expected_properties_dict.items():
@@ -1135,7 +1129,7 @@ class MinMaxAndCountTest(parameterized.TestCase):
         'min': expected_min,
         'max': expected_max,
     }
-    state = rolling_stats.MinMaxAndCount(batch_score_fn=batch_score_fn)
+    state = stats.MinMaxAndCount(batch_score_fn=batch_score_fn)
     for batch in (batch_1, batch_2, batch_3):
       state.add(batch)
     for property_name, value in expected_properties_dict.items():
@@ -1188,9 +1182,7 @@ class MinMaxAndCountTest(parameterized.TestCase):
     batch_2 = ((1, 2, 3, 4, 5, 6, 7, 0, 0), (8, 6, 7, 5, 3, 0, 9, 9, 9))
     batch_3 = ((1, 2, 3, 4, 5, 4, 3, 2, 1), (4, 4, 4, 4, 4, 4, 4, 4, 4))
 
-    state = rolling_stats.MinMaxAndCount(
-        batch_score_fn=batch_score_fn, axis=axis
-    )
+    state = stats.MinMaxAndCount(batch_score_fn=batch_score_fn, axis=axis)
     for batch in (batch_1, batch_2, batch_3):
       state.add(batch)
     self.assertEqual(state.count, expected_count)
@@ -1200,7 +1192,7 @@ class MinMaxAndCountTest(parameterized.TestCase):
   def test_min_max_and_count_one_large_batch(self):
     num_inputs = 1000000
     inputs = np.random.random_sample(size=num_inputs)
-    minmax = rolling_stats.MinMaxAndCount(batch_score_fn=len).as_agg_fn()
+    minmax = stats.MinMaxAndCount(batch_score_fn=len).as_agg_fn()
     actual_result = minmax(inputs)
     self.assertEqual(actual_result.count, 1)
     self.assertEqual(actual_result.min, num_inputs)
@@ -1215,7 +1207,7 @@ class MinMaxAndCountTest(parameterized.TestCase):
         'min': batch_size,
         'max': batch_size,
     }
-    state = rolling_stats.MinMaxAndCount(batch_score_fn=len)
+    state = stats.MinMaxAndCount(batch_score_fn=len)
     for input_batch in inputs:
       state.add(input_batch)
     for property_name, value in expected_properties_dict.items():
@@ -1223,7 +1215,7 @@ class MinMaxAndCountTest(parameterized.TestCase):
 
   def test_min_max_and_count_empty_input(self):
     empty_batch = ()
-    actual_result = rolling_stats.MinMaxAndCount()(empty_batch)
+    actual_result = stats.MinMaxAndCount()(empty_batch)
     self.assertEqual(actual_result.count, 0)
     self.assertEqual(actual_result.min, np.inf)
     self.assertEqual(actual_result.max, -np.inf)
@@ -1232,7 +1224,7 @@ class MinMaxAndCountTest(parameterized.TestCase):
 class ValueAccumulatorTest(parameterized.TestCase):
 
   def test_value_accumulator_single_column_no_concatenate(self):
-    accumulator = rolling_stats.ValueAccumulator()
+    accumulator = stats.ValueAccumulator()
     inputs = [1, 2, 3]
     for batch in inputs:
       accumulator.add(batch)
@@ -1241,7 +1233,7 @@ class ValueAccumulatorTest(parameterized.TestCase):
 
   def test_value_accumulator_concat_list(self):
     concat_fn = lambda x, y: x + y
-    accumulator = rolling_stats.ValueAccumulator(concat_fn=concat_fn)
+    accumulator = stats.ValueAccumulator(concat_fn=concat_fn)
     inputs = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
     for batch in inputs:
       accumulator.add(batch)
@@ -1250,7 +1242,7 @@ class ValueAccumulatorTest(parameterized.TestCase):
 
   def test_value_accumulator_concat_np_array(self):
     concat_fn = lambda x, y: np.concat((x, y), axis=-1)
-    accumulator = rolling_stats.ValueAccumulator(concat_fn=concat_fn)
+    accumulator = stats.ValueAccumulator(concat_fn=concat_fn)
     inputs = [np.arange(3), np.arange(3, 6), np.arange(6, 9)]
     for batch in inputs:
       accumulator.add(batch)
@@ -1259,7 +1251,7 @@ class ValueAccumulatorTest(parameterized.TestCase):
 
   def test_value_accumulator_two_columns(self):
     concat_fn = lambda x, y: x + y
-    accumulator = rolling_stats.ValueAccumulator(concat_fn=concat_fn)
+    accumulator = stats.ValueAccumulator(concat_fn=concat_fn)
     inputs = [([0, 1, 2], [3, 4, 5]), ([6, 7, 8], [9, 10, 11])]
     for batch in inputs:
       accumulator.add(*batch)
@@ -1270,7 +1262,7 @@ class ValueAccumulatorTest(parameterized.TestCase):
   def test_value_accumulator_metric_fns(self):
     concat_fn = lambda x, y: x + y
     metric_fns = {'sum': sum, 'mean': np.mean}
-    accumulator = rolling_stats.ValueAccumulator(concat_fn, metric_fns)
+    accumulator = stats.ValueAccumulator(concat_fn, metric_fns)
     inputs = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
     for batch in inputs:
       accumulator.add(batch)
@@ -1280,7 +1272,7 @@ class ValueAccumulatorTest(parameterized.TestCase):
 
   def test_value_accumulator_as_agg_fn(self):
     concat_fn = lambda x, y: x + y
-    accumulator = rolling_stats.ValueAccumulator(concat_fn, sum)
+    accumulator = stats.ValueAccumulator(concat_fn, sum)
     agg_fn = accumulator.as_agg_fn()
     actual = agg_fn(list(range(9)))
     expected = 36
@@ -1290,8 +1282,8 @@ class ValueAccumulatorTest(parameterized.TestCase):
 class R2TjurTest(parameterized.TestCase):
 
   @parameterized.named_parameters(
-      dict(testcase_name='absolute', r2_metric=rolling_stats.R2Tjur),
-      dict(testcase_name='relative', r2_metric=rolling_stats.R2TjurRelative),
+      dict(testcase_name='absolute', r2_metric=stats.R2Tjur),
+      dict(testcase_name='relative', r2_metric=stats.R2TjurRelative),
   )
   def test_r2_tjur_merge(self, r2_metric):
     y_true_1 = (0, 1)
@@ -1314,12 +1306,12 @@ class R2TjurTest(parameterized.TestCase):
       # sum_neg_y_true = 1.0, sum_neg_y_pred = 0.1
       dict(
           testcase_name='absolute',
-          r2_metric=rolling_stats.R2Tjur,
+          r2_metric=stats.R2Tjur,
           expected_result=(1.2 / 2.0) - (0.8 / 1.0),
       ),
       dict(
           testcase_name='relative',
-          r2_metric=rolling_stats.R2TjurRelative,
+          r2_metric=stats.R2TjurRelative,
           expected_result=(1.2 / 2.0) / (0.8 / 1.0),
       ),
   )
@@ -1332,12 +1324,12 @@ class R2TjurTest(parameterized.TestCase):
   @parameterized.named_parameters(
       dict(
           testcase_name='absolute',
-          r2_metric=rolling_stats.R2Tjur,
+          r2_metric=stats.R2Tjur,
           expected_result=-9.78031226162579e-05,
       ),
       dict(
           testcase_name='relative',
-          r2_metric=rolling_stats.R2TjurRelative,
+          r2_metric=stats.R2TjurRelative,
           expected_result=0.9998043715885978,
       ),
   )
@@ -1351,12 +1343,12 @@ class R2TjurTest(parameterized.TestCase):
   @parameterized.named_parameters(
       dict(
           testcase_name='absolute',
-          r2_metric=rolling_stats.R2Tjur,
+          r2_metric=stats.R2Tjur,
           expected_result=162.8791640697309,
       ),
       dict(
           testcase_name='relative',
-          r2_metric=rolling_stats.R2TjurRelative,
+          r2_metric=stats.R2TjurRelative,
           expected_result=0.9987124897160882,
       ),
   )
@@ -1374,12 +1366,12 @@ class R2TjurTest(parameterized.TestCase):
   @parameterized.named_parameters(
       dict(
           testcase_name='absolute',
-          r2_metric=rolling_stats.R2Tjur,
+          r2_metric=stats.R2Tjur,
           expected_result=0.9999919870992298,
       ),
       dict(
           testcase_name='relative',
-          r2_metric=rolling_stats.R2TjurRelative,
+          r2_metric=stats.R2TjurRelative,
           expected_result=124798.74999999999,
       ),
   )
@@ -1401,7 +1393,7 @@ class R2TjurTest(parameterized.TestCase):
 
   def test_r2_tjur_absolute_many_batches_direct_correlation(self):
     y = np.round(np.random.uniform(size=(1000, 1000)))
-    state = rolling_stats.R2Tjur()
+    state = stats.R2Tjur()
     for y_i in y:
       state.add(y_i, y_i)
     expected_result = 1
@@ -1409,7 +1401,7 @@ class R2TjurTest(parameterized.TestCase):
 
   def test_r2_tjur_relative_many_batches_direct_correlation(self):
     y = np.round(np.random.uniform(size=(1000, 1000)))
-    state = rolling_stats.R2TjurRelative()
+    state = stats.R2TjurRelative()
     for y_i in y:
       state.add(y_i, y_i)
     self.assertTrue(math.isnan(state.result()))
@@ -1417,12 +1409,12 @@ class R2TjurTest(parameterized.TestCase):
   @parameterized.named_parameters(
       dict(
           testcase_name='absolute',
-          r2_metric=rolling_stats.R2Tjur,
+          r2_metric=stats.R2Tjur,
           expected_result=-1,
       ),
       dict(
           testcase_name='relative',
-          r2_metric=rolling_stats.R2TjurRelative,
+          r2_metric=stats.R2TjurRelative,
           expected_result=0,
       ),
   )
@@ -1441,9 +1433,7 @@ class R2TjurTest(parameterized.TestCase):
   )
   def test_r2_tjur_absolute_returns_nan(self, y_true):
     y_pred = (1, 0, 1)
-    self.assertTrue(
-        math.isnan(rolling_stats.R2Tjur().add(y_true, y_pred).result())
-    )
+    self.assertTrue(math.isnan(stats.R2Tjur().add(y_true, y_pred).result()))
 
   @parameterized.named_parameters(
       dict(testcase_name='y_true_is_0', y_true=(0, 0, 0), y_pred=(1, 0, 1)),
@@ -1456,7 +1446,7 @@ class R2TjurTest(parameterized.TestCase):
   )
   def test_r2_tjur_relative_returns_nan(self, y_true, y_pred):
     self.assertTrue(
-        math.isnan(rolling_stats.R2TjurRelative().add(y_true, y_pred).result())
+        math.isnan(stats.R2TjurRelative().add(y_true, y_pred).result())
     )
 
 
@@ -1471,10 +1461,10 @@ class RRegressionTest(parameterized.TestCase):
     y_1 = (10, 9, 2.5, 6)
     x_2 = (5, 6, 7)
     y_2 = (4, 3, 2)
-    state_1 = rolling_stats.RRegression(center=center).add(x_1, y_1)
-    state_2 = rolling_stats.RRegression(center=center).add(x_2, y_2)
+    state_1 = stats.RRegression(center=center).add(x_1, y_1)
+    state_2 = stats.RRegression(center=center).add(x_2, y_2)
     state_1.merge(state_2)
-    expected_result = rolling_stats.RRegression(
+    expected_result = stats.RRegression(
         num_samples=7,  # len(x_1) + len(x_2)
         sum_x=28,  # 1 + 2 + 3 + 4 + 5 + 6 + 7
         sum_y=36.5,  # 10 + 9 + 2.5 + 6 + 4 + 3 + 2
@@ -1507,7 +1497,7 @@ class RRegressionTest(parameterized.TestCase):
   def test_r_regression_single_output(self, center, expected_result):
     x = (1, 2, 3, 4, 5, 6, 7)
     y = (10, 9, 2.5, 6, 4, 3, 2)
-    actual_result = rolling_stats.RRegression(center=center).as_agg_fn()(x, y)
+    actual_result = stats.RRegression(center=center).as_agg_fn()(x, y)
     self.assertAlmostEqual(actual_result, expected_result, places=10)
 
   @parameterized.named_parameters(
@@ -1530,14 +1520,14 @@ class RRegressionTest(parameterized.TestCase):
     x2 = (8, 6, 7, 5, 3, 0, 9)
     y = (1, 2, 3, 4, 5, 6, 7)
     x_all = np.array((x1, x2)).T
-    actual_result = rolling_stats.RRegression(center=center)(x_all, y)
+    actual_result = stats.RRegression(center=center)(x_all, y)
     np.testing.assert_almost_equal(actual_result, expected_result)
 
   def test_r_regression_one_large_batch(self):
     np.random.seed(seed=0)
     x = np.random.rand(1000000)
     y = np.random.rand(1000000)
-    pr_regression = rolling_stats.RRegression()
+    pr_regression = stats.RRegression()
     pr_regression.add(x, y)
     actual_result = pr_regression.result()
 
@@ -1549,7 +1539,7 @@ class RRegressionTest(parameterized.TestCase):
     np.random.seed(seed=0)
     x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
     y = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
-    state = rolling_stats.RRegression()
+    state = stats.RRegression()
     for x_i, y_i in zip(x, y):
       state.add(x_i, y_i)
 
@@ -1563,7 +1553,7 @@ class RRegressionTest(parameterized.TestCase):
     x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
     # This is a noisy version of x.
     y = x + np.random.uniform(low=-1e5, high=1e5, size=(1000, 1000))
-    state = rolling_stats.RRegression()
+    state = stats.RRegression()
     for x_i, y_i in zip(x, y):
       state.add(x_i, y_i)
 
@@ -1573,7 +1563,7 @@ class RRegressionTest(parameterized.TestCase):
 
   def test_r_regression_many_batches_direct_correlation(self):
     x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
-    state = rolling_stats.RRegression()
+    state = stats.RRegression()
     for x_i in x:
       state.add(x_i, x_i)
     expected_result = 1
@@ -1581,7 +1571,7 @@ class RRegressionTest(parameterized.TestCase):
 
   def test_r_regression_many_batches_inverse_correlation(self):
     x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
-    state = rolling_stats.RRegression()
+    state = stats.RRegression()
     for x_i in x:
       state.add(x_i, -x_i)
     expected_result = -1
@@ -1592,14 +1582,14 @@ class RRegressionTest(parameterized.TestCase):
       dict(testcase_name='0_input', x=(0, 0), y=(0, 0)),
   )
   def test_r_regression_returns_nan(self, x, y):
-    self.assertTrue(math.isnan(rolling_stats.RRegression()(x, y)))
+    self.assertTrue(math.isnan(stats.RRegression()(x, y)))
 
   def test_r_regression_valid_and_0_input(self):
     x_valid = (10, 9, 2.5, 6, 4, 3, 2)
     x_0 = (0, 0, 0, 0, 0, 0, 0)
     y = (1, 2, 3, 4, 5, 6, 7)
     x_all = np.array((x_valid, x_0)).T
-    actual_result = rolling_stats.RRegression()(x_all, y)
+    actual_result = stats.RRegression()(x_all, y)
     # From sklearn.feature_selection.r_regression(x_all, y)
     expected_result = (-0.82850388, float('nan'))
     np.testing.assert_almost_equal(actual_result, expected_result)
@@ -1612,8 +1602,8 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
     y_1 = (0.8, 0.3)
     x_2 = 1
     y_2 = 0.9
-    state_1 = rolling_stats.SymmetricPredictionDifference().add(x_1, y_1)
-    state_2 = rolling_stats.SymmetricPredictionDifference().add(x_2, y_2)
+    state_1 = stats.SymmetricPredictionDifference().add(x_1, y_1)
+    state_2 = stats.SymmetricPredictionDifference().add(x_2, y_2)
     state_1.merge(state_2)
     # sum_half_pointwise_rel_diff =
     # (|0 - 0.8| / |0 + 0.8|
@@ -1629,7 +1619,7 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
     x = (0, 1, 1)
     y = (0.8, 0.3, 0.9)
     expected_result = 1.06072874494  # 2 * 1.59109311741 / 3 = 1.06072874494
-    spd = rolling_stats.SymmetricPredictionDifference().as_agg_fn()
+    spd = stats.SymmetricPredictionDifference().as_agg_fn()
     actual_result = spd(x, y)
     self.assertAlmostEqual(actual_result, expected_result, places=11)
 
@@ -1637,9 +1627,7 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
     np.random.seed(seed=0)
     x = np.random.uniform(low=-1e6, high=1e6, size=1000000)
     y = np.random.uniform(low=-1e6, high=1e6, size=1000000)
-    actual_result = (
-        rolling_stats.SymmetricPredictionDifference().add(x, y).result()
-    )
+    actual_result = stats.SymmetricPredictionDifference().add(x, y).result()
     expected_result = 32.611545081600894
     self.assertAlmostEqual(actual_result, expected_result, places=10)
 
@@ -1650,7 +1638,7 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
     x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
     y = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
     expected_result = 32.611545081600894
-    state = rolling_stats.SymmetricPredictionDifference()
+    state = stats.SymmetricPredictionDifference()
     for x_i, y_i in zip(x, y):
       state.add(x_i, y_i)
     self.assertAlmostEqual(state.result(), expected_result, places=10)
@@ -1661,14 +1649,14 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
     # y is a noisy version of x.
     y = x + np.random.uniform(low=-1e-5, high=1e-5, size=(1000, 1000))
     expected_result = 5.6944180764844745e-05
-    state = rolling_stats.SymmetricPredictionDifference()
+    state = stats.SymmetricPredictionDifference()
     for x_i, y_i in zip(x, y):
       state.add(x_i, y_i)
     self.assertAlmostEqual(state.result(), expected_result, places=16)
 
   def test_symmetric_prediction_difference_many_identical_batches(self):
     x = np.random.uniform(size=(1000, 1000))
-    state = rolling_stats.SymmetricPredictionDifference()
+    state = stats.SymmetricPredictionDifference()
     for x_i in x:
       # sum_half_pointwise_rel_diff should be 0 for every point.
       state.add(x_i, x_i)
@@ -1677,7 +1665,7 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
 
   def test_symmetric_prediction_difference_many_batches_opposite(self):
     x = np.random.uniform(size=(1000, 1000))
-    state = rolling_stats.SymmetricPredictionDifference()
+    state = stats.SymmetricPredictionDifference()
     for x_i in x:
       # sum_half_pointwise_rel_diff should remain 0 because all of the pointwise
       # average relative differences are undefined.
@@ -1689,9 +1677,7 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
     x_empty = ()
     self.assertTrue(
         math.isnan(
-            rolling_stats.SymmetricPredictionDifference()
-            .add(x_empty, x_empty)
-            .result()
+            stats.SymmetricPredictionDifference().add(x_empty, x_empty).result()
         )
     )
 
@@ -1704,7 +1690,7 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
         r' same shape, but recieved x=\[1\. 2\. 3\.\] and y=\[4\. 5\.\] with'
         r' x.shape=\(3\,\) and y.shape=\(2\,\)'
     )
-    metric = rolling_stats.SymmetricPredictionDifference()
+    metric = stats.SymmetricPredictionDifference()
     with self.assertRaisesRegex(ValueError, expected_error_message):
       metric.add(x, y)
 

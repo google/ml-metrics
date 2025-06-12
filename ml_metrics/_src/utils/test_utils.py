@@ -17,7 +17,7 @@ from collections.abc import Iterable
 import time
 import unittest
 
-from ml_metrics._src.aggregates import rolling_stats
+from ml_metrics._src.aggregates import stats
 from ml_metrics._src.chainables import transform
 import numpy as np
 
@@ -173,12 +173,12 @@ def sharded_pipeline(
     return data_pipeline.chain(
         apply_pipeline.aggregate(
             output_keys='stats',
-            fn=rolling_stats.MeanAndVariance().as_agg_fn(),
+            fn=stats.MeanAndVariance().as_agg_fn(),
         )
     )
   return data_pipeline.interleave(apply_pipeline).interleave(
       transform.TreeTransform.new(name='agg').aggregate(
           output_keys='stats',
-          fn=rolling_stats.MeanAndVariance().as_agg_fn(),
+          fn=stats.MeanAndVariance().as_agg_fn(),
       )
   )
