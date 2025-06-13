@@ -68,12 +68,7 @@ import more_itertools as mit
 
 TreeMapKey = tree.TreeMapKey
 TreeMapKeys = tree.TreeMapKeys
-Fn = Callable[..., Any]
-FnT = TypeVar('FnT', Callable, aggregates.Aggregatable)
 TreeFnT = TypeVar('TreeFnT', bound=tree_fns.TreeFn)
-TreeMapKeyT = TypeVar('TreeMapKeyT', bound=TreeMapKey)
-Map = Mapping[TreeMapKeyT, Any]
-TreeTransformT = TypeVar('TreeTransformT', bound='TreeTransform')
 TreeFn = tree_fns.TreeFn
 _ValueT = TypeVar('_ValueT')
 _Aggregatable = aggregates.Aggregatable | aggregates.HasAsAggFn
@@ -245,14 +240,11 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
   The ordering of the execution is as follows:
     input_iterator -> input_fns (w/ slicers) -> agg_fns -> output_fns.
 
-  From a TreeTransform standpoint, the sequence of TreeTransforms are translted
+  From a TreeTransform standpoint, the sequence of TreeTransforms are translated
   and into one function here:
-    * Base `TreeTrsnform`s (`apply()`, `assign()`, `select()`) are translated to
-      `input_fns` in sequence.
-    * The first `AggregateTransform` in the chain is translated to `slicers` and
-      `agg_fns`.
-    * Any transforms after the first `AggregateTransform` in the chain is
-      converted to a callable and translated as `output_fns`.
+    * fns in `apply()`, `assign()`, `select()`) are translated to `fns`.
+    * fns in `aggregate()`, add_slice()` are translated to `agg_fns` and
+      `slicers`.
   """
 
   name: str
@@ -721,11 +713,6 @@ class TreeTransform(Generic[TreeFnT]):
     * Aggregate: it applies aggregate function(s) on the inputs and outputs the
       aggregation results.
 
-  note: the transform can be chainable by themselves by initializing with an
-  input transform. `aggregate()` automatically separates the transform into two
-  transforms by assigning the pre-aggregate transform as the input_transform
-  of the new AggregateTransform constructed by calling `aggregate()`.
-
   The following is an example of running an image classification model and
   calculating corresponding metrics:
 
@@ -818,21 +805,21 @@ class TreeTransform(Generic[TreeFnT]):
     return cls(name=name, num_threads=num_threads)
 
   @property
-  def id(self):
+  def id(self) -> uuid.UUID:
     return self._id
 
   @property
-  def is_noop(self):
+  def is_noop(self) -> bool:
     return not self.agg_fns and not self.fns and self.data_source_ is None
 
   @property
   def batch_size(self) -> int:
     return self.fns[-1].output_batch_size if self.fns else 0
 
-  def __hash__(self):
+  def __hash__(self) -> int:
     return hash(self._id)
 
-  def __eq__(self, other: TreeTransform) -> bool:
+  def __eq__(self, other: Self) -> bool:
     return self.id == other.id
 
   def maybe_replace(self, **kwargs) -> Self:
@@ -840,7 +827,7 @@ class TreeTransform(Generic[TreeFnT]):
     return dataclasses.replace(self, **filtered) if filtered else self
 
   # TODO: b/424269199 - deprecates chain in favor of fuse or interleave.
-  def chain(self, child: TreeTransform):
+  def chain(self, child: Self) -> Self:
     """Chains self with a child transform, fuses it when name is the same."""
     if child.input_transform is not None or child.data_source_ is not None:
       raise ValueError(
@@ -852,7 +839,7 @@ class TreeTransform(Generic[TreeFnT]):
 
     return self.interleave(child)
 
-  def interleave(self, child: TreeTransform) -> Self:
+  def interleave(self, child: Self) -> Self:
     """Behave like Chain, but also interleave the transforms."""
     prev_chains = self.flatten_transform()
     prev_names = set((t.name for t in prev_chains))
@@ -873,7 +860,7 @@ class TreeTransform(Generic[TreeFnT]):
       input_transform = child.maybe_replace(input_transform=input_transform)
     return input_transform
 
-  def fuse(self, child: TreeTransform):
+  def fuse(self, child: Self) -> Self:
     """Behave like Chain, but also fuse all the fns into one transform."""
     if child.is_noop:
       return self
@@ -888,7 +875,7 @@ class TreeTransform(Generic[TreeFnT]):
         slicers=self.slicers + child.slicers,
     )
 
-  def named_transforms(self) -> dict[str, TreeTransform]:
+  def named_transforms(self) -> dict[str, Self]:
     """Returns a dict of transforms with their names as the keys."""
     return {
         t.name: t.maybe_replace(input_transform=None)
@@ -898,7 +885,7 @@ class TreeTransform(Generic[TreeFnT]):
   def make(
       self,
       *,
-      recursive=True,
+      recursive: bool = True,
       # TODO: b/318463291 - deprecates runner mode in favor named transform.
       mode: RunnerMode = RunnerMode.DEFAULT,
       shard: io.ShardConfig | None = None,
@@ -918,7 +905,7 @@ class TreeTransform(Generic[TreeFnT]):
       runners.append(runner)
     return ChainedRunner(runners)
 
-  def data_source(self, data_source: Any = None, /) -> TreeTransform:
+  def data_source(self, data_source: Any = None, /) -> Self:
     if not self.is_noop:
       raise ValueError(
           f'Cannot add a data source to a non-empty transform, got {self}.'
@@ -957,7 +944,7 @@ class TreeTransform(Generic[TreeFnT]):
       assign_keys: TreeMapKeys,
       exisiting_keys: set[TreeMapKeys] | None = None,
       is_aggregate: bool = False,
-  ):
+  ) -> None:
     """Checks the assign keys are valid."""
     non_dict_keys, dict_keys = mit.partition(_is_dict, assign_keys)
     new_keys = set(itertools.chain(non_dict_keys, *dict_keys))
@@ -985,7 +972,7 @@ class TreeTransform(Generic[TreeFnT]):
       fn: Callable[..., bool],
       *,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-  ):
+  ) -> Self:
     """Filters the input of this transform."""
     assert fn is not None, 'fn must be provided, got None.'
     # The output_keys here is mostly for correct `self.output_keys`, which is
@@ -1006,7 +993,7 @@ class TreeTransform(Generic[TreeFnT]):
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       fn_batch_size: int = 0,
       batch_size: int = 0,
-  ) -> TreeTransform:
+  ) -> Self:
     """Assign some key value pairs back to the input mapping."""
     # TODO: b/413743757 - remove batch_size and fn_batch_size.
     if batch_size or fn_batch_size:
@@ -1029,7 +1016,7 @@ class TreeTransform(Generic[TreeFnT]):
       *other_input_keys: TreeMapKey,
       output_keys: TreeMapKeys | None = None,
       batch_size: int = 0,
-  ) -> TreeTransform:
+  ) -> Self:
     """Selects the input of this transform."""
     # TODO: b/413743757 - remove batch_size.
     if batch_size:
@@ -1051,7 +1038,7 @@ class TreeTransform(Generic[TreeFnT]):
       batch_size: int,
       *,
       batch_fn: Callable[..., Any] | None = None,
-  ):
+  ) -> Self:
     """Batches the input of this transform.
 
     This batches single element to a list of elements. E.g., for inputs of
@@ -1088,7 +1075,7 @@ class TreeTransform(Generic[TreeFnT]):
       sink: types.MaybeResolvable[types.SinkT],
       *,
       input_keys: TreeMapKeys | TreeMapKey = tree.Key.SELF,
-  ) -> TreeTransform:
+  ) -> Self:
     """Sinks the input of this transform.
 
     The sink function need to implement the `write` and `close` methods. When
@@ -1122,7 +1109,7 @@ class TreeTransform(Generic[TreeFnT]):
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       output_keys: TreeMapKey | TreeMapKeys = '',
       disable_slicing: bool = False,
-  ) -> AggregateTransform:
+  ) -> Self:
     """Create an aggregate transform on the previous transform."""
     if self.agg_fns:
       raise ValueError('Cannot have more than one aggregations.')
@@ -1142,7 +1129,7 @@ class TreeTransform(Generic[TreeFnT]):
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       output_keys: TreeMapKey | TreeMapKeys = '',
       disable_slicing: bool = False,
-  ) -> AggregateTransform:
+  ) -> Self:
     """Alias for aggregate."""
     return self.aggregate(
         fn,
@@ -1159,7 +1146,7 @@ class TreeTransform(Generic[TreeFnT]):
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       fn_batch_size: int = 0,
       batch_size: int = 0,
-  ) -> TreeTransform:
+  ) -> Self:
     """Applies a TreeFn on the selected inputs and directly outputs the result."""
     # TODO: b/413743757 - remove batch_size and fn_batch_size.
     if batch_size or fn_batch_size:
@@ -1174,7 +1161,7 @@ class TreeTransform(Generic[TreeFnT]):
       )
     return self._maybe_new_transform(fn)
 
-  def flatten_transform(self, split_agg: bool = False) -> list[TreeTransform]:
+  def flatten_transform(self, split_agg: bool = False) -> list[Self]:
     """Flatten all the chain of transforms into a list."""
     if self.input_transform is not None:
       ancestors = self.input_transform.flatten_transform()
@@ -1194,7 +1181,7 @@ class TreeTransform(Generic[TreeFnT]):
   def _maybe_new_agg_transform(
       self,
       fn: tree_fns.TreeAggregateFn | None = None,
-  ) -> TreeTransform:
+  ) -> Self:
     """Appends a new aggregate while optionally creates a new transform."""
     if not fn:
       return self
@@ -1202,7 +1189,7 @@ class TreeTransform(Generic[TreeFnT]):
     agg_fns = self.agg_fns + (fn,)
     return dataclasses.replace(self, agg_fns=agg_fns)
 
-  def _maybe_new_transform(self, fn: tree_fns.TreeFn) -> TreeTransform:
+  def _maybe_new_transform(self, fn: tree_fns.TreeFn) -> Self:
     """Breaks apart the transform when this is an aggregate or source."""
     if not fn:
       return self
@@ -1253,7 +1240,7 @@ class TreeTransform(Generic[TreeFnT]):
       slice_name: str | tuple[str, ...] = (),
       slice_fn: tree_fns.SliceIteratorFn | None = None,
       replace_mask_false_with: Any = tree.DEFAULT_FILTER,
-  ) -> 'AggregateTransform':
+  ) -> Self:
     """Adds a slice and stack it on the existing slicers.
 
     This can be used in the following ways:
@@ -1278,7 +1265,7 @@ class TreeTransform(Generic[TreeFnT]):
         with False values in the mask.
 
     Returns:
-      The AggregateTransform with slices.
+      The TreeTransform with slices.
     """
     if not self.agg_fns:
       raise ValueError(f'Cannot add slice without aggregate, {self.agg_fns=}')
@@ -1291,6 +1278,7 @@ class TreeTransform(Generic[TreeFnT]):
     if slicer.slice_name in set(slicer.slice_name for slicer in self.slicers):
       raise ValueError(f'Duplicate slice name {slicer.slice_name}.')
     return dataclasses.replace(self, slicers=self.slicers + (slicer,))
+
 
 # TODO: b/404264788 - remove this alias.
 AggregateTransform = TreeTransform
