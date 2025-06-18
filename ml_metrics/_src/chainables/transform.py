@@ -394,7 +394,8 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
         result[k] = output
     # Only removes the slices when there is no slicing at all.
     unwrapped = {(k if k.slice else k.metrics): v for k, v in result.items()}
-    return tree.TreeMapView().copy_and_update(unwrapped)
+    result = tree.TreeMapView(key_paths=tuple(unwrapped.keys()))
+    return result.copy_and_update(unwrapped)
 
   def _actual_inputs(self, inputs, data_source) -> list[Iterable[Any]]:
     """Selects the inputs when user provided one."""

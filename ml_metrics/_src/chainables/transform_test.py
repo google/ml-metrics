@@ -1123,6 +1123,14 @@ class TransformTest(parameterized.TestCase):
     actual = agg.make()(inputs)
     self.assertEqual(expected, actual)
 
+  def test_aggregate_result_size(self):
+    inputs = [1, 2, 1]
+    agg = transform.TreeTransform().aggregate(MockAverageFn(return_tuple=True))
+    it = agg.make().iterate([inputs])
+    _ = mit.last(it)
+    self.assertLen(it._iterators[0].agg_result, 1)
+    self.assertEqual({'': ([4.0 / 3], 0.0)}, it.agg_result)
+
   def test_aggregate_with_slices_multiple_aggs(self):
     inputs = {'a': [1, 2, 1], 'b': [1, 9, 5]}
     agg = (
