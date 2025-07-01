@@ -170,7 +170,7 @@ def sharded_pipeline(
   )
 
   if fuse_aggregate:
-    return data_pipeline.chain(
+    return data_pipeline.interleave(
         apply_pipeline.aggregate(
             output_keys='stats',
             fn=stats.MeanAndVariance().as_agg_fn(),

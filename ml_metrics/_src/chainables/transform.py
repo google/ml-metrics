@@ -56,6 +56,7 @@ from typing import Any, Generic, Self, TypeVar
 import uuid
 
 from absl import logging
+import deprecated
 from ml_metrics._src import types
 from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import io
@@ -828,6 +829,7 @@ class TreeTransform(Generic[TreeFnT]):
     return dataclasses.replace(self, **filtered) if filtered else self
 
   # TODO: b/424269199 - deprecates chain in favor of fuse or interleave.
+  @deprecated.deprecated('Use "fuse(child)" or "interleave(child)" instead.')
   def chain(self, child: Self) -> Self:
     """Chains self with a child transform, fuses it when name is the same."""
     if child.input_transform is not None or child.data_source_ is not None:
