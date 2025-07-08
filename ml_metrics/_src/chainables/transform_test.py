@@ -1523,12 +1523,12 @@ class TransformTest(parameterized.TestCase):
   def test_transform_with_multiple_threads(self, num_threads):
     inputs = [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
     p = (
-        transform.TreeTransform.new(num_threads=num_threads)
+        transform.TreeTransform()
         .data_source(test_utils.NoLenIter(inputs))
         .apply(lambda x: x)
         .agg(MockAverageFn())
     )
-    actual = p.make()()
+    actual = p.make(num_threads=num_threads)()
     self.assertEqual({'': [3.0]}, actual)
 
   def test_iterator_queue_with_transform(self):

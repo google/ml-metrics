@@ -263,6 +263,7 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
       *,
       input_state: io.ShardConfig | None,
       agg_only: bool = False,
+      num_threads: int | None = None,
   ) -> Self:
     """Makes a TreeFn from a transform."""
     # Reset the iterator_node and input_nodes if this is an aggregator.
@@ -296,13 +297,15 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
             k if isinstance(k, dict) else (k,) for k in agg_fn.output_keys
         )
         agg_fns[tuple(flattened_output_keys)] = actual_agg_fn
+    if num_threads is None:
+      num_threads = transform.num_threads
     return TransformRunner(
         name=name,
         fns=input_fns,
         agg_fns=agg_fns,
         slicers=slice_fns,
         data_source=data_source,
-        num_threads=transform.num_threads,
+        num_threads=num_threads,
         transform=transform,
     )
 
@@ -829,7 +832,7 @@ class TreeTransform(Generic[TreeFnT]):
     return dataclasses.replace(self, **filtered) if filtered else self
 
   # TODO: b/424269199 - deprecates chain in favor of fuse or interleave.
-  @deprecated.deprecated('Use "fuse(child)" or "interleave(child)" instead.')
+  @deprecated.deprecated('Use "fuse(child)" instead.')
   def chain(self, child: Self) -> Self:
     """Chains self with a child transform, fuses it when name is the same."""
     if child.input_transform is not None or child.data_source_ is not None:
@@ -892,6 +895,7 @@ class TreeTransform(Generic[TreeFnT]):
       # TODO: b/318463291 - deprecates runner mode in favor named transform.
       mode: RunnerMode = RunnerMode.DEFAULT,
       shard: io.ShardConfig | None = None,
+      num_threads: int | None = None,
   ) -> ChainedRunner:
     """Makes the concrete function instance from the transform."""
     transforms = self.flatten_transform()
@@ -903,7 +907,10 @@ class TreeTransform(Generic[TreeFnT]):
     runners = []
     for transform in transforms:
       runner = TransformRunner.from_transform(
-          transform, agg_only=agg_only, input_state=shard
+          transform,
+          agg_only=agg_only,
+          input_state=shard,
+          num_threads=num_threads,
       )
       runners.append(runner)
     return ChainedRunner(runners)
