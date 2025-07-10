@@ -29,16 +29,16 @@ def _maybe_tuple(
   return reference
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='signal', reference='alphabetical_char_count'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
 )
 def alphabetical_char_count(text: str) -> int:
   """Computes the number of alphabetical characters."""
   return len(re.sub(r'[^a-zA-Z]', '', text))
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='signal', reference='word_count'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
 )
 def word_count(text: str) -> int:
   """Computes the number of words.
@@ -57,16 +57,16 @@ def word_count(text: str) -> int:
   return len(_get_words(text))
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='signal', reference='token_count'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
 )
 def token_count(text: str, tokenizer: Callable[[str], Sequence[Any]]) -> int:
   """Computes the number of tokens."""
   return len(tokenizer(text))
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='signal', reference='token_match_rate'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
 )
 def token_match_rate(
     sample: str, reference: str, tokenizer: Callable[[str], Sequence[Any]]
@@ -84,8 +84,8 @@ def token_match_rate(
   return matched / length
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='signal', reference='exact_match'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
 )
 def exact_match(sample: str, reference: str | Sequence[str]) -> bool:
   """Computes the exact match between sample and reference."""
@@ -93,9 +93,9 @@ def exact_match(sample: str, reference: str | Sequence[str]) -> bool:
   return any(sample == ref for ref in references)
 
 
-@telemetry.WithTelemetry(
+@telemetry.function_monitor(
     api='ml_metrics',
-    category='signal',
+    category=telemetry.CATEGORY.SIGNAL,
     reference='sample_startswith_reference_match',
 )
 def sample_startswith_reference_match(
@@ -106,10 +106,9 @@ def sample_startswith_reference_match(
   return any(sample.startswith(ref) for ref in references)
 
 
-@telemetry.WithTelemetry(
+@telemetry.function_monitor(
     api='ml_metrics',
-    category='signal',
-    reference='reference_startswith_sample_match',
+    category=telemetry.CATEGORY.SIGNAL,
 )
 def reference_startswith_sample_match(
     sample: str, reference: str | Sequence[str]
@@ -119,8 +118,8 @@ def reference_startswith_sample_match(
   return any(ref.startswith(sample) for ref in references)
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='signal', reference='reference_in_sample_match'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
 )
 def reference_in_sample_match(
     sample: str, reference: str | Sequence[str]
@@ -130,8 +129,8 @@ def reference_in_sample_match(
   return any(ref in sample for ref in references)
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='signal', reference='sample_in_reference_match'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
 )
 def sample_in_reference_match(
     sample: str, reference: str | Sequence[str]
@@ -141,16 +140,16 @@ def sample_in_reference_match(
   return any(sample in ref for ref in references)
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='signal', reference='non_ascii_char_count'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
 )
 def non_ascii_char_count(text: str) -> int:
   """Computes the number of non-ascii characters."""
   return len(re.sub(r'[^\x00-\x7F]+', '', text))
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='signal', reference='is_all_whitespace'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
 )
 def is_all_whitespace(text: str) -> bool:
   r"""Checks if the text is all whitespace.
@@ -166,8 +165,8 @@ def is_all_whitespace(text: str) -> bool:
   return not text.strip()
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='signal', reference='average_word_length'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
 )
 def average_word_length(text: str) -> float:
   """Computes the average word length."""
@@ -182,24 +181,24 @@ def _get_words(text: str) -> list[str]:
   return re.sub(r'[^a-zA-Z ]', '', text).split()
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='signal', reference='unique_word_count'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
 )
 def unique_word_count(text: str) -> int:
   """Computes the number of unique words."""
   return len(set(_get_words(text)))
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='signal', reference='number_of_characters'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
 )
 def number_of_characters(text: str) -> int:
   """Computes the number of characters."""
   return len(text)
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='signal', reference='percentage_all_caps'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
 )
 def percentage_all_caps(text: str) -> float:
   """Computes the percentage of all caps."""
@@ -209,9 +208,9 @@ def percentage_all_caps(text: str) -> float:
   return len([word for word in words if word.isupper()]) / len(words)
 
 
-@telemetry.WithTelemetry(
+@telemetry.function_monitor(
     api='ml_metrics',
-    category='signal',
+    category=telemetry.CATEGORY.SIGNAL,
     reference='percentage_non_ascii_characters',
 )
 def percentage_non_ascii_characters(text: str) -> float:
@@ -221,8 +220,8 @@ def percentage_non_ascii_characters(text: str) -> float:
   return 1 - (non_ascii_char_count(text) / number_of_characters(text))
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='signal', reference='type_token_ratio'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
 )
 def type_token_ratio(text: str) -> float:
   """Computes the type token ratio.

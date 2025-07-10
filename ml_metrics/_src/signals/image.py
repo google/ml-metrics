@@ -22,8 +22,8 @@ from PIL import Image
 MEGAPIXELS = 1024 * 1024
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='signal', reference='content_metadata'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
 )
 def content_metadata(image_bytes: bytes) -> dict[str, int | float | str]:
   """Extracts the content metadata of an image."""

@@ -22,8 +22,8 @@ from ml_metrics._src.utils import iter_utils
 from ml_metrics._src.tools.telemetry import telemetry
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='metric', reference='topk_word_ngrams'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.METRIC
 )
 def topk_word_ngrams(
     texts: Sequence[str],
@@ -76,8 +76,8 @@ def topk_word_ngrams(
   ).as_agg_fn()(texts)
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='metric', reference='pattern_frequency'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.METRIC
 )
 def pattern_frequency(
     texts: Sequence[str], patterns: Sequence[str], count_duplicate: bool = True
@@ -113,8 +113,8 @@ def pattern_frequency(
   ).as_agg_fn()(texts)
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='metric', reference='avg_alphabetical_char_count'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.METRIC
 )
 def avg_alphabetical_char_count(
     texts: Sequence[str],

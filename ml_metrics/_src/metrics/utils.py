@@ -8,8 +8,8 @@ from ml_metrics._src.aggregates import types
 from ml_metrics._src.tools.telemetry import telemetry
 
 
-@telemetry.WithTelemetry(
-    api='ml_metrics', category='metric', reference='verify_input'
+@telemetry.function_monitor(
+    api='ml_metrics', category=telemetry.CATEGORY.METRIC
 )
 def verify_input(y_true, y_pred, average, input_type, vocab, pos_label):
   if (
