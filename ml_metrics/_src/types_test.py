@@ -47,7 +47,24 @@ class BaseTypesTest(absltest.TestCase):
       def shard(cls, shard_index):
         pass
 
+      def __iter__(self):
+        pass
+
+    self.assertIsInstance(Foo(), types.Shardable)
     self.assertFalse(types.is_shardable(Foo()))
+
+  def test_is_random_accessible(self):
+
+    class Foo:
+
+      def __getitem__(self, idx):
+        pass
+
+      def __len__(self):
+        pass
+
+    self.assertIsInstance(Foo(), types.RandomAccessible)
+    self.assertTrue(types.is_random_accessible(Foo()))
 
   def test_is_serializable(self):
 
@@ -59,6 +76,7 @@ class BaseTypesTest(absltest.TestCase):
       def from_config(self, config):
         pass
 
+    self.assertIsInstance(Foo(), types.Serializable)
     self.assertTrue(types.is_serializable(Foo()))
 
   def test_is_recoverable(self):
@@ -72,6 +90,7 @@ class BaseTypesTest(absltest.TestCase):
       def from_state(self, state):
         pass
 
+    self.assertIsInstance(Foo(), types.Recoverable)
     self.assertTrue(types.is_recoverable(Foo()))
 
   def test_is_not_recoverable(self):
@@ -82,6 +101,7 @@ class BaseTypesTest(absltest.TestCase):
       def state(self):
         pass
 
+    self.assertNotIsInstance(Foo1(), types.Recoverable)
     self.assertFalse(types.is_recoverable(Foo1()))
 
     class Foo2:
@@ -89,6 +109,7 @@ class BaseTypesTest(absltest.TestCase):
       def from_state(self, state):
         pass
 
+    self.assertNotIsInstance(Foo2(), types.Recoverable)
     self.assertFalse(types.is_recoverable(Foo2()))
 
 

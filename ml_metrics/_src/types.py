@@ -14,6 +14,7 @@
 """Base types used throughout the library."""
 
 import abc
+from collections.abc import Iterable
 from typing import Any, Protocol, TypeGuard, TypeVar, runtime_checkable
 from numpy import typing as npt
 
@@ -49,7 +50,8 @@ class Resolvable(Protocol[_T]):
     """Interface to get the result of the underlying value."""
 
 
-class Shardable(Protocol):
+@runtime_checkable
+class Shardable(Iterable[_T], Protocol[_T]):
   """A sharded data source for chainables."""
 
   @abc.abstractmethod
@@ -57,6 +59,7 @@ class Shardable(Protocol):
     """Iterates the data source given a shard index and number of shards."""
 
 
+@runtime_checkable
 class Serializable(Protocol):
   """An object that can be both serialized and deserialized."""
 
@@ -69,6 +72,7 @@ class Serializable(Protocol):
     """Iterates the data source given a shard index and number of shards."""
 
 
+@runtime_checkable
 class Recoverable(Protocol):
   """An object that can be both serialized and deserialized."""
 
@@ -90,6 +94,7 @@ class Stoppable(Protocol):
 MaybeResolvable = Resolvable[_T] | _T
 
 
+@runtime_checkable
 class RandomAccessible(Protocol[_T]):
 
   def __getitem__(self, idx: int | slice) -> _T:
@@ -118,6 +123,13 @@ def is_makeable(obj: Makeable[_T] | Any) -> TypeGuard[Makeable[_T]]:
 def is_shardable(obj: Shardable | Any) -> TypeGuard[Shardable]:
   """Checks if the object is a Shardable."""
   return obj_has_method(obj, 'shard')
+
+
+def is_random_accessible(
+    obj: RandomAccessible[_T] | Any,
+) -> TypeGuard[RandomAccessible[_T]]:
+  """Checks if the object is a RandomAccessible."""
+  return obj_has_method(obj, '__getitem__') and obj_has_method(obj, '__len__')
 
 
 def is_serializable(obj: Serializable | Any) -> TypeGuard[Serializable]:
