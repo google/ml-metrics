@@ -19,6 +19,7 @@ import collections
 from typing import Any
 
 from ml_metrics._src.chainables import transform
+from ml_metrics._src.tools.telemetry import telemetry
 import pandas as pd
 
 
@@ -36,6 +37,7 @@ def _first_or_tuple(x: tuple[Any, ...]) -> tuple[Any, ...] | Any:
 _StrOrMetricKey = transform.MetricKey | str
 
 
+@telemetry.function_monitor(api='ml_metrics', category=telemetry.CATEGORY.UTIL)
 def metrics_to_df(metrics: dict[_StrOrMetricKey, Any]) -> pd.DataFrame:
   """Converts the aggregation result to a DataFrame.
 

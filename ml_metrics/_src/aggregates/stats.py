@@ -25,12 +25,14 @@ from typing import Any, Generic, Self, TypeVar
 from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.utils import math_utils
+from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
 _EPSNEG = np.finfo(float).epsneg
 _T = TypeVar('_T')
 
 
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(kw_only=True)
 class UnboundedSampler(base.CallableMetric, base.HasAsAggFn):
   """Stores all the inputs in memory."""
@@ -67,6 +69,7 @@ class UnboundedSampler(base.CallableMetric, base.HasAsAggFn):
     return self._samples[0]
 
 
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
 class FixedSizeSample(base.MergeableMetric, base.HasAsAggFn):
   """Generates a fixed size sample of the data stream.
@@ -167,6 +170,7 @@ HistogramResult = collections.namedtuple(
 )
 
 
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True, kw_only=True)
 class Histogram(base.CallableMetric, base.HasAsAggFn):
   """Computes the Histogram of the inputs.
@@ -251,6 +255,7 @@ class Histogram(base.CallableMetric, base.HasAsAggFn):
     )
 
 
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True, kw_only=True)
 class Counter(base.CallableMetric, base.HasAsAggFn, Generic[_T]):
   """An CallableMetric version of collections.Counter."""
@@ -331,6 +336,7 @@ class Count(base.CallableMetric):
     return f'count: {self.result()}'
 
 
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(kw_only=True, eq=True)
 class Mean(base.CallableMetric):
   """Computes the mean and variance of a batch of values."""
@@ -409,6 +415,7 @@ class Mean(base.CallableMetric):
     return f'mean: {self.mean}'
 
 
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(kw_only=True, eq=True)
 class MeanAndVariance(Mean):
   """Computes the mean and variance of a batch of values."""
@@ -419,7 +426,7 @@ class MeanAndVariance(Mean):
     batch = np.asarray(
         self.batch_score_fn(batch) if self.batch_score_fn else batch
     )
-    return self.__class__(
+    return self.__class__(  # pytype: disable=wrong-keyword-args
         _count=np.sum(~np.isnan(batch), axis=0),
         _mean=np.nanmean(batch, axis=0),
         _var=np.nanvar(batch, axis=0),
@@ -465,6 +472,7 @@ class MeanAndVariance(Mean):
     )
 
 
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 class Var(MeanAndVariance):
 
   def result(self) -> types.NumbersT:
@@ -474,6 +482,7 @@ class Var(MeanAndVariance):
     return f'var: {self.var}'
 
 
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 # TODO(b/345249574): Add a preprocessing function of len per row.
 @dataclasses.dataclass(slots=True)
 class MinMaxAndCount(base.CallableMetric):
@@ -532,6 +541,7 @@ class MinMaxAndCount(base.CallableMetric):
     return self
 
 
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
 class ValueAccumulator(base.CallableMetric):
   """This stores and accumulates all the values."""
@@ -634,6 +644,7 @@ class R2Tjur(abc.ABC, base.CallableMetric):
     )
 
 
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 class R2TjurRelative(R2Tjur):
 
   def result(self) -> types.NumbersT:
@@ -648,6 +659,7 @@ class R2TjurRelative(R2Tjur):
     )
 
 
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
 class RRegression(base.CallableMetric):
   """Computes the Pearson Correlation Coefficient (PCC).
@@ -769,6 +781,7 @@ class RRegression(base.CallableMetric):
     return numerator / denominator
 
 
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
 class SymmetricPredictionDifference(base.CallableMetric):
   """Computes the Symmetric Prediction Difference.

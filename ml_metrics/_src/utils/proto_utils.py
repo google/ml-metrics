@@ -15,6 +15,7 @@
 from collections.abc import Iterable
 from typing import Any
 from absl import logging
+from ml_metrics._src.tools.telemetry import telemetry
 import more_itertools as mit
 import numpy as np
 from tensorflow.core.example import example_pb2
@@ -30,6 +31,7 @@ def _maybe_deserialize(ex: _ExampleOrBytes) -> example_pb2.Example:
   raise TypeError('Unsupported type: %s' % type(ex))
 
 
+@telemetry.function_monitor(api='ml_metrics', category=telemetry.CATEGORY.UTIL)
 def tf_examples_to_dict(examples: Iterable[_ExampleOrBytes] | _ExampleOrBytes):
   """Parses a serialized tf.train.Example to a dict."""
   single_example = False
@@ -67,6 +69,7 @@ def tf_examples_to_dict(examples: Iterable[_ExampleOrBytes] | _ExampleOrBytes):
   return result
 
 
+@telemetry.function_monitor(api='ml_metrics', category=telemetry.CATEGORY.UTIL)
 def dict_to_tf_example(data: dict[str, Any]) -> example_pb2.Example:
   """Creates a tf.Example from a dictionary."""
   example = example_pb2.Example()
