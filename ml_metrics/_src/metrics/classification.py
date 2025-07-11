@@ -22,6 +22,7 @@ from ml_metrics._src.aggregates import base
 from ml_metrics._src.aggregates import classification
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.metrics import utils
+from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
 
@@ -60,6 +61,7 @@ CalibrationHistogramResult = collections.namedtuple(
 
 
 # TODO: b/368067018 - Inherit from ml_metrics._src.aggregates.stats.Histogram.
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.METRIC)
 @dataclasses.dataclass
 class CalibrationHistogram(base.MergeableMetric):
   """Computes the Histogram of the inputs.
@@ -171,6 +173,7 @@ class CalibrationHistogram(base.MergeableMetric):
     )
 
 
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.METRIC)
 class ClassificationAggFn(base.AggregateFn):
   """Wrapper over the Classification AggFn classes."""
 

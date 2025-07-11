@@ -26,6 +26,7 @@ from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
 from ml_metrics._src.utils import iter_utils
 from ml_metrics._src.utils import math_utils
+from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
 AverageType = types.AverageType
@@ -556,6 +557,7 @@ def _multiclass_confusion_matrix(
 ConfusionMatrixAggState = _ConfusionMatrix
 
 
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.METRIC)
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class ConfusionMatrixAggFn(base.AggregateFn):
   """ConfusionMatrix aggregate.
@@ -726,6 +728,7 @@ def _topk_confusion_matrix(
   return _TopKConfusionMatrix(*tuple(zip(*cms)))
 
 
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.METRIC)
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class TopKConfusionMatrixAggFn(ConfusionMatrixAggFn):
   """ConfusionMatrixAtK aggregate.
@@ -773,6 +776,7 @@ class TopKConfusionMatrixAggFn(ConfusionMatrixAggFn):
 SamplewiseConfusionMatrixAggState = dict[str, utils.MeanState]
 
 
+@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.METRIC)
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class SamplewiseClassification(base.MergeableMetric, base.HasAsAggFn):
   """SamplewiseClassification metric.
