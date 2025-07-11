@@ -32,6 +32,17 @@ class ShardConfig:
   parent: ShardConfig | None = dc.field(default=None, kw_only=True)
 
 
+def maybe_shardable(data_source: _T) -> types.Shardable | _T:
+  """Returns a shardable data source if possible."""
+  if types.is_shardable(data_source):
+    return data_source
+
+  if types.is_random_accessible(data_source):
+    return SequenceDataSource(data_source)
+
+  return data_source
+
+
 @dc.dataclass(frozen=True)
 class SequenceDataSource(types.Recoverable, Iterable[_T]):
   """A shardable sequence data source."""

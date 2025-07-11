@@ -189,6 +189,10 @@ class SequenceDataSourceTest(parameterized.TestCase):
     with self.assertRaisesRegex(IndexError, 'Index 4 is out of range'):
       _ = io.SequenceDataSource(range(3))[4]
 
+  def test_maybe_shardable(self):
+    ds = io.maybe_shardable(range(3))
+    self.assertIsInstance(ds, io.SequenceDataSource)
+
 
 class IterableDataSourceTest(parameterized.TestCase):
 

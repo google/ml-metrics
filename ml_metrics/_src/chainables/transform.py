@@ -412,9 +412,11 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
     # is provided.
     if inputs is not None:
       # An iterable of a single element.
-      return [io.SequenceDataSource([inputs])]
+      return [io.maybe_shardable([inputs])]
+
     if data_source is None:
       data_source = self.data_source
+    data_source = io.maybe_shardable(data_source)
     if self.num_threads and types.is_shardable(data_source):
       data_sources = [
           data_source.shard(i, self.num_threads)
@@ -629,7 +631,8 @@ class ChainedRunner(Iterable[_ValueT]):
           f' for {self}'
       )
     if inputs is not None:
-      return io.SequenceDataSource([inputs])
+      return io.maybe_shardable([inputs])
+
     if data_source is None:
       data_source = self.data_source
     return data_source

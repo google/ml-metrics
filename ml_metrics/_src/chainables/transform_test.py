@@ -250,7 +250,7 @@ class TransformDataSourceTest(parameterized.TestCase):
         pass
 
   def test_data_source_not_recoverable_raise_error(self):
-    ds = range(3)
+    ds = iter(range(3))
     p = transform.TreeTransform().data_source(ds).apply(lambda x: x + 1)
     with self.assertRaisesRegex(
         TypeError, 'Data source is not serializable, got .+'
@@ -262,6 +262,11 @@ class TransformDataSourceTest(parameterized.TestCase):
       p.make().iterate().from_state(
           transform._IteratorState([io.ShardConfig()], agg_state=None)
       )
+
+  def test_input_override(self):
+    p = transform.TreeTransform().data_source(range(3)).apply(lambda x: x + 1)
+    runner = transform.TransformRunner.from_transform(p, input_state=None)
+    self.assertEqual(list(runner.iterate(range(3))), [1, 2, 3])
 
   def test_sharded_iterable_data_source(self):
     ds = io.ShardedIterable(range(3))
