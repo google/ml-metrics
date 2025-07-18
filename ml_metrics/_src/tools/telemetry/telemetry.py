@@ -1,37 +1,27 @@
 """Telemetry for MLAT."""
 
+from typing import Any, Callable
+
 from absl import logging
 
 
-def increment_counter(
-    api: str, category: str, reference: str, execution_succeed: bool
-):
-  logging.info(
-      'Logging counter: api=%s, category=%s, reference=%s,'
-      ' execution_succeed=%s',
-      api,
-      category,
-      reference,
-      execution_succeed,
-  )
+def increment_counter(**kwargs) -> None:
+  """Log message."""
+  message = ', '.join([f'{k}={v}' for k, v in kwargs.items()])
+  logging.info('Logging: %s', message)
 
 
-class WithTelemetry:
-  """Decorator to log usage."""
+def _monitor(**kwargs) -> Callable[[Any], Any]:
+  """Decorator to log callable usage."""
 
-  def __init__(
-      self,
-      api: str,
-      category: str,
-      reference: str,
-      *,
-      target_methods: list[str] | str | None = None,
-  ):
-    self.api = api
-    self.category = category
-    self.reference = reference
-    self.target_methods = target_methods
+  def decorator(
+      callable_to_decorate: Callable[[Any], Any],
+  ) -> Callable[[Any], Any]:
+    increment_counter(**kwargs)
+    return callable_to_decorate
 
-  def __call__(self, class_or_func_ref):
-    increment_counter(self.api, self.category, self.reference, True)
-    return class_or_func_ref
+  return decorator
+
+
+function_monitor = _monitor
+class_monitor = _monitor
