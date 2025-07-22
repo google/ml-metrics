@@ -15,6 +15,7 @@
 
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
+from ml_metrics._src.aggregates.stats import Count
 from ml_metrics._src.aggregates.stats import Counter
 from ml_metrics._src.aggregates.stats import FixedSizeSample
 from ml_metrics._src.aggregates.stats import Histogram
