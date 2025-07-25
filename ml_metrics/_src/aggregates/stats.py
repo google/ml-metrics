@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import abc
+import array
 import collections
 from collections.abc import Callable, Iterable
 import dataclasses
@@ -541,13 +542,31 @@ class MinMaxAndCount(base.CallableMetric):
     return self
 
 
+def _auto_concat(x, y):
+  """Auto concat array like objects."""
+  if isinstance(x, list):
+    x.extend(y)
+    return x
+  if isinstance(x, tuple) and isinstance(y, tuple):
+    return x + y
+  if isinstance(x, array.array) and isinstance(y, array.array):
+    return x + y
+  if hasattr(x, '__array__') and getattr(x, 'ndim', 0) > 0:
+    return np.concatenate((x, y), axis=-1)
+  try:
+    return list(x) + list(y)
+  except Exception as e:
+    raise TypeError(f'Unsupported type: {type(x)}') from e
+
+
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
 class ValueAccumulator(base.CallableMetric):
   """This stores and accumulates all the values."""
 
-  concat_fn: Callable[[Any, Any], Any] | None = None
+  concat_fn: Callable[[Any, Any], Any] = _auto_concat
   metric_fns: Callable[..., Any] | dict[str, Callable[..., Any]] | None = None
+  batched_inputs: bool = dataclasses.field(default=False, kw_only=True)
   _data: tuple[list[Any], ...] = dataclasses.field(default=(), kw_only=True)
 
   @property
@@ -555,22 +574,25 @@ class ValueAccumulator(base.CallableMetric):
     return self._data
 
   def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(self.__class__, self.concat_fn, self.metric_fns)
+    return base.as_agg_fn(
+        self.__class__,
+        self.concat_fn,
+        self.metric_fns,
+        batched_inputs=self.batched_inputs,
+    )
 
   def new(self, *args):
-    if self.concat_fn:
-      return self.__class__(_data=tuple(x for x in args))
-    return self.__class__(_data=tuple([x] for x in args))
+    # Prepare the input data in a batch dimension per column.
+    if not self.batched_inputs:
+      args = tuple([arg] for arg in args)
+    return self.__class__(_data=args)
 
   def merge(self, other: Self) -> None:
     if not self._data:
       self._data = tuple(other.data)
-      return
-    xs_and_ys = zip(self._data, other.data, strict=True)
-    if self.concat_fn:
-      self._data = tuple(self.concat_fn(x, y) for x, y in xs_and_ys)
     else:
-      self._data = tuple(x + y for x, y in xs_and_ys)
+      xs_and_ys = zip(self._data, other.data, strict=True)
+      self._data = tuple(self.concat_fn(x, y) for x, y in xs_and_ys)
 
   def result(self) -> tuple[list[Any], ...] | list[Any] | dict[str, Any] | Any:
     if not self.metric_fns:

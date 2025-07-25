@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import array
 import dataclasses
 import math
 
@@ -1223,7 +1224,7 @@ class MinMaxAndCountTest(parameterized.TestCase):
 
 class ValueAccumulatorTest(parameterized.TestCase):
 
-  def test_value_accumulator_single_column_no_concatenate(self):
+  def test_value_accumulator_single_column_unbatched(self):
     accumulator = stats.ValueAccumulator()
     inputs = [1, 2, 3]
     for batch in inputs:
@@ -1231,27 +1232,68 @@ class ValueAccumulatorTest(parameterized.TestCase):
     actual = accumulator.result()
     self.assertEqual(inputs, actual)
 
-  def test_value_accumulator_concat_list(self):
-    concat_fn = lambda x, y: x + y
-    accumulator = stats.ValueAccumulator(concat_fn=concat_fn)
+  def test_value_accumulator_multiple_columns_unbatched(self):
+    accumulator = stats.ValueAccumulator()
+    inputs = [1, 2, 3]
+    for elem in inputs:
+      accumulator.add(elem, elem)
+    actual = accumulator.result()
+    self.assertEqual((inputs, inputs), actual)
+
+  def test_value_accumulator_multiple_columns_unbatched_metric_fns(self):
+    accumulator = stats.ValueAccumulator(
+        metric_fns=lambda x, y: np.array([x, y]).sum()
+    )
+    inputs = [1, 2, 3]
+    for elem in inputs:
+      accumulator.add(elem, elem)
+    actual = accumulator.result()
+    self.assertEqual(12, actual)
+
+  def test_batched_concat_fallback(self):
+    accumulator = stats.ValueAccumulator(batched_inputs=True)
+    inputs = [range(3), range(3, 6)]
+    for batch in inputs:
+      accumulator.add(batch)
+    actual = accumulator.result()
+    self.assertEqual(list(range(6)), actual)
+
+  @parameterized.named_parameters(
+      dict(
+          testcase_name='list',
+          array_fn=list,
+      ),
+      dict(
+          testcase_name='tuple',
+          array_fn=tuple,
+      ),
+      dict(
+          testcase_name='np_array',
+          array_fn=np.array,
+      ),
+      dict(
+          testcase_name='array_array',
+          array_fn=lambda x: array.array('i', x),
+      ),
+  )
+  def test_value_accumulator_concat(self, array_fn):
+    accumulator = stats.ValueAccumulator(batched_inputs=True)
     inputs = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
     for batch in inputs:
-      accumulator.add(batch)
+      accumulator.add(array_fn(batch))
     actual = accumulator.result()
-    self.assertEqual(list(range(9)), actual)
+    self.assertIsInstance(actual, type(array_fn([])))
+    self.assertSequenceAlmostEqual(range(9), actual)
 
-  def test_value_accumulator_concat_np_array(self):
-    concat_fn = lambda x, y: np.concat((x, y), axis=-1)
-    accumulator = stats.ValueAccumulator(concat_fn=concat_fn)
-    inputs = [np.arange(3), np.arange(3, 6), np.arange(6, 9)]
-    for batch in inputs:
-      accumulator.add(batch)
-    actual = accumulator.result()
-    np.testing.assert_array_equal(actual, np.arange(9))
+  def test_value_accumulator_concat_with_none_raises_error(self):
+    accumulator = stats.ValueAccumulator(batched_inputs=True)
+    accumulator.add(None)
+    with self.assertRaises(TypeError):
+      accumulator.add(1)
 
   def test_value_accumulator_two_columns(self):
     concat_fn = lambda x, y: x + y
-    accumulator = stats.ValueAccumulator(concat_fn=concat_fn)
+    accumulator = stats.ValueAccumulator(concat_fn, batched_inputs=True)
     inputs = [([0, 1, 2], [3, 4, 5]), ([6, 7, 8], [9, 10, 11])]
     for batch in inputs:
       accumulator.add(*batch)
@@ -1262,7 +1304,9 @@ class ValueAccumulatorTest(parameterized.TestCase):
   def test_value_accumulator_metric_fns(self):
     concat_fn = lambda x, y: x + y
     metric_fns = {'sum': sum, 'mean': np.mean}
-    accumulator = stats.ValueAccumulator(concat_fn, metric_fns)
+    accumulator = stats.ValueAccumulator(
+        concat_fn, metric_fns, batched_inputs=True
+    )
     inputs = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
     for batch in inputs:
       accumulator.add(batch)
@@ -1272,7 +1316,7 @@ class ValueAccumulatorTest(parameterized.TestCase):
 
   def test_value_accumulator_as_agg_fn(self):
     concat_fn = lambda x, y: x + y
-    accumulator = stats.ValueAccumulator(concat_fn, sum)
+    accumulator = stats.ValueAccumulator(concat_fn, sum, batched_inputs=True)
     agg_fn = accumulator.as_agg_fn()
     actual = agg_fn(list(range(9)))
     expected = 36
