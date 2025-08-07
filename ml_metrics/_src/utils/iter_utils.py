@@ -576,6 +576,20 @@ class IteratorQueue(IterableQueue[_ValueT]):
     """Gets an element from the queue, raises Empty immediately if empty."""
     self._states_lock.acquire()
     try:
+      self._get_nowait_impl()
+    finally:
+      self._states_lock.release()
+
+  def _get_nowait_impl(self) -> _ValueT:
+    """Gets an element from the queue, raises Empty immediately if empty.
+
+    Does not acquire the lock to allow for callers that repeatedly call
+    get_nowait.
+    
+    Returns:
+      The result list.
+    """
+    try:
       result = self._queue.get_nowait()
       # Premeptively check if the queue is exhausted to avoid a second call.
       if self._queue.empty() and self.enqueue_done:
@@ -596,24 +610,31 @@ class IteratorQueue(IterableQueue[_ValueT]):
       e.add_note(f'Exception during Dequeueing "{self.name}".')
       logging.exception('chainable: %s', f'"{self.name}" Dequeue failed.')
       raise e
+
+  def _build_results_noblock(self, max_batch_size: int = 0) -> list[_ValueT]:
+    """Gets elements from the queue, and returns if any items are available."""
+    result = []
+    #  Dequeue all elements in the queue if max_batch_size is not set.
+    self._states_lock.acquire()
+    try:
+      while not max_batch_size or len(result) < max_batch_size:
+        try:
+          result.append(self.get_nowait())
+        except (queue.Empty, asyncio.QueueEmpty):
+          break
+        except Exception as e:  # pylint: disable=broad-exception-caught
+          exhausted = is_stop_iteration(e)
+          if (exhausted and result) or (not exhausted and self.ignore_error):
+            break
+          raise e
     finally:
       self._states_lock.release()
+    return result
 
-  def get_batch(
-      self, max_batch_size: int = 0, *, min_batch_size: int = 1
+  def _build_results_block(
+      self, max_batch_size: int = 0, min_batch_size: int = 0
   ) -> list[_ValueT]:
-    """Gets elements from the queue, waits for timeout if empty.
-
-    Args:
-      max_batch_size: The number of elements to be dequeued. If 0, it will wait
-        for at least one element. If set, it will wait at most max_batch_size
-        elements.
-      min_batch_size: The minimum number of elements to be dequeued. Default to
-        1 so that get_batch() default block on getting one element.
-
-    Returns:
-      A list of dequeued elements.
-    """
+    """Gets elements from the queue, waits for timeout if empty."""
     max_batch_size = max_batch_size or self._max_batch_size
     result = []
     #  Dequeue all elements in the queue if max_batch_size is not set.
@@ -631,6 +652,8 @@ class IteratorQueue(IterableQueue[_ValueT]):
             f'"{self.name}" Dequeue empty, got {len(result)} elements, waiting'
             f' {self.enqueue_done=} {self._not_empty.is_set()=}.',
         )
+        # this could cause a deadlock if min_batch_size is set
+        # let's do a noblock while loop implementation that only locks once.
         if self._not_empty.wait(timeout=self.timeout):
           continue
 
@@ -642,6 +665,29 @@ class IteratorQueue(IterableQueue[_ValueT]):
         if (exhausted and result) or (not exhausted and self.ignore_error):
           break
         raise e
+    return result
+
+  def get_batch(
+      self, max_batch_size: int = 0, *, min_batch_size: int = 1
+  ) -> list[_ValueT]:
+    """Gets elements from the queue, waits for timeout if empty.
+
+    Args:
+      max_batch_size: The number of elements to be dequeued. If 0, it will wait
+        for at least one element. If set, it will wait at most max_batch_size
+        elements.
+      min_batch_size: The minimum number of elements to be dequeued. Default to
+        1 so that get_batch() default block on getting one element.
+
+    Returns:
+      A list of dequeued elements.
+    """
+    max_batch_size = max_batch_size or self._max_batch_size
+    #  Dequeue all elements in the queue if max_batch_size is not set.
+    if min_batch_size > 1:
+      result = self._build_results_block(max_batch_size, min_batch_size)
+    else:
+      result = self._build_results_noblock(max_batch_size)
 
     self._not_full.set()
     logging.debug(
