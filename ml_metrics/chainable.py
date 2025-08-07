@@ -35,3 +35,10 @@ from ml_metrics._src.chainables.tree import TreeMapView
 from ml_metrics._src.chainables.tree_fns import SliceKey
 from ml_metrics._src.utils import test_utils
 from ml_metrics._src.utils.iter_utils import iterate_fn
+
+# TODO(b/368688941): Remove `courier_server`, `courier_worker`, and
+# `orchestrate` once all users are migrated.
+# pylint: disable=g-bad-import-order
+from ml_metrics.google.distributed import courier_server
+from ml_metrics.google.distributed import courier_worker
+from ml_metrics.google.distributed import orchestrate
