@@ -929,6 +929,10 @@ class TreeTransform(Generic[TreeFnT]):
         num_threads=self.num_threads,
     )
 
+  # Alias for data_source.
+  def ds(self, data_source: Any = None, /) -> Self:
+    return self.data_source(data_source)
+
   @property
   def output_keys(self) -> set[TreeMapKey]:
     """Returns the output_keys (assign_keys for assign) of this transform."""

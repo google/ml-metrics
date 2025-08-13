@@ -171,7 +171,7 @@ class TransformDataSourceTest(parameterized.TestCase):
 
   def test_sharded_sequence_data_source_make(self):
     ds = io.SequenceDataSource(range(3))
-    p = transform.TreeTransform().data_source(ds).apply(lambda x: x + 1)
+    p = transform.TreeTransform().ds(ds).apply(lambda x: x + 1)
     num_shards = 2
     shards = (io.ShardConfig(i, num_shards) for i in range(num_shards))
     actual = [list(p.make(shard=shard)) for shard in shards]
@@ -181,7 +181,7 @@ class TransformDataSourceTest(parameterized.TestCase):
   def test_sharded_sequence_data_source_multithread(self):
     ds = io.SequenceDataSource(range(512))
     num_threads = 64
-    p = transform.TreeTransform(num_threads=num_threads).data_source(ds)
+    p = transform.TreeTransform(num_threads=num_threads).ds(ds)
     expected = list(range(512))
     it = p.make().iterate()
     self.assertCountEqual(expected, list(it))
@@ -193,7 +193,7 @@ class TransformDataSourceTest(parameterized.TestCase):
     ds = io.SequenceDataSource(range(3))
     p = (
         transform.TreeTransform()
-        .data_source(ds)
+        .ds(ds)
         .apply(lambda x: x + 1)
         .agg(MockAverageFn())
     )
@@ -251,7 +251,7 @@ class TransformDataSourceTest(parameterized.TestCase):
 
   def test_data_source_not_recoverable_raise_error(self):
     ds = iter(range(3))
-    p = transform.TreeTransform().data_source(ds).apply(lambda x: x + 1)
+    p = transform.TreeTransform().ds(ds).apply(lambda x: x + 1)
     with self.assertRaisesRegex(
         TypeError, 'Data source is not serializable, got .+'
     ):
@@ -264,13 +264,13 @@ class TransformDataSourceTest(parameterized.TestCase):
       )
 
   def test_input_override(self):
-    p = transform.TreeTransform().data_source(range(3)).apply(lambda x: x + 1)
+    p = transform.TreeTransform().ds(range(3)).apply(lambda x: x + 1)
     runner = transform.TransformRunner.from_transform(p, input_state=None)
     self.assertEqual(list(runner.iterate(range(3))), [1, 2, 3])
 
   def test_sharded_iterable_data_source(self):
     ds = io.ShardedIterable(range(3))
-    p = transform.TreeTransform().data_source(ds).apply(lambda x: x + 1)
+    p = transform.TreeTransform().ds(ds).apply(lambda x: x + 1)
     num_shards = 2
     shards = (io.ShardConfig(i, num_shards) for i in range(num_shards))
     actual = [list(p.make(shard=shard)) for shard in shards]
@@ -279,14 +279,14 @@ class TransformDataSourceTest(parameterized.TestCase):
 
   def test_nonshardable_data_source_with_shard_index_raise_error(self):
     ds = test_utils.NoLenIter(range(3))
-    p = transform.TreeTransform().data_source(ds).apply(lambda x: x + 1)
+    p = transform.TreeTransform().ds(ds).apply(lambda x: x + 1)
     with self.assertRaisesRegex(
         TypeError, 'Data source is not configurable but .+ is provided.'
     ):
       _ = list(p.make(shard=io.ShardConfig(shard_index=1)))
 
   def test_data_source_size(self):
-    p = transform.TreeTransform().data_source(range(100)).apply(lambda x: x + 1)
+    p = transform.TreeTransform().ds(range(100)).apply(lambda x: x + 1)
     it = p.make().iterate(data_source_size=transform.AUTO_SIZE)
     self.assertLen(it, 100)
 
@@ -308,7 +308,7 @@ class TransformTest(parameterized.TestCase):
     t = t.assign('b', fn=lambda x: x + 1)
     seen_ids.add(t.id)
     t = dataclasses.replace(t, name='')
-    t = t.aggregate(MockAverageFn(), output_keys='c')
+    t = t.agg(MockAverageFn(), output_keys='c')
     seen_ids.add(t.id)
     t = t.add_aggregate(MockAverageFn(), output_keys='d').add_slice('a')
     seen_ids.add(t.id)
@@ -318,7 +318,7 @@ class TransformTest(parameterized.TestCase):
   def test_transform_name(self):
     t = (
         transform.TreeTransform.new(name='call')
-        .data_source(test_utils.NoLenIter(range(3)))
+        .ds(test_utils.NoLenIter(range(3)))
         .apply(lambda x: x + 1)
     )
     self.assertEqual(t.make()._runners[0].name, 'call')
@@ -326,7 +326,7 @@ class TransformTest(parameterized.TestCase):
   def test_transform_call(self):
     t = (
         transform.TreeTransform.new(name='call')
-        .data_source(test_utils.NoLenIter(range(3)))
+        .ds(test_utils.NoLenIter(range(3)))
         .apply(lambda x: x + 1)
     )
     self.assertEqual(list(t.make()), [1, 2, 3])
@@ -412,7 +412,7 @@ class TransformTest(parameterized.TestCase):
     self.assertEqual(p.agg_output_keys, {'c', 'd'})
 
   def test_non_aggregate_call_with_iterator_raise_error(self):
-    t = transform.TreeTransform().data_source(test_utils.NoLenIter(range(3)))
+    t = transform.TreeTransform().ds(test_utils.NoLenIter(range(3)))
     with self.assertRaisesRegex(
         ValueError, 'Non-aggregate transform is not callable with iterator'
     ):
@@ -427,7 +427,7 @@ class TransformTest(parameterized.TestCase):
   def test_transform_named_transforms_default(self):
     t1 = (
         transform.TreeTransform()
-        .data_source(test_utils.NoLenIter(range(3)))
+        .ds(test_utils.NoLenIter(range(3)))
         .apply(lambda x: x + 1)
     )
     t2 = (
@@ -456,7 +456,7 @@ class TransformTest(parameterized.TestCase):
   def test_transform_filter_with_input_keys(self):
     t = (
         transform.TreeTransform()
-        .data_source(range(5))
+        .ds(range(5))
         .apply(lambda x: (x, x + 1), output_keys=('a', 'b'))
         .filter(lambda x: x % 2 == 0, input_keys='a')
         .batch(batch_size=2)
@@ -468,14 +468,14 @@ class TransformTest(parameterized.TestCase):
   def test_transform_filter_with_self(self):
     t = (
         transform.TreeTransform()
-        .data_source(range(5))
+        .ds(range(5))
         .filter(lambda x: x % 2 == 0)
         .batch(batch_size=2)
     )
     self.assertEqual(list(t.make()), [[0, 2], [4]])
 
   def test_transform_named_transforms_with_duplicate_names(self):
-    t1 = transform.TreeTransform.new(name='A').data_source(
+    t1 = transform.TreeTransform.new(name='A').ds(
         test_utils.NoLenIter(range(3))
     )
     t2 = transform.TreeTransform.new(name='B').agg(
@@ -488,7 +488,7 @@ class TransformTest(parameterized.TestCase):
       _ = t1.interleave(t2).interleave(t3)
 
   def test_transform_named_transforms_with_duplicate_agg_keys(self):
-    t1 = transform.TreeTransform.new(name='A').data_source(
+    t1 = transform.TreeTransform.new(name='A').ds(
         test_utils.NoLenIter(range(3))
     )
     t2 = transform.TreeTransform.new(name='B').agg(
@@ -515,7 +515,7 @@ class TransformTest(parameterized.TestCase):
   def test_transform_iterate_is_not_copy(self):
     t = (
         transform.TreeTransform()
-        .data_source(test_utils.inf_range(2))
+        .ds(test_utils.inf_range(2))
         .apply(lambda x: x + 1, output_keys='a')
         .assign('b', fn=lambda x: x + 1, input_keys='a')
     )
@@ -1023,7 +1023,7 @@ class TransformTest(parameterized.TestCase):
       input_keys=Key.SELF,
       output_keys=Key.SELF,
   ):
-    t = transform.TreeTransform().aggregate(
+    t = transform.TreeTransform().agg(
         fn, input_keys=input_keys, output_keys=output_keys
     )
     self.assertEqual(expected, t.make()(inputs))
@@ -1035,18 +1035,18 @@ class TransformTest(parameterized.TestCase):
       ).add_aggregate(MockAverageFn(), output_keys='a')
 
     with self.assertRaisesRegex(KeyError, 'Cannot mix SELF with other keys'):
-      transform.TreeTransform().aggregate(
+      transform.TreeTransform().agg(
           MockAverageFn(), output_keys='a'
       ).add_aggregate(MockAverageFn(), output_keys=tree.Key.SELF)
 
   def test_aggregate_duplicate_keys(self):
     with self.assertRaisesRegex(KeyError, 'Duplicate output_keys'):
-      transform.TreeTransform().aggregate(
+      transform.TreeTransform().agg(
           MockAverageFn(), output_keys='a'
       ).add_aggregate(MockAverageFn(), output_keys=('a', 'b'))
 
     with self.assertRaisesRegex(KeyError, 'Duplicate output_keys'):
-      transform.TreeTransform().aggregate(MockAverageFn()).add_aggregate(
+      transform.TreeTransform().agg(MockAverageFn()).add_aggregate(
           MockAverageFn()
       )
 
@@ -1093,10 +1093,10 @@ class TransformTest(parameterized.TestCase):
       input_keys=Key.SELF,
       output_keys=Key.SELF,
   ):
-    t1 = transform.TreeTransform().aggregate(
+    t1 = transform.TreeTransform().agg(
         fn, input_keys=input_keys, output_keys=output_keys
     )
-    t2 = transform.TreeTransform().aggregate(
+    t2 = transform.TreeTransform().agg(
         fn, input_keys=input_keys, output_keys=output_keys
     )
     agg1, agg2 = t1.make(), t2.make()
@@ -1114,7 +1114,7 @@ class TransformTest(parameterized.TestCase):
     inputs = {'a': [1, 2, 1], 'b': [1, 1, 1]}
     agg = (
         transform.TreeTransform()
-        .aggregate(
+        .agg(
             MockAverageFn(),
             input_keys='a',
             output_keys='avg_a',
@@ -1130,7 +1130,7 @@ class TransformTest(parameterized.TestCase):
 
   def test_aggregate_result_size(self):
     inputs = [1, 2, 1]
-    agg = transform.TreeTransform().aggregate(MockAverageFn(return_tuple=True))
+    agg = transform.TreeTransform().agg(MockAverageFn(return_tuple=True))
     it = agg.make().iterate([inputs])
     _ = mit.last(it)
     self.assertLen(it._iterators[0].agg_result, 1)
@@ -1140,7 +1140,7 @@ class TransformTest(parameterized.TestCase):
     inputs = {'a': [1, 2, 1], 'b': [1, 9, 5]}
     agg = (
         transform.TreeTransform()
-        .aggregate(
+        .agg(
             MockAverageFn(),
             input_keys='a',
             output_keys='avg_a',
@@ -1179,7 +1179,7 @@ class TransformTest(parameterized.TestCase):
       ),
   ])
   def test_aggregate_with_slices_default_metric_name(self, add_slice, expected):
-    p = transform.TreeTransform().aggregate(
+    p = transform.TreeTransform().agg(
         MockAverageFn(),
         input_keys='a',
     )
@@ -1192,7 +1192,7 @@ class TransformTest(parameterized.TestCase):
     inputs = {'a': [1, 2, 1], 'b': [1, 9, 5]}
     agg = (
         transform.TreeTransform()
-        .aggregate(MockAverageFn(), input_keys='b', output_keys='avg_b')
+        .agg(MockAverageFn(), input_keys='b', output_keys='avg_b')
         .add_slice(dict(a=1))
         .add_slice(dict(b=(1, 9)))
     )
@@ -1301,7 +1301,7 @@ class TransformTest(parameterized.TestCase):
     inputs = {'a': [1, 2, 1], 'b': [1, 9, 5]}
     agg = (
         transform.TreeTransform()
-        .aggregate(MockAverageFn(), input_keys='b', output_keys='avg_b')
+        .agg(MockAverageFn(), input_keys='b', output_keys='avg_b')
         .add_slice(('a', 'b'))
     )
     expected = {
@@ -1339,7 +1339,7 @@ class TransformTest(parameterized.TestCase):
 
     agg = (
         transform.TreeTransform()
-        .aggregate(MockAverageFn(), input_keys='b', output_keys='avg_b')
+        .agg(MockAverageFn(), input_keys='b', output_keys='avg_b')
         .add_slice('a', slice_fn=foo, slice_name=('pos', 'token'))
     )
     expected = {
@@ -1359,7 +1359,7 @@ class TransformTest(parameterized.TestCase):
 
     agg = (
         transform.TreeTransform()
-        .aggregate(MockAverageFn(), input_keys='b', output_keys='avg_b')
+        .agg(MockAverageFn(), input_keys='b', output_keys='avg_b')
         .add_slice('a', slice_fn=foo, slice_name=('pos', 'a'))
     )
     with self.assertRaises(ValueError):
@@ -1369,7 +1369,7 @@ class TransformTest(parameterized.TestCase):
     input_iterator = [[1, 2, 3], [2, 3, 4]]
     t = (
         transform.TreeTransform()
-        .data_source(test_utils.NoLenIter(input_iterator))
+        .ds(test_utils.NoLenIter(input_iterator))
         .apply(sum)
     )
     actual_fn = t.make()
@@ -1381,7 +1381,7 @@ class TransformTest(parameterized.TestCase):
     input_iterator = [[1, 2, 3], [2, 3, 4]]
     t = (
         transform.TreeTransform()
-        .data_source(lazy_fns.trace(test_utils.NoLenIter)(input_iterator))
+        .ds(lazy_fns.trace(test_utils.NoLenIter)(input_iterator))
         .apply(iter_utils.iterate_fn(lambda x: x + 1))
         .apply(iter_utils.iterate_fn(lambda x: x + 10))
         .agg(MockAverageFn())
@@ -1420,7 +1420,7 @@ class TransformTest(parameterized.TestCase):
     input_iterator = [[1, 2, 3], [2, 3, 4]]
     t = (
         transform.TreeTransform()
-        .data_source(lazy_fns.trace(test_utils.NoLenIter)(input_iterator))
+        .ds(lazy_fns.trace(test_utils.NoLenIter)(input_iterator))
         .apply(iter_utils.iterate_fn(lambda x: x + 1))
         .apply(iter_utils.iterate_fn(lambda x: x + 10))
         .agg(MockAverageFn())
@@ -1446,7 +1446,7 @@ class TransformTest(parameterized.TestCase):
     t = (
         transform.TreeTransform()
         # consecutive datasource, asign, and apply form one tranform.
-        .data_source(lazy_fns.trace(test_utils.NoLenIter)(range(6)))
+        .ds(lazy_fns.trace(test_utils.NoLenIter)(range(6)))
         .apply(lambda x: x + 1, output_keys='a')
         .assign('b', fn=lambda x: x + 10, input_keys='a')
         .batch(2)
@@ -1492,7 +1492,7 @@ class TransformTest(parameterized.TestCase):
   ])
   def test_chain(self, names, expected_transforms):
     input_iterator = [[1, 2, 3], [2, 3, 4]]
-    read = transform.TreeTransform(name=names[0]).data_source(
+    read = transform.TreeTransform(name=names[0]).ds(
         lazy_fns.trace(test_utils.NoLenIter)(input_iterator)
     )
     process = (
@@ -1529,7 +1529,7 @@ class TransformTest(parameterized.TestCase):
     inputs = [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
     p = (
         transform.TreeTransform()
-        .data_source(test_utils.NoLenIter(inputs))
+        .ds(test_utils.NoLenIter(inputs))
         .apply(lambda x: x)
         .agg(MockAverageFn())
     )
@@ -1540,7 +1540,7 @@ class TransformTest(parameterized.TestCase):
     inputs = [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
     p = (
         transform.TreeTransform()
-        .data_source(test_utils.NoLenIter(inputs))
+        .ds(test_utils.NoLenIter(inputs))
         .agg(MockAverageFn())
     )
     iterator = iter_utils.IteratorQueue(2)
@@ -1552,7 +1552,7 @@ class TransformTest(parameterized.TestCase):
 
   def test_transform_maybe_stop(self):
     datasource = test_utils.range_with_sleep(256, 0.3)
-    p_ds = transform.TreeTransform(num_threads=1).data_source(datasource)
+    p_ds = transform.TreeTransform(num_threads=1).ds(datasource)
     p_apply = transform.TreeTransform(name='apply', num_threads=1).apply(
         lambda x: x
     )
@@ -1569,10 +1569,7 @@ class TransformTest(parameterized.TestCase):
 
   def test_transform_len(self):
     inputs = [[1, 2, 3], [2, 3, 4], [3, 4, 5]]
-    p = (
-        transform.TreeTransform()
-        .data_source(test_utils.NoLenIter(inputs))
-    )
+    p = transform.TreeTransform().ds(test_utils.NoLenIter(inputs))
     self.assertLen(p.make().iterate(data_source_size=len(inputs)), len(inputs))
 
 
