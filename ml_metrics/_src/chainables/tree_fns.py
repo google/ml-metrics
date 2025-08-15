@@ -50,8 +50,6 @@ class TreeFn(Generic[_FnT, _T]):
   Attributes:
     input_keys: The input keys used to take from the input dict. If left empty
       (default), this outputs an empty tuple.
-    input_argkeys: The input argument names that postionally match with the
-      values referenced by the input_keys, and passed in as kwargs to the fn.
     output_keys: The output keys of the function outputs. If left empty
       (default), output will be only positional (a tuple).
     fn: A callable instance that takes positional inputs and outputs positional
@@ -74,7 +72,6 @@ class TreeFn(Generic[_FnT, _T]):
   """
 
   input_keys: tree.TreeMapKey | tree.TreeMapKeys = (tree.Key.SELF,)
-  input_argkeys: tuple[str, ...] = ()
   output_keys: tree.TreeMapKey | tree.TreeMapKeys = (tree.Key.SELF,)
   fn: _FnT | lazy_fns.LazyFn[_FnT] | None = None
   masks: tuple[MaskTree, ...] | MaskTree = dc.field(default=(), repr=False)
@@ -84,6 +81,8 @@ class TreeFn(Generic[_FnT, _T]):
   input_batch_size: int = 0
   batch_size: int = 0
   ignore_error: bool = False
+  _input_keys: tuple[tree.TreeMapKey, ...] = ()
+  _input_argkeys: tuple[str, ...] = ()
   _cached_fn: _FnT | None = None
 
   def __post_init__(self):
@@ -91,16 +90,15 @@ class TreeFn(Generic[_FnT, _T]):
       raise ValueError(
           f'batch sizes have to be non-negative, got {self.batch_size=}'
       )
-    input_argkeys = self.input_argkeys
+    input_argkeys = ()
     input_keys, output_keys = self.input_keys, self.output_keys
     if isinstance(input_keys, Mapping):
-      assert not input_argkeys, f'{input_argkeys=}'
       input_argkeys, input_keys = tuple(zip(*input_keys.items()))
     # These require a tuple for positional inputs. Normalize_keys converts
     # the keys into a tuple of keys to make sure the actual selected inputs
     # are also wrapped in a tuple.
-    object.__setattr__(self, 'input_keys', tree.normalize_keys(input_keys))
-    object.__setattr__(self, 'input_argkeys', input_argkeys)
+    object.__setattr__(self, '_input_keys', tree.normalize_keys(input_keys))
+    object.__setattr__(self, '_input_argkeys', input_argkeys)
     object.__setattr__(self, 'output_keys', tree.normalize_keys(output_keys))
     if not isinstance(self.masks, tuple):
       object.__setattr__(self, 'masks', (self.masks,))
@@ -128,9 +126,9 @@ class TreeFn(Generic[_FnT, _T]):
   @functools.cached_property
   def _num_inputs(self):
     """Returns the number of inputs."""
-    if isinstance(self.input_keys, tuple):
-      return len(self.input_keys)
-    return 1 if self.input_keys else 0
+    if isinstance(self._input_keys, tuple):
+      return len(self._input_keys)
+    return 1 if self._input_keys else 0
 
   @functools.cached_property
   def _num_outputs(self):
@@ -188,8 +186,8 @@ class TreeFn(Generic[_FnT, _T]):
     # (some_values,) up to this point, we need to unwrap it to some_values as
     # the return, thus, skipping the wrapping here because SELF is normalized
     # to (SELF,).
-    output_to_self = (
-        not self.output_keys or self.output_keys == (tree.Key.SELF,)
+    output_to_self = not self.output_keys or self.output_keys == (
+        tree.Key.SELF,
     )
     if output_to_self and len(outputs) > 1:
       outputs = (outputs,)
@@ -197,7 +195,7 @@ class TreeFn(Generic[_FnT, _T]):
 
   def _get_inputs(self, inputs: tree.TreeLike) -> tuple[_T, ...]:
     try:
-      fn_inputs = tree.TreeMapView.as_view(inputs)[self.input_keys]
+      fn_inputs = tree.TreeMapView.as_view(inputs)[self._input_keys]
       # A tuple of masks will apply to each input per input_keys. Otherwise, the
       # masks will be applied to all inputs.
       if self.masks:
@@ -212,8 +210,8 @@ class TreeFn(Generic[_FnT, _T]):
     """Calls the function with the inputs."""
     try:
       kw_inputs = {}
-      if self.input_argkeys:
-        fn_inputs, kw_inputs = (), dict(zip(self.input_argkeys, fn_inputs))
+      if self._input_argkeys:
+        fn_inputs, kw_inputs = (), dict(zip(self._input_argkeys, fn_inputs))
         # If the function is None, this serves as a select operation.
         assert self._actual_fn is not _identity_fn, f'{kw_inputs=}'
       return self._actual_fn(*fn_inputs, **kw_inputs)
@@ -540,14 +538,14 @@ class TreeAggregateFn(Generic[_T, StateT], TreeFn[_Aggregatable, _T]):
     """Updates the state by inputs."""
     try:
       fn_inputs, kw_inputs = self._get_inputs(inputs), {}
-      if self.input_argkeys:
-        fn_inputs, kw_inputs = (), dict(zip(self.input_argkeys, fn_inputs))
+      if self._input_argkeys:
+        fn_inputs, kw_inputs = (), dict(zip(self._input_argkeys, fn_inputs))
       state = self._actual_fn.update_state(state, *fn_inputs, **kw_inputs)
     except Exception as e:
-      input_keys = self.input_keys
-      key_paths = tuple(self.input_keys)
-      if self.input_argkeys:
-        input_keys = dict(zip(self.input_argkeys, self.input_keys))
+      input_keys = self._input_keys
+      key_paths = tuple(self._input_keys)
+      if self._input_argkeys:
+        input_keys = dict(zip(self._input_argkeys, self._input_keys))
       raise ValueError(
           f'Cannot call with {input_keys=}, {self.output_keys=},'
           f' {type(self.fn)} with'

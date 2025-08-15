@@ -432,13 +432,32 @@ class TreeMapViewTest(parameterized.TestCase):
     actual = data.copy_and_update(new.items()).apply()
     self.assertEqual(expected, actual)
 
-  def test_normalize_keys(self):
-    self.assertEqual(('a',), tree.normalize_keys('a'))
-    self.assertEqual((Key.Index(0),), tree.normalize_keys(Key.Index(0)))
-    self.assertEqual((Key(),), tree.normalize_keys(Key()))
-    self.assertEqual((Key().SELF,), tree.normalize_keys(Key.SELF))
-    self.assertEqual(('a', 'b'), tree.normalize_keys(('a', 'b')))
-    self.assertEqual(('a', 'b'), tree.normalize_keys(['a', 'b']))
+  @parameterized.named_parameters([
+      dict(testcase_name='empty', input_key=(), expected=()),
+      dict(testcase_name='keypath', input_key=Key(), expected=(Key(),)),
+      dict(testcase_name='self', input_key=Key.SELF, expected=(Key.SELF,)),
+      dict(testcase_name='str', input_key='a', expected=('a',)),
+      dict(testcase_name='int', input_key=1, expected=(1,)),
+      dict(testcase_name='tuple', input_key=('a', 'b'), expected=('a', 'b')),
+      dict(testcase_name='dict', input_key={'a': 'A'}, expected=({'a': 'A'},)),
+      dict(
+          testcase_name='dict_keys',
+          input_key={'a': 1, 'b': 2}.keys(),
+          expected=('a', 'b'),
+      ),
+      dict(
+          testcase_name='index',
+          input_key=Key.Index(0),
+          expected=(Key.Index(0),),
+      ),
+      dict(
+          testcase_name='tuple_with_dict',
+          input_key=('a', 'b', {'b': 'B'}),
+          expected=('a', 'b', {'b': 'B'}),
+      ),
+  ])
+  def test_normalize_keys(self, input_key, expected):
+    self.assertEqual(expected, tree.normalize_keys(input_key))
 
   def test_tree_shape(self):
     inputs = TreeMapView(

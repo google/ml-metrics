@@ -256,13 +256,14 @@ TreeMapKeys = (
 
 def normalize_keys(keys: TreeMapKey | TreeMapKeys) -> TreeMapKeys:
   """Normalizes the keys into a tuple of keys."""
-  if isinstance(keys, Key) or not isinstance(keys, (tuple, list)):
+  if isinstance(keys, (Key, Literal, str, int)):
     # Note: this has to be before tuple since Key is a subclass of tuple.
     return (keys,)
-  elif isinstance(keys, (list, tuple)):
-    return tuple(keys)
-  else:
-    raise TypeError(f'Unsupported keys {keys}')
+
+  if isinstance(keys, Mapping):
+    return (dict(keys.items()),)
+
+  return tuple(keys)
 
 
 def _default_tree(key_path: Key, value: Any):
