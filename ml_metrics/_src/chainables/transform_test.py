@@ -1501,7 +1501,10 @@ class TransformTest(parameterized.TestCase):
         .apply(iter_utils.iterate_fn(lambda x: x + 10))
         .agg(MockAverageFn())
     )
-    t = read.chain(process)
+    if read.name:
+      t = read.interleave(process)
+    else:
+      t = read.fuse(process)
     actual_fn = t.make()
     it = t.make().iterate()
     self.assertLen(it._iterators, len(set(names)))
