@@ -56,7 +56,6 @@ from typing import Any, Generic, Self, TypeVar
 import uuid
 
 from absl import logging
-import deprecated
 from ml_metrics._src import types
 from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import io
@@ -833,20 +832,6 @@ class TreeTransform(Generic[TreeFnT]):
   def maybe_replace(self, **kwargs) -> Self:
     filtered = {k: v for k, v in kwargs.items() if not _eq(getattr(self, k), v)}
     return dataclasses.replace(self, **filtered) if filtered else self
-
-  # TODO: b/424269199 - deprecates chain in favor of fuse or interleave.
-  @deprecated.deprecated('Use "fuse(child)" instead.')
-  def chain(self, child: Self) -> Self:
-    """Chains self with a child transform, fuses it when name is the same."""
-    if child.input_transform is not None or child.data_source_ is not None:
-      raise ValueError(
-          'Cannot fuse a transform with input_transform or data_source, got'
-          f' {child.input_transform=} and {child.data_source=}.'
-      )
-    if self.name == child.name:
-      return self.fuse(child)
-
-    return self.interleave(child)
 
   def interleave(self, child: Self) -> Self:
     """Behave like Chain, but also interleave the transforms."""
