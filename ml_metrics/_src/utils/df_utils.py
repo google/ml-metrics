@@ -16,6 +16,8 @@
 from __future__ import annotations
 
 import collections
+from collections.abc import Callable, Iterable
+import copy
 from typing import Any
 
 from ml_metrics._src.chainables import transform
@@ -32,6 +34,28 @@ def _first_or_tuple(x: tuple[Any, ...]) -> tuple[Any, ...] | Any:
   if isinstance(x, tuple) and len(x) == 1:
     return x[0]
   return x
+
+
+def index(a: Iterable[Any], key_fn: Callable[[Any], Any] | None = None):
+  if key_fn is not None:
+    return {key_fn(r): r for r in a}
+  return {i: r for i, r in enumerate(a)}
+
+
+def merge(
+    a: Iterable[Any],
+    b: Iterable[Any],
+    *,
+    key_fn: Callable[[Any], Any],
+    inplace: bool = False,
+) -> Iterable[Any]:
+  """Merges two iterables joined by the key calculated by the key_fn."""
+  key2row_b = index(b, key_fn)
+  if not inplace:
+    a = [copy.copy(r) for r in a]
+  for r_a in a:
+    r_a.update(key2row_b[key_fn(r_a)].items())
+  return a
 
 
 _StrOrMetricKey = transform.MetricKey | str
