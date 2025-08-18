@@ -36,6 +36,25 @@ class DfUtilsTest(absltest.TestCase):
         }),
     )
 
+  def test_index(self):
+    a = [{'a': 1, 'b': 2}, {'a': 3, 'b': 4}]
+    expected = {1: {'a': 1, 'b': 2}, 3: {'a': 3, 'b': 4}}
+    self.assertEqual(df_utils.index(a, lambda x: x['a']), expected)
+
+  def test_merge(self):
+    a = [{'a': 1, 'b': 2}, {'a': 3, 'b': 4}]
+    b = [{'a': 1, 'c': 3}, {'a': 3, 'c': 5}]
+    expected = [{'a': 1, 'b': 2, 'c': 3}, {'a': 3, 'b': 4, 'c': 5}]
+    self.assertEqual(expected, df_utils.merge(a, b, key_fn=lambda x: x['a']))
+
+  def test_merge_inplace(self):
+    a = [{'a': 1, 'b': 2}, {'a': 3, 'b': 4}]
+    b = [{'a': 1, 'c': 3}, {'a': 3, 'c': 5}]
+    expected = [{'a': 1, 'b': 2, 'c': 3}, {'a': 3, 'b': 4, 'c': 5}]
+    actual = df_utils.merge(a, b, key_fn=lambda x: x['a'], inplace=True)
+    self.assertIs(actual, a)
+    self.assertEqual(expected, a)
+
 
 if __name__ == '__main__':
   absltest.main()
