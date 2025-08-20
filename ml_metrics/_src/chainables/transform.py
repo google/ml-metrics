@@ -903,20 +903,48 @@ class TreeTransform(Generic[TreeFnT]):
       runners.append(runner)
     return ChainedRunner(runners)
 
-  def data_source(self, data_source: Any = None, /) -> Self:
+  def data_source(
+      self,
+      data_source: Any = None,
+      /,
+      *,
+      parse_fn: types.MaybeResolvable[Callable[..., Any]] | None = None,
+      output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+      batch_size: int = 0,
+  ) -> Self:
+    """Adds a data source to the transform."""
     if not self.is_noop:
       raise ValueError(
           f'Cannot add a data source to a non-empty transform, got {self}.'
       )
+    fn = tree_fns.TreeFn(
+        fn=parse_fn,
+        input_batch_size=batch_size,
+        output_keys=output_keys,
+    )
     return TreeTransform(
         data_source_=data_source,
+        fns=(fn,),
         name=self.name,
         num_threads=self.num_threads,
     )
 
   # Alias for data_source.
-  def ds(self, data_source: Any = None, /) -> Self:
-    return self.data_source(data_source)
+  def ds(
+      self,
+      data_source: Any = None,
+      /,
+      *,
+      parse_fn: types.MaybeResolvable[Callable[..., Any]] | None = None,
+      output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
+      batch_size: int = 0,
+  ) -> Self:
+    return self.data_source(
+        data_source,
+        parse_fn=parse_fn,
+        batch_size=batch_size,
+        output_keys=output_keys,
+    )
 
   @property
   def output_keys(self) -> set[TreeMapKey]:
