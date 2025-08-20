@@ -363,6 +363,11 @@ class TransformTest(parameterized.TestCase):
           expected={'b'},
       ),
       dict(
+          testcase_name='flatten',
+          transform_fn=lambda p: p.flatten(input_keys='a'),
+          expected={'a'},
+      ),
+      dict(
           testcase_name='filter',
           transform_fn=lambda p: p.filter(lambda x: x > 0, input_keys='a'),
           expected={'a'},
@@ -455,6 +460,35 @@ class TransformTest(parameterized.TestCase):
         list(t.named_transforms()['B'].make().iterate(inputs)),
         list(t3.make().iterate(inputs)),
     )
+
+  def test_transform_flatten_list(self):
+    data = [range(1), range(2), range(3)]
+    t = (
+        transform.TreeTransform()
+        .ds(data)
+        .flatten()
+    )
+    self.assertEqual(list(t.make()), [0, 0, 1, 0, 1, 2])
+
+  def test_transform_flatten_dict(self):
+    data = [{'a': range(1)}, {'a': range(2)}, {'a': range(3)}]
+    t = (
+        transform.TreeTransform()
+        .ds(data)
+        .flatten(input_keys='a')
+    )
+    expected = [{'a': x} for x in [0, 0, 1, 0, 1, 2]]
+    self.assertEqual(list(t.make()), expected)
+
+  def test_transform_flatten_auto_keys(self):
+    data = [range(1), range(2), range(3)]
+    t = (
+        transform.TreeTransform()
+        .ds(data, output_keys='a')
+        .flatten()
+    )
+    expected = [{'a': x} for x in [0, 0, 1, 0, 1, 2]]
+    self.assertEqual(list(t.make()), expected)
 
   def test_transform_filter_with_input_keys(self):
     t = (

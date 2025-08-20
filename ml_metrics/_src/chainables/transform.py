@@ -997,6 +997,23 @@ class TreeTransform(Generic[TreeFnT]):
           f' {assign_keys=} all output keys so far: {exisiting_keys}.'
       )
 
+  def flatten(
+      self,
+      fn: Callable[..., Iterable[Any]] | None = None,
+      *,
+      input_keys: TreeMapKey | TreeMapKeys = (),
+      output_keys: TreeMapKey | TreeMapKeys = (),
+  ) -> Self:
+    """Flattens the input of this transform."""
+    input_keys = input_keys or tuple(self.output_keys) or tree.Key.SELF
+    fn = tree_fns.FlattenFn(
+        fn=fn,
+        input_keys=input_keys,
+        output_keys=output_keys or input_keys,
+        input_batch_size=self.batch_size,
+    )
+    return self._maybe_new_transform(fn)
+
   def filter(
       self,
       fn: Callable[..., bool],

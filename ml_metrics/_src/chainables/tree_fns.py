@@ -19,7 +19,7 @@ import collections
 from collections.abc import Callable, Hashable, Iterable, Iterator, Mapping
 import dataclasses as dc
 import functools
-import itertools as it
+import itertools as itt
 from typing import Any, Generic, Self, TypeVar
 
 from ml_metrics._src import types
@@ -27,6 +27,7 @@ from ml_metrics._src.aggregates import base as aggregates
 from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.chainables import tree
 from ml_metrics._src.utils import iter_utils
+import more_itertools as mit
 import numpy as np
 
 
@@ -238,14 +239,20 @@ class TreeFn(Generic[_FnT, _T]):
   def __call__(self, inputs: tree.TreeLike = None) -> tree.TreeLike[_T]:
     return next(self.iterate([inputs]))
 
+  def _iterator_fn(
+      self, fn_inputs: Iterator[tuple[Any, ...]], ignore_error: bool = False
+  ) -> Iterator[Any]:
+    """Returns the iterator function."""
+    # Only ignore function call error.
+    map_ = iter_utils.map_ignore_error if ignore_error else map
+    return map_(self._maybe_call_fn, fn_inputs)
+
   def _iterate(
       self, input_iterator: Iterator[tree.TreeLike], ignore_error: bool = False
   ) -> Iterator[tree.TreeLike[_T]]:
     """Iterates through the input_iterator and calls the function."""
     fn_inputs = map(self._get_inputs, input_iterator)
-    # Only ignore function call error.
-    map_ = iter_utils.map_ignore_error if ignore_error else map
-    fn_outputs = map_(self._maybe_call_fn, fn_inputs)
+    fn_outputs = self._iterator_fn(fn_inputs, ignore_error)
     fn_outputs = map(self._normalize_outputs, fn_outputs)
     if self.batch_size:
       fn_outputs = iter_utils.rebatched_args(
@@ -276,6 +283,36 @@ class TreeFn(Generic[_FnT, _T]):
     self.__dict__.update(state)
 
 
+def _flatten_tuple(*columns: tuple[Any, ...]) -> Any:
+  """Flattens a tuple of values."""
+  for row in zip(*columns, strict=True):
+    if len(row) == 1:
+      yield row[0]
+    else:
+      yield row
+
+
+class FlattenFn(TreeFn):
+  """A lazy Flatten operation that operates on an mappable."""
+
+  def __post_init__(self):
+    super().__post_init__()
+    if self.fn is _identity_fn:
+      object.__setattr__(self, 'fn', _flatten_tuple)
+
+  def _iterator_fn(
+      self, fn_inputs: Iterator[tuple[Any, ...]], ignore_error: bool = False
+  ) -> Iterator[Any]:
+    """Returns the iterator function."""
+    # Only ignore function call error.
+    map_ = iter_utils.map_ignore_error if ignore_error else map
+    outputs = map_(self._maybe_call_fn, fn_inputs)
+    it = mit.peekable(outputs)
+    if not isinstance(it.peek(), Iterable):
+      raise TypeError(f'fn should be an iterable, got {it.peek()=}.')
+    return itt.chain.from_iterable(it)
+
+
 class FilterFn(TreeFn):
   """A lazy Map operation that operates on an mappable."""
 
@@ -301,7 +338,7 @@ class Assign(TreeFn):
   def iterate(
       self, input_iterator: Iterable[tree.TreeLike]
   ) -> Iterator[tree.TreeLike[_T]]:
-    return it.starmap(
+    return itt.starmap(
         self._get_outputs,
         iter_utils.processed_with_inputs(
             self._iterate, iter(input_iterator), ignore_error=self.ignore_error
