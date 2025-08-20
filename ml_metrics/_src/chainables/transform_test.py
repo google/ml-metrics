@@ -826,18 +826,6 @@ class TransformTest(parameterized.TestCase):
     with self.assertRaises(ValueError):
       transform.TreeTransform().assign('a', fn=len).assign(fn=len)
 
-  def test_deprecated_batch_size(self):
-    with self.assertRaisesRegex(ValueError, 'batch_size is deprecated'):
-      transform.TreeTransform().apply(batch_size=1)
-    with self.assertRaisesRegex(ValueError, 'batch_size is deprecated'):
-      transform.TreeTransform().apply(fn_batch_size=1)
-    with self.assertRaisesRegex(ValueError, 'batch_size is deprecated'):
-      transform.TreeTransform().assign('a', fn=len, batch_size=1)
-    with self.assertRaisesRegex(ValueError, 'batch_size is deprecated'):
-      transform.TreeTransform().assign('a', fn=len, fn_batch_size=1)
-    with self.assertRaisesRegex(ValueError, 'batch_size is deprecated'):
-      transform.TreeTransform().select(('a', 'b'), batch_size=1)
-
   @parameterized.named_parameters([
       dict(
           testcase_name='simple_keys',

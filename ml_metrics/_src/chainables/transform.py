@@ -1038,13 +1038,8 @@ class TreeTransform(Generic[TreeFnT]):
       *,
       fn: types.MaybeResolvable[Callable[..., Any]] | None = None,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      fn_batch_size: int = 0,
-      batch_size: int = 0,
   ) -> Self:
     """Assign some key value pairs back to the input mapping."""
-    # TODO: b/413743757 - remove batch_size and fn_batch_size.
-    if batch_size or fn_batch_size:
-      raise ValueError('batch_size is deprecated, use batch() instead.')
     if not assign_keys:
       raise ValueError(f'Assign should have assign_keys, got {assign_keys=}')
 
@@ -1062,12 +1057,8 @@ class TreeTransform(Generic[TreeFnT]):
       input_keys: tuple[TreeMapKey, ...] | TreeMapKey,
       *other_input_keys: TreeMapKey,
       output_keys: TreeMapKeys | None = None,
-      batch_size: int = 0,
   ) -> Self:
     """Selects the input of this transform."""
-    # TODO: b/413743757 - remove batch_size.
-    if batch_size:
-      raise ValueError('batch_size is deprecated, use batch() instead.')
     if isinstance(input_keys, Mapping):
       raise TypeError(f'illegal mapping for select op: {input_keys=}')
 
@@ -1191,13 +1182,8 @@ class TreeTransform(Generic[TreeFnT]):
       *,
       output_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
       input_keys: TreeMapKey | TreeMapKeys = tree.Key.SELF,
-      fn_batch_size: int = 0,
-      batch_size: int = 0,
   ) -> Self:
     """Applies a TreeFn on the selected inputs and directly outputs the result."""
-    # TODO: b/413743757 - remove batch_size and fn_batch_size.
-    if batch_size or fn_batch_size:
-      raise ValueError('(fn_)batch_size is deprecated, use batch() instead.')
 
     if fn or not (input_keys == output_keys and input_keys is tree.Key.SELF):
       fn = tree_fns.TreeFn(
