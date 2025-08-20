@@ -171,7 +171,7 @@ class TransformDataSourceTest(parameterized.TestCase):
 
   def test_sharded_sequence_data_source_make(self):
     ds = io.SequenceDataSource(range(3))
-    p = transform.TreeTransform().ds(ds).apply(lambda x: x + 1)
+    p = transform.TreeTransform().ds(ds, parse_fn=lambda x: x + 1)
     num_shards = 2
     shards = (io.ShardConfig(i, num_shards) for i in range(num_shards))
     actual = [list(p.make(shard=shard)) for shard in shards]
@@ -193,8 +193,7 @@ class TransformDataSourceTest(parameterized.TestCase):
     ds = io.SequenceDataSource(range(3))
     p = (
         transform.TreeTransform()
-        .ds(ds)
-        .apply(lambda x: x + 1)
+        .ds(ds, parse_fn=lambda x: x + 1)
         .agg(MockAverageFn())
     )
     num_shards = 2
@@ -264,13 +263,17 @@ class TransformDataSourceTest(parameterized.TestCase):
       )
 
   def test_input_override(self):
-    p = transform.TreeTransform().ds(range(3)).apply(lambda x: x + 1)
+    p = transform.TreeTransform().ds(range(3), parse_fn=lambda x: x + 1)
     runner = transform.TransformRunner.from_transform(p, input_state=None)
     self.assertEqual(list(runner.iterate(range(3))), [1, 2, 3])
 
+  def test_data_source_output_keys(self):
+    p = transform.TreeTransform().ds(range(3), output_keys='a')
+    self.assertEqual([{'a': 0}, {'a': 1}, {'a': 2}], list(p.make()))
+
   def test_sharded_iterable_data_source(self):
     ds = io.ShardedIterable(range(3))
-    p = transform.TreeTransform().ds(ds).apply(lambda x: x + 1)
+    p = transform.TreeTransform().ds(ds, parse_fn=lambda x: x + 1)
     num_shards = 2
     shards = (io.ShardConfig(i, num_shards) for i in range(num_shards))
     actual = [list(p.make(shard=shard)) for shard in shards]
@@ -279,14 +282,14 @@ class TransformDataSourceTest(parameterized.TestCase):
 
   def test_nonshardable_data_source_with_shard_index_raise_error(self):
     ds = test_utils.NoLenIter(range(3))
-    p = transform.TreeTransform().ds(ds).apply(lambda x: x + 1)
+    p = transform.TreeTransform().ds(ds, parse_fn=lambda x: x + 1)
     with self.assertRaisesRegex(
         TypeError, 'Data source is not configurable but .+ is provided.'
     ):
       _ = list(p.make(shard=io.ShardConfig(shard_index=1)))
 
   def test_data_source_size(self):
-    p = transform.TreeTransform().ds(range(100)).apply(lambda x: x + 1)
+    p = transform.TreeTransform().ds(range(100), parse_fn=lambda x: x + 1)
     it = p.make().iterate(data_source_size=transform.AUTO_SIZE)
     self.assertLen(it, 100)
 
@@ -456,10 +459,9 @@ class TransformTest(parameterized.TestCase):
   def test_transform_filter_with_input_keys(self):
     t = (
         transform.TreeTransform()
-        .ds(range(5))
-        .apply(lambda x: (x, x + 1), output_keys=('a', 'b'))
+        .ds(range(5), parse_fn=lambda x: (x, x + 1), output_keys=('a', 'b'))
         .filter(lambda x: x % 2 == 0, input_keys='a')
-        .batch(batch_size=2)
+        .batch(2)
     )
     self.assertEqual(
         list(t.make()), [{'a': [0, 2], 'b': [1, 3]}, {'a': [4], 'b': [5]}]
@@ -1533,7 +1535,6 @@ class TransformTest(parameterized.TestCase):
     p = (
         transform.TreeTransform()
         .ds(test_utils.NoLenIter(inputs))
-        .apply(lambda x: x)
         .agg(MockAverageFn())
     )
     actual = p.make(num_threads=num_threads)()
