@@ -48,12 +48,12 @@ class SequenceDataSource(types.Recoverable, Iterable[_T]):
   """A shardable sequence data source."""
   data: types.RandomAccessible[_T]
   ignore_error: bool = dc.field(kw_only=True, default=False)
-  batch_size: dc.InitVar[int] = 0
+  batch_size: int = 0
   _shard_state: ShardConfig = dc.field(default_factory=ShardConfig)
   _start: int = 0
   _end: int | None = None
 
-  def __post_init__(self, batch_size: int):
+  def __post_init__(self):
     data = self.data
     if not hasattr(data, '__getitem__') or not hasattr(data, '__len__'):
       raise TypeError(f'data is not indexable, got {type(data)=}')
@@ -62,7 +62,7 @@ class SequenceDataSource(types.Recoverable, Iterable[_T]):
     sequences = [self.data]
     if isinstance(self.data, iter_utils.MergedSequences):
       sequences = self.data.sequences
-    data = iter_utils.MergedSequences(sequences, batch_size)
+    data = iter_utils.MergedSequences(sequences, self.batch_size)
     object.__setattr__(self, 'data', data)
 
   @classmethod

@@ -48,6 +48,11 @@ class SequenceDataSourceTest(parameterized.TestCase):
     actual = [list(ds.shard(i, num_shards)) for i in range(num_shards)]
     self.assertEqual(expected, actual)
 
+  def test_sharded_sequence_with_batch_size(self):
+    ds = io.SequenceDataSource(range(10), batch_size=2)
+    self.assertEqual(2, ds.shard(0, 2).batch_size)
+    self.assertEqual(2, ds.shard(1, 2).batch_size)
+
   def test_sharded_sequence_len(self):
     ds = io.SequenceDataSource(range(3))
     self.assertLen(ds, 3)
