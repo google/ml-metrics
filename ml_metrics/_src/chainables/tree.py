@@ -212,16 +212,10 @@ class Key(tuple[BaseKey, ...]):
   # SKIP serves as a placeholder that indicates the corresponding output will be
   # ignored. This is typically only useful when there are more outputs than
   # those selected during set. Using this in get will raise a ValueError.
-  @classmethod
-  @property
-  def SKIP(cls):  # pylint: disable=invalid-name
-    return _SKIP
+  SKIP = _SKIP
 
   # SELF means selecting the whole tree, it is equivalent to Path().
-  @classmethod
-  @property
-  def SELF(cls):  # pylint: disable=invalid-name
-    return _SELF
+  SELF = _SELF
 
   @classmethod
   def Index(cls, i: int):  # pylint: disable=invalid-name
@@ -232,7 +226,7 @@ class Key(tuple[BaseKey, ...]):
     return Literal(value)
 
   @classmethod
-  def new(cls, *args: tuple[BaseKey, ...]) -> Self:
+  def new(cls, *args: BaseKey) -> Self:
     return cls(tuple(args))
 
   def __getattr__(self, name: str):
@@ -249,6 +243,7 @@ TreeMapKey = BaseKey | Key | Reserved | Literal
 # For keys, if there is tuple, the first dimension is always keys dimension.
 TreeMapKeys = (
     tuple[TreeMapKey, ...]
+    | list[TreeMapKey]
     | Mapping[str, TreeMapKey]
     | tuple[Mapping[str, TreeMapKey], ...]
 )

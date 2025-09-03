@@ -132,7 +132,7 @@ class TreeMapViewTest(parameterized.TestCase):
     with self.assertRaisesRegex(KeyError, 'Failed to insert'):
       TreeMapView({'a': 1}).set(({'a'},), 2)
     with self.assertRaisesRegex(KeyError, 'Failed to insert'):
-      TreeMapView({'a': 1}).set(Key.new('a', ['b']), 2)
+      TreeMapView({'a': 1}).set(Key.new('a', ('b',)), 2)
 
   def test_iter(self):
     data = {'a': {'a1': [1, 2]}, 'b': [{0: ['c', 'd']}], 'c': {}, 'e': []}

@@ -509,7 +509,7 @@ class Slicer:
     slice_mask_fn = slice_mask_fn or _slice_mask_fn
     return cls(
         slice_mask_fn=slice_mask_fn,
-        slice_name=slice_name,
+        slice_name=slice_name,  # pytype: disable=wrong-arg-types
         input_keys=input_keys,
         replace_mask_false_with=replace_mask_false_with,
         within_values=within_values,
