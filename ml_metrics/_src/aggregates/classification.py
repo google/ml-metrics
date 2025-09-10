@@ -50,8 +50,8 @@ class ConfusionMatrixMetric(enum.StrEnum):
   FPR = 'fpr'
   MISS_RATE = 'miss_rate'
   FNR = 'fnr'
-  NEGATIVE_PREDICTION_VALUE = 'negative_prediction_value'
-  NVP = 'nvp'
+  NEGATIVE_PREDICTIVE_VALUE = 'negative_predictive_value'
+  NPV = 'npv'
   FALSE_DISCOVERY_RATE = 'false_discovery_rate'
   FALSE_OMISSION_RATE = 'false_omission_rate'
   THREAT_SCORE = 'threat_score'
@@ -182,9 +182,9 @@ class _ConfusionMatrix:
         result = _miss_rate(self)
       case ConfusionMatrixMetric.FNR:
         result = _fnr(self)
-      case ConfusionMatrixMetric.NEGATIVE_PREDICTION_VALUE:
+      case ConfusionMatrixMetric.NEGATIVE_PREDICTIVE_VALUE:
         result = _negative_prediction_value(self)
-      case ConfusionMatrixMetric.NVP:
+      case ConfusionMatrixMetric.NPV:
         result = _npv(self)
       case ConfusionMatrixMetric.FALSE_DISCOVERY_RATE:
         result = _false_discovery_rate(self)

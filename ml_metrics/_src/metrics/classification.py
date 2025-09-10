@@ -653,7 +653,7 @@ def fnr(
 fnr.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
-def negative_prediction_value(
+def negative_predictive_value(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
@@ -663,10 +663,10 @@ def negative_prediction_value(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Negative Prediction Value classification metric."""
+  """Compute Negative Predictive Value classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.NEGATIVE_PREDICTION_VALUE,
+      metrics=classification.ConfusionMatrixMetric.NEGATIVE_PREDICTIVE_VALUE,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -676,10 +676,10 @@ def negative_prediction_value(
   )(y_true, y_pred)
 
 
-negative_prediction_value.__doc__ += _METRIC_PYDOC_POSTFIX
+negative_predictive_value.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
-def nvp(
+def npv(
     y_true,
     y_pred,
     pos_label: bool | int | str | bytes = 1,
@@ -689,10 +689,10 @@ def nvp(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute alias of Negative Prediction Value classification metric."""
+  """Compute alias of Negative Predictive Value classification metric."""
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.NVP,
+      metrics=classification.ConfusionMatrixMetric.NPV,
       pos_label=pos_label,
       input_type=input_type,
       average=average,
@@ -702,7 +702,7 @@ def nvp(
   )(y_true, y_pred)
 
 
-nvp.__doc__ += _METRIC_PYDOC_POSTFIX
+npv.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
 def false_discovery_rate(

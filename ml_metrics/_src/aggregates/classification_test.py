@@ -40,8 +40,8 @@ _ImplementedDerivedConfusionMatrixMetrics = [
     "fpr",
     "miss_rate",
     "fnr",
-    "negative_prediction_value",
-    "nvp",
+    "negative_predictive_value",
+    "npv",
     "false_discovery_rate",
     "false_omission_rate",
     "threat_score",
@@ -380,8 +380,8 @@ class ClassificationTest(parameterized.TestCase):
               "fpr": 1 / 3,
               "miss_rate": 2 / 4,
               "fnr": 2 / 4,
-              "negative_prediction_value": 2 / 4,
-              "nvp": 2 / 4,
+              "negative_predictive_value": 2 / 4,
+              "npv": 2 / 4,
               "false_discovery_rate": 1 / 3,
               "false_omission_rate": 2 / 4,
               "threat_score": 2 / 5,
@@ -421,8 +421,8 @@ class ClassificationTest(parameterized.TestCase):
               "fpr": (1 / 3 + 2 / 4) / 2,
               "miss_rate": (2 / 4 + 1 / 3) / 2,
               "fnr": (2 / 4 + 1 / 3) / 2,
-              "negative_prediction_value": (2 / 4 + 2 / 3) / 2,
-              "nvp": (2 / 4 + 2 / 3) / 2,
+              "negative_predictive_value": (2 / 4 + 2 / 3) / 2,
+              "npv": (2 / 4 + 2 / 3) / 2,
               "false_discovery_rate": (1 / 3 + 2 / 4) / 2,
               "false_omission_rate": (2 / 4 + 1 / 3) / 2,
               "threat_score": (2 / 5 + 2 / 5) / 2,
@@ -465,8 +465,8 @@ class ClassificationTest(parameterized.TestCase):
               "fpr": 1 / 3,
               "miss_rate": 2 / 4,
               "fnr": 2 / 4,
-              "negative_prediction_value": 2 / 4,
-              "nvp": 2 / 4,
+              "negative_predictive_value": 2 / 4,
+              "npv": 2 / 4,
               "false_discovery_rate": 1 / 3,
               "false_omission_rate": 2 / 4,
               "threat_score": 2 / 5,
@@ -507,8 +507,8 @@ class ClassificationTest(parameterized.TestCase):
               "fpr": 1 / 3,
               "miss_rate": 2 / 4,
               "fnr": 2 / 4,
-              "negative_prediction_value": 2 / 4,
-              "nvp": 2 / 4,
+              "negative_predictive_value": 2 / 4,
+              "npv": 2 / 4,
               "false_discovery_rate": 1 / 3,
               "false_omission_rate": 2 / 4,
               "threat_score": 2 / 5,
@@ -594,8 +594,8 @@ class ClassificationTest(parameterized.TestCase):
               "fpr": 0.5,  # MeanState(total=3.0, count=6)
               "miss_rate": 0.5,  # MeanState(total=3.0, count=6)
               "fnr": 0.5,  # MeanState(total=3.0, count=6)
-              "negative_prediction_value": 0.5,  # MeanState(total=3.0, count=6)
-              "nvp": 0.5,  # MeanState(total=3.0, count=6)
+              "negative_predictive_value": 0.5,  # MeanState(total=3.0, count=6)
+              "npv": 0.5,  # MeanState(total=3.0, count=6)
               "false_discovery_rate": 0.5,  # MeanState(total=3.0, count=6)
               "false_omission_rate": 0.5,  # MeanState(total=3.0, count=6)
               "threat_score": 0.5,  # MeanState(total=3.0, count=6)
@@ -639,8 +639,8 @@ class ClassificationTest(parameterized.TestCase):
               "miss_rate": 0.375,  # MeanState(total=3.0, count=8)
               "fnr": 0.375,  # MeanState(total=3.0, count=8)
               # MeanState(total=6.5, count=8)
-              "negative_prediction_value": 0.8125,
-              "nvp": 0.8125,  # MeanState(total=6.5, count=8)
+              "negative_predictive_value": 0.8125,
+              "npv": 0.8125,  # MeanState(total=6.5, count=8)
               "false_discovery_rate": 0.375,  # MeanState(total=3.0, count=8)
               "false_omission_rate": 0.1875,  # MeanState(total=1.5, count=8)
               "threat_score": 0.625,  # MeanState(total=5.0, count=8)
@@ -688,8 +688,8 @@ class ClassificationTest(parameterized.TestCase):
               "miss_rate": 0.3125,  # MeanState(total=2.5, count=8)
               "fnr": 0.3125,  # MeanState(total=2.5, count=8)
               # MeanState(total=6.5, count=8)
-              "negative_prediction_value": 0.8125,
-              "nvp": 0.8125,  # MeanState(total=6.5, count=8)
+              "negative_predictive_value": 0.8125,
+              "npv": 0.8125,  # MeanState(total=6.5, count=8)
               "false_discovery_rate": 0.3125,  # MeanState(total=2.5, count=8)
               "false_omission_rate": 0.1875,  # MeanState(total=1.5, count=8)
               "threat_score": 0.625,  # MeanState(total=5.0, count=8)

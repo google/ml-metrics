@@ -314,14 +314,14 @@ class ClassificationTest(parameterized.TestCase):
           expected_with_k_list=[4 / 9, 1 / 3],
       ),
       dict(
-          testcase_name="negative_prediction_value",
-          metric_fn=classification.negative_prediction_value,
+          testcase_name="negative_predictive_value",
+          metric_fn=classification.negative_predictive_value,
           expected_no_k_list=4 / 5,
           expected_with_k_list=[3 / 4, 4 / 5],
       ),
       dict(
-          testcase_name="nvp",
-          metric_fn=classification.nvp,
+          testcase_name="npv",
+          metric_fn=classification.npv,
           expected_no_k_list=4 / 5,
           expected_with_k_list=[3 / 4, 4 / 5],
       ),
