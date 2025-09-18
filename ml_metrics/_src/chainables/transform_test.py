@@ -1228,6 +1228,19 @@ class TransformTest(parameterized.TestCase):
     }
     self.assertEqual(expected, agg.make()(inputs))
 
+  def test_aggregate_with_slice_crosses_1(self):
+    inputs = {'a': [1, 2, 1], 'b': [1, 9, 5], 'c': [1, 2, 3]}
+    agg = (
+        transform.TreeTransform()
+        .agg(MockAverageFn(), input_keys='b', output_keys='avg_b')
+        .add_slice(dict(a=(1,), c=(2, 3)))
+    )
+    expected = {
+        'avg_b': [5.0],
+        MetricKey('avg_b', SliceKey(('a', 'c'), (1, 3))): [5.0],
+    }
+    self.assertEqual(expected, agg.make()(inputs))
+
   def test_aggregate_with_slicing_on_dict(self):
     inputs = {'a': np.array([1, 2, 1]), 'b': np.array([1, 9, 5])}
     agg = (

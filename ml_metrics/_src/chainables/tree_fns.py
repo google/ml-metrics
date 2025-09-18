@@ -471,14 +471,19 @@ class Slicer:
     input_keys = tree.normalize_keys(input_keys)
     slice_name = tree.normalize_keys(slice_name) or input_keys
 
-    def _default_slice_fn(*args):
+    def _default_slice_fn(*values):
       if not within_values:
-        return (args,)
-      return (
-          arg
-          for arg, within_value in zip(args, within_values, strict=True)
-          if arg in within_value
+        return (values,)
+
+      values_and_withins = zip(values, within_values, strict=True)
+      filtered_values = tuple(
+          value for value, withins in values_and_withins if value in withins
       )
+      # Only when all value are within the values, it is considered as a slice.
+      if len(filtered_values) == len(values):
+        return (filtered_values,)
+
+      return ()
 
     slice_fn = slice_fn or _default_slice_fn
 
