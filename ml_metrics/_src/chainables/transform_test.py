@@ -300,6 +300,12 @@ class TransformTest(parameterized.TestCase):
     super().setUp()
     self.maxDiff = None
 
+  def test_empty_transform_raise_error(self):
+    with self.assertRaisesRegex(
+        ValueError, 'Cannot make from an empty pipeline.'
+    ):
+      _ = transform.TreeTransform().make()
+
   def test_transform_unique_ids_with_each_op(self):
     seen_ids = set()
     t = transform.TreeTransform()

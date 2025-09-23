@@ -887,6 +887,9 @@ class TreeTransform(Generic[TreeFnT]):
   ) -> ChainedRunner:
     """Makes the concrete function instance from the transform."""
     transforms = self.flatten_transform()
+    if not transforms:
+      raise ValueError('Cannot make from an empty pipeline.')
+
     if not recursive:
       transforms = [transforms[-1]]
     agg_only = mode == RunnerMode.AGGREGATE
