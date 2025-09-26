@@ -12,11 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Proto utils."""
-from collections.abc import Iterable
 from typing import Any
 from absl import logging
+import deprecated
 from ml_metrics._src.tools.telemetry import telemetry
-import more_itertools as mit
 import numpy as np
 from tensorflow.core.example import example_pb2
 
@@ -31,41 +30,38 @@ def _maybe_deserialize(ex: _ExampleOrBytes) -> example_pb2.Example:
   raise TypeError('Unsupported type: %s' % type(ex))
 
 
-@telemetry.function_monitor(api='ml_metrics', category=telemetry.CATEGORY.UTIL)
-def tf_examples_to_dict(examples: Iterable[_ExampleOrBytes] | _ExampleOrBytes):
-  """Parses a serialized tf.train.Example to a dict."""
-  single_example = False
-  if isinstance(examples, (bytes, example_pb2.Example)):
-    single_example = True
-    examples = [examples]
-  examples = (_maybe_deserialize(ex) for ex in examples)
-  examples = mit.peekable(examples)
-  if (head := examples.peek(None)) is None:
-    return {}
+@deprecated.deprecated('Use tf_example_to_dict instead.')
+def tf_examples_to_dict(examples: _ExampleOrBytes):
+  if isinstance(examples, example_pb2.Example):
+    return tf_example_to_dict(examples)
 
-  result = {k: [] for k in head.features.feature}
-  for ex in examples:
-    missing = set(result)
-    for key, feature in ex.features.feature.items():
-      missing.remove(key)
-      value = getattr(feature, feature.WhichOneof('kind')).value
-      if value and isinstance(value[0], bytes):
-        try:
-          value = [v.decode() for v in value]
-        except UnicodeDecodeError:
-          logging.info(
-              'chainable: %s',
-              f'Failed to decode for {key}, forward the raw bytes.',
-          )
-      result[key].extend(value)
-    if missing:
-      raise ValueError(
-          f'Missing keys: {missing}, expecting {set(result)}, got {ex=}'
-      )
-  result = {k: v for k, v in result.items()}
-  # Scalar value in a single example will be returned with the scalar directly.
-  if single_example and all(len(v) == 1 for v in result.values()):
-    result = {k: v[0] for k, v in result.items()}
+  raise TypeError(
+      'Mutliple examples are not supported, got %s' % type(examples)
+  )
+
+
+@telemetry.function_monitor(api='ml_metrics', category=telemetry.CATEGORY.UTIL)
+def tf_example_to_dict(
+    example: _ExampleOrBytes,
+    *,
+    unwrap_scalar: bool = True,
+    decode_bytes_as_str: bool = True,
+):
+  """Parses a serialized tf.train.Example to a dict."""
+  example = _maybe_deserialize(example)
+
+  result = {}
+  for key, feature in example.features.feature.items():
+    value = getattr(feature, feature.WhichOneof('kind')).value
+    if value and isinstance(value[0], bytes) and decode_bytes_as_str:
+      try:
+        value = [v.decode() for v in value]
+      except UnicodeDecodeError:
+        logging.info(
+            'chainable: %s',
+            f'Failed to decode for {key}, forward the raw bytes.',
+        )
+    result[key] = value[0] if unwrap_scalar and len(value) == 1 else value
   return result
 
 
