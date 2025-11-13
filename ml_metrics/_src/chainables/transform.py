@@ -1009,7 +1009,7 @@ class TreeTransform(Generic[TreeFnT]):
   ) -> Self:
     """Flattens the input of this transform."""
     input_keys = input_keys or tuple(self.output_keys) or tree.Key.SELF
-    fn = tree_fns.FlattenFn(
+    fn = tree_fns.Flatten(
         fn=fn,
         input_keys=input_keys,
         output_keys=output_keys or input_keys,
@@ -1027,7 +1027,7 @@ class TreeTransform(Generic[TreeFnT]):
     assert fn is not None, 'fn must be provided, got None.'
     # The output_keys here is mostly for correct `self.output_keys`, which is
     # not used in FilterFn when filtering.
-    fn = tree_fns.FilterFn(
+    fn = tree_fns.Filter(
         fn=fn,
         input_keys=input_keys,
         output_keys=tuple(self.output_keys),

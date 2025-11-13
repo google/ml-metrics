@@ -239,7 +239,7 @@ class TreeFnTest(parameterized.TestCase):
 
   def test_flatten_default_fn(self):
     data = [range(1), range(2), range(3)]
-    tree_fn = tree_fns.FlattenFn()
+    tree_fn = tree_fns.Flatten()
     self.assertEqual([0, 0, 1, 0, 1, 2], list(tree_fn.iterate(data)))
 
   def test_flatten_fn(self):
@@ -247,17 +247,17 @@ class TreeFnTest(parameterized.TestCase):
       yield from range(x)
 
     data = [{'a': 1}, {'a': 2}, {'a': 3}]
-    tree_fn = tree_fns.FlattenFn(fn=foo, input_keys='a')
+    tree_fn = tree_fns.Flatten(fn=foo, input_keys='a')
     self.assertEqual([0, 0, 1, 0, 1, 2], list(tree_fn.iterate(data)))
 
   def test_filter_fn(self):
     data = range(6)
-    tree_fn = tree_fns.FilterFn(fn=lambda x: x % 2 == 0)
+    tree_fn = tree_fns.Filter(fn=lambda x: x % 2 == 0)
     self.assertEqual([0, 2, 4], list(tree_fn.iterate(data)))
 
   def test_filter_fn_empty_output_keys(self):
     data = range(6)
-    tree_fn = tree_fns.FilterFn(fn=lambda x: x % 2 == 0, output_keys=())
+    tree_fn = tree_fns.Filter(fn=lambda x: x % 2 == 0, output_keys=())
     self.assertEqual([0, 2, 4], list(tree_fn.iterate(data)))
 
   def test_assign(self):

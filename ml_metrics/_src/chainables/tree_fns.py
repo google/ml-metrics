@@ -292,7 +292,7 @@ def _flatten_tuple(*columns: tuple[Any, ...]) -> Any:
       yield row
 
 
-class FlattenFn(TreeFn):
+class Flatten(TreeFn):
   """A lazy Flatten operation that operates on an mappable."""
 
   def __post_init__(self):
@@ -313,7 +313,7 @@ class FlattenFn(TreeFn):
     return itt.chain.from_iterable(it)
 
 
-class FilterFn(TreeFn):
+class Filter(TreeFn):
   """A lazy Map operation that operates on an mappable."""
 
   def __post_init__(self):
