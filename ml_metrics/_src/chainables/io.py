@@ -48,7 +48,8 @@ class SequenceDataSource(types.Recoverable, Iterable[_T]):
   """A shardable sequence data source."""
   data: types.RandomAccessible[_T]
   ignore_error: bool = dc.field(kw_only=True, default=False)
-  batch_size: int = 0
+  batch_size: int = dc.field(kw_only=True, default=0)
+  with_index: bool = dc.field(kw_only=True, default=False)
   _shard_state: ShardConfig = dc.field(default_factory=ShardConfig)
   _start: int = 0
   _end: int | None = None
@@ -127,7 +128,7 @@ class SequenceDataSource(types.Recoverable, Iterable[_T]):
   def __iter__(self) -> Iterator[_T]:
     return self.iterate()
 
-  def __getitem__(self, index: int | Any) -> _T:
+  def __getitem__(self, index: int | Any) -> _T | tuple[int, _T]:
     """Iterates the data source given a shard index."""
     if isinstance(index, slice):
       start, stop, step = index.start, index.stop, index.step
@@ -139,10 +140,15 @@ class SequenceDataSource(types.Recoverable, Iterable[_T]):
       else:
         stop = self.end + stop if stop < 0 else self.start + stop
         stop = min(stop, self.end)
-      return list(self.data[slice(start, stop, step)])
+      slice_ = slice(start, stop, step)
+      result = list(self.data[slice_])
+      if self.with_index:
+        # Uses range(stop)[slice] to support None as start and step.
+        return list(zip(range(stop)[slice_], result))
+      return result
 
     index = self.end + index if index < 0 else self.start + index
-    return self.data[index]
+    return (index, self.data[index]) if self.with_index else self.data[index]
 
 
 class SequenceIterator(types.Recoverable, Iterator[_T]):
@@ -150,12 +156,14 @@ class SequenceIterator(types.Recoverable, Iterator[_T]):
 
   config: SequenceDataSource
   _index: int
+  _with_index: bool
 
   def __init__(self, config: SequenceDataSource):
     self._index = config.start
     iter_ = iter_utils.iter_ignore_error if config.ignore_error else iter
     self._it = iter_(config.data[config.start : config.end])
     self.config = config
+    self._with_index = config.with_index
 
   def from_state(self, shard_state: ShardConfig) -> Self:
     return self.__class__(self.config.from_state(shard_state))
@@ -165,11 +173,11 @@ class SequenceIterator(types.Recoverable, Iterator[_T]):
     start_index = self._index - self.config.start
     return dc.replace(self.config.state, start_index=start_index)
 
-  def __next__(self) -> _T:
+  def __next__(self) -> _T | tuple[int, _T]:
     """Iterates the data source given a shard index."""
     result = next(self._it)
     self._index += 1
-    return result
+    return (self._index - 1, result) if self._with_index else result
 
   def __iter__(self) -> Self:
     """Iterates the data source given a shard index."""

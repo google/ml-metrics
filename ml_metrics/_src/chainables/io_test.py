@@ -198,6 +198,20 @@ class SequenceDataSourceTest(parameterized.TestCase):
     ds = io.maybe_shardable(range(3))
     self.assertIsInstance(ds, io.SequenceDataSource)
 
+  def test_sequence_with_index(self):
+    ds = io.SequenceDataSource(range(3), with_index=True)
+    self.assertEqual([(0, 0), (1, 1), (2, 2)], list(ds))
+
+  def test_sharded_sequence_with_index(self):
+    ds = io.SequenceDataSource(range(10, 16), with_index=True)
+    self.assertEqual([(3, 13), (4, 14), (5, 15)], list(ds.shard(1, 2)))
+    self.assertEqual([(0, 10), (1, 11), (2, 12)], list(ds.shard(0, 2)))
+
+  def test_sequence_with_index_getitem(self):
+    ds = io.SequenceDataSource(range(10, 16), with_index=True)
+    self.assertEqual((2, 12), ds[2])
+    self.assertEqual([(1, 11), (2, 12), (3, 13), (4, 14)], ds[1:5])
+
 
 class IterableDataSourceTest(parameterized.TestCase):
 
