@@ -20,7 +20,7 @@ from collections.abc import Callable, Iterable
 import copy
 from typing import Any
 
-from ml_metrics._src.chainables import transform
+import chainable
 from ml_metrics._src.tools.telemetry import telemetry
 import pandas as pd
 
@@ -58,7 +58,7 @@ def merge(
   return a
 
 
-_StrOrMetricKey = transform.MetricKey | str
+_StrOrMetricKey = chainable.MetricKey | str
 
 
 @telemetry.function_monitor(api='ml_metrics', category=telemetry.CATEGORY.UTIL)
@@ -85,7 +85,7 @@ def metrics_to_df(metrics: dict[_StrOrMetricKey, Any]) -> pd.DataFrame:
       sliced_results[_METRIC_NAME].append(k)
       sliced_results[_SLICE].append('overall')
       sliced_results[_VALUE].append(v)
-    elif isinstance(k, transform.MetricKey):
+    elif isinstance(k, chainable.MetricKey):
       sliced_results[_METRIC_NAME].append(k.metrics)
       slice_name = _first_or_tuple(k.slice.features)
       slice_value = _first_or_tuple(k.slice.values)
