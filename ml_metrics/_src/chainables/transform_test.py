@@ -473,6 +473,12 @@ class TransformTest(parameterized.TestCase):
     expected = [{'a': 1, 'b': 'x'}, {'a': 2, 'b': 'x'}, {'a': 3, 'b': 'y'}]
     self.assertEqual(list(t.make()), expected)
 
+  def test_transform_explode_output_keys(self):
+    data = [{'a': [1, 2], 'b': 'x', 'c': 1}, {'a': [3], 'b': 'y', 'c': 2}]
+    t = transform.TreeTransform().ds(data).select(('a', 'b')).explode('a')
+    expected = [{'a': 1, 'b': 'x'}, {'a': 2, 'b': 'x'}, {'a': 3, 'b': 'y'}]
+    self.assertEqual(list(t.make()), expected)
+
   def test_transform_flatten_list(self):
     data = [range(1), range(2), range(3)]
     t = (

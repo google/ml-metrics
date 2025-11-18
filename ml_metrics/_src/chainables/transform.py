@@ -1000,14 +1000,9 @@ class TreeTransform(Generic[TreeFnT]):
           f' {assign_keys=} all output keys so far: {exisiting_keys}.'
       )
 
-  def explode(
-      self,
-      field_name: TreeMapKey,
-      *,
-      input_keys: TreeMapKey | TreeMapKeys = (),
-  ) -> Self:
+  def explode(self, field_name: TreeMapKey) -> Self:
     """Explodes the input of this transform."""
-    input_keys = input_keys or tuple(self.output_keys) or tree.Key.SELF
+    output_keys = tree.Key.SELF
 
     def _explode(inputs):
       field_values = inputs[field_name]
@@ -1018,8 +1013,8 @@ class TreeTransform(Generic[TreeFnT]):
 
     fn = tree_fns.Flatten(
         fn=_explode,
-        input_keys=input_keys,
-        output_keys=input_keys,
+        input_keys=tree.Key.SELF,
+        output_keys=output_keys,
         input_batch_size=self.batch_size,
     )
     return self._maybe_new_transform(fn)
