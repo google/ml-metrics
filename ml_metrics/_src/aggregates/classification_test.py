@@ -14,16 +14,16 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
+# from chainable._src.utils import test_utils
+from chainable import test_utils
 from ml_metrics._src.aggregates import classification
-from ml_metrics._src.aggregates import types
+from ml_metrics._src.aggregates import types as agg_types
 from ml_metrics._src.aggregates import utils
-from ml_metrics._src.chainables import lazy_fns
 from ml_metrics._src.utils import math_utils
-from ml_metrics._src.utils import test_utils
 import numpy as np
 
-InputType = types.InputType
-AverageType = types.AverageType
+InputType = agg_types.InputType
+AverageType = agg_types.AverageType
 ConfusionMatrixMetric = classification.ConfusionMatrixMetric
 _ImplementedDerivedConfusionMatrixMetrics = [
     "precision",
@@ -433,9 +433,12 @@ class ClassificationTest(parameterized.TestCase):
               "intersection_over_union": (2 / 5 + 2 / 5) / 2,
               "prevalence": (4 / 7 + 3 / 7) / 2,
               "prevalence_threshold": (
-                  (math_utils.pos_sqrt(6) - 2)
-                  + (2 * math_utils.pos_sqrt(3) - 3)
-              ) / 2,
+                  (
+                      (math_utils.pos_sqrt(6) - 2)
+                      + (2 * math_utils.pos_sqrt(3) - 3)
+                  )
+                  / 2
+              ),
               "matthews_correlation_coefficient": (1 / 6 + 1 / 6) / 2,
               "informedness": (1 / 6 + 1 / 6) / 2,
               "markedness": (1 / 6 + 1 / 6) / 2,
@@ -840,25 +843,6 @@ class ClassificationTest(parameterized.TestCase):
       classification.SamplewiseConfusionMatrixAggFn(
           metrics=(), input_type=InputType.BINARY
       )
-
-  def test_fn_config_to_lazy_fn_by_module(self):
-    actual = lazy_fns.maybe_make(
-        lazy_fns.FnConfig(
-            fn="SamplewiseClassification",
-            module="ml_metrics._src.aggregates.classification",
-            kwargs=dict(
-                metrics=("recall", "precision"),
-                input_type="multiclass-multioutput",
-            ),
-        ).make_lazy_fn()
-    )
-    self.assertEqual(
-        classification.SamplewiseClassification(  # pytype: disable=wrong-arg-types
-            metrics=("recall", "precision"),
-            input_type="multiclass-multioutput",
-        ),
-        actual,
-    )
 
 
 if __name__ == "__main__":

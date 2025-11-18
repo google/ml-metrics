@@ -14,15 +14,14 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from chainable import test_utils
 from ml_metrics._src.aggregates import retrieval
-from ml_metrics._src.aggregates import types
+from ml_metrics._src.aggregates import types as agg_types
 from ml_metrics._src.aggregates import utils
-from ml_metrics._src.chainables import lazy_fns
-from ml_metrics._src.utils import test_utils
 import numpy as np
 
 
-InputType = types.InputType
+InputType = agg_types.InputType
 RetrievalMetric = retrieval.RetrievalMetric
 
 
@@ -371,19 +370,6 @@ class TopKRetrievalTest(parameterized.TestCase):
     topk_retrieval1.merge(topk_retrieval2)
     expected = {"precision": utils.MeanState(11, 16)}
     self.assertDictEqual(expected, topk_retrieval1.state)
-
-  def test_fn_config_to_lazy_fn_by_module(self):
-    actual = lazy_fns.maybe_make(
-        lazy_fns.FnConfig(
-            fn="TopKRetrieval",
-            module="ml_metrics._src.aggregates.retrieval",
-            kwargs=dict(metrics=("recall", "precision")),
-        ).make_lazy_fn()
-    )
-    self.assertEqual(
-        retrieval.TopKRetrieval(metrics=("recall", "precision")),  # pytype: disable=wrong-arg-types
-        actual,
-    )
 
 
 if __name__ == "__main__":

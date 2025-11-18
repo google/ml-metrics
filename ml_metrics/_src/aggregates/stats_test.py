@@ -16,9 +16,9 @@ import dataclasses
 import math
 
 from absl.testing import parameterized
+import chainable
+from chainable import test_utils
 from ml_metrics._src.aggregates import stats
-from ml_metrics._src.chainables import transform
-from ml_metrics._src.utils import test_utils
 import more_itertools as mit
 import numpy as np
 
@@ -177,7 +177,7 @@ class HistogramTest(parameterized.TestCase):
     hist_2 = dataclasses.replace(hist_1, _bin_edges=np.array(bin_edges_2))
     with self.assertRaisesRegex(
         ValueError,
-        'The bin edges of the two Histograms must be equal, but recieved'
+        'The bin edges of the two Histograms must be equal, but recieved',
     ):
       hist_1.merge(hist_2)
 
@@ -255,7 +255,7 @@ class CounterTest(parameterized.TestCase):
       ),
   )
   def test_in_pipeline(self, batched, input_keys, expected, input_fn=None):
-    p = transform.TreeTransform()
+    p = chainable.Pipeline()
     counter = stats.Counter(input_fn=input_fn)
     if batched:
       p = p.select(input_keys).batch(2)
@@ -307,13 +307,13 @@ class UnboundesSamplerTest(absltest.TestCase):
     self.assertEqual(['a', 'b', 'c', 'b'], sampler_1.result())
 
   def test_with_transform_without_input_keys(self):
-    t = transform.TreeTransform().agg(
+    t = chainable.Pipeline().agg(
         fn=stats.UnboundedSampler(),
         output_keys='samples',
     )
     it = t.make().iterate([['a', 'b'], ['c']])
     _ = mit.last(it)
-    metric_key = transform.MetricKey(metrics=('samples',))
+    metric_key = chainable.MetricKey(metrics=('samples',))
     expected_state = stats.UnboundedSampler(
         _samples=(['a', 'b', 'c'],), _multi_input=False
     )
@@ -321,7 +321,7 @@ class UnboundesSamplerTest(absltest.TestCase):
     self.assertEqual(['a', 'b', 'c'], it.agg_result['samples'])
 
   def test_with_transform_with_input_keys(self):
-    t = transform.TreeTransform().agg(
+    t = chainable.Pipeline().agg(
         fn=stats.UnboundedSampler(),
         output_keys=('a', 'b'),
         input_keys=('a', 'b'),
@@ -334,6 +334,7 @@ class UnboundesSamplerTest(absltest.TestCase):
 
 
 class FixedSizeSampleTest(parameterized.TestCase):
+
   def _assert_fixed_size_samples_equal(self, actual, expected):
     self.assertEqual(actual.max_size, expected.max_size)
     self.assertEqual(actual.seed, expected.seed)
@@ -638,15 +639,15 @@ class CountTest(parameterized.TestCase):
     self.assertEqual(6, count1.result())
 
   def test_batched(self):
-    p = transform.TreeTransform().batch(2).agg(stats.Count())
+    p = chainable.Pipeline().batch(2).agg(stats.Count())
     self.assertEqual({'': 3}, p.make()(input_iterator=range(3)))
 
   def test_unbatched(self):
-    p = transform.TreeTransform().agg(stats.Count(batched_inputs=False))
+    p = chainable.Pipeline().agg(stats.Count(batched_inputs=False))
     self.assertEqual({'': 3}, p.make()(input_iterator=range(3)))
 
   def test_count_fn(self):
-    p = transform.TreeTransform().agg(
+    p = chainable.Pipeline().agg(
         stats.Count(batched_inputs=False, count_fn=len)
     )
     self.assertEqual({'': 4}, p.make()(input_iterator=['aa', 'bb']))
@@ -1053,6 +1054,7 @@ class MeanAndVarianceTest(parameterized.TestCase):
 
 
 class MinMaxAndCountTest(parameterized.TestCase):
+
   def test_min_max_and_count_merge(self):
     batch_1 = (1, 2, 3, 4, 5, 6, 7, 8, 9)  # len(batch_1) = 9
     batch_2 = (8, 6, 7, 5, 3, 0, 9)  # len(batch_2) = 7
@@ -1425,9 +1427,7 @@ class R2TjurTest(parameterized.TestCase):
     np.random.seed(seed=0)
     y_true = np.random.uniform(low=1e-5, high=1 - 1e-5, size=(1000, 1000))
     # This is a noisy version of y_true.
-    y_pred = y_true + np.random.uniform(
-        low=-1e-5, high=1e-5, size=(1000, 1000)
-    )
+    y_pred = y_true + np.random.uniform(low=-1e-5, high=1e-5, size=(1000, 1000))
     y_true = np.round(y_true)
     y_pred = np.round(y_pred)
     state = r2_metric()

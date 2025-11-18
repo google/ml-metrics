@@ -12,17 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """test_utils."""
-from ml_metrics._src.aggregates import base
+import chainable
 
 
-class _SumMetric(base.CallableMetric, base.HasAsAggFn):
+class _SumMetric(chainable.CallableMetric, chainable.HasAsAggFn):
   """Mock Metric for test."""
 
   def __init__(self, state=0):
     self._state = state
 
   def as_agg_fn(self):
-    return base.as_agg_fn(self.__class__)
+    return chainable.as_agg_fn(self.__class__)
 
   @property
   def state(self):

@@ -18,7 +18,7 @@ from collections.abc import Iterable
 import dataclasses
 from typing import Any, Protocol
 
-from ml_metrics._src.aggregates import base as agg
+import chainable
 
 
 class KerasMetric(Protocol):
@@ -48,7 +48,7 @@ def is_keras_metric(metric: Any) -> bool:
 
 
 @dataclasses.dataclass
-class KerasAggregateFn(agg.AggregateFn):
+class KerasAggregateFn(chainable.AggregateFn):
   """AggregateFn for Keras metrics."""
 
   metric: KerasMetric

@@ -18,7 +18,7 @@ from collections.abc import Sequence
 import dataclasses
 import re
 
-from ml_metrics._src.aggregates import base
+import chainable
 from ml_metrics._src.aggregates import utils
 from ml_metrics._src.tools.telemetry import telemetry
 
@@ -26,7 +26,7 @@ FrequencyState = utils.FrequencyState
 
 
 @dataclasses.dataclass(kw_only=True)
-class TopKWordNGrams(base.MergeableMetric, base.HasAsAggFn):
+class TopKWordNGrams(chainable.MergeableMetric, chainable.HasAsAggFn):
   """Top k word n-grams metrics.
 
   Identify the top `k` frequent occurring word n-grams with a case-insensitive
@@ -72,8 +72,8 @@ class TopKWordNGrams(base.MergeableMetric, base.HasAsAggFn):
           ' passed.'
       )
 
-  def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(
+  def as_agg_fn(self) -> chainable.AggregateFn:
+    return chainable.as_agg_fn(
         self.__class__,
         k=self.k,
         n=self.n,
@@ -115,7 +115,7 @@ class TopKWordNGrams(base.MergeableMetric, base.HasAsAggFn):
 
 
 @dataclasses.dataclass(kw_only=True)
-class PatternFrequency(base.MergeableMetric, base.HasAsAggFn):
+class PatternFrequency(chainable.MergeableMetric, chainable.HasAsAggFn):
   """Pattern frequency metric.
 
   Identify the frequency of occurrence for each pattern found within the given
@@ -147,8 +147,8 @@ class PatternFrequency(base.MergeableMetric, base.HasAsAggFn):
     if len(set(self.patterns)) != len(self.patterns):
       raise ValueError(f'Patterns must be unique: {self.patterns}')
 
-  def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(
+  def as_agg_fn(self) -> chainable.AggregateFn:
+    return chainable.as_agg_fn(
         self.__class__,
         patterns=self.patterns,
         count_duplicate=self.count_duplicate,

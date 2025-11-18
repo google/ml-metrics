@@ -21,10 +21,9 @@ import enum
 import itertools
 from typing import Any
 
-from ml_metrics._src.aggregates import base
+import chainable
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
-from ml_metrics._src.utils import iter_utils
 from ml_metrics._src.utils import math_utils
 from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
@@ -35,6 +34,7 @@ InputType = types.InputType
 
 class ConfusionMatrixMetric(enum.StrEnum):
   """Confusion Matrix Metrics that can be composed from CM's intermediate state."""
+
   CONFUSION_MATRIX = 'confusion_matrix'
   PRECISION = 'precision'
   PPV = 'ppv'
@@ -67,6 +67,7 @@ class ConfusionMatrixMetric(enum.StrEnum):
   MARKEDNESS = 'markedness'
   BALANCED_ACCURACY = 'balanced_accuracy'
   MEAN_AVERAGE_PRECISION = 'mean_average_precision'
+
 
 _CFMMetric = ConfusionMatrixMetric | str
 
@@ -494,7 +495,7 @@ def _indicator_confusion_matrix(
 def get_vocab(rows: Iterable[Any], multioutput: bool) -> dict[str, int]:
   """Constructs a vocabulary that maps hashables to an integer."""
   rows = itertools.chain.from_iterable(rows) if multioutput else rows
-  it_rows = iter_utils.iter_with_latest(rows)
+  it_rows = chainable.iter_with_latest(rows)
   try:
     return {k: i for i, k in enumerate(set(it_rows))}
   except TypeError as e:
@@ -559,7 +560,7 @@ ConfusionMatrixAggState = _ConfusionMatrix
 
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.METRIC)
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class ConfusionMatrixAggFn(base.AggregateFn):
+class ConfusionMatrixAggFn(chainable.AggregateFn):
   """ConfusionMatrix aggregate.
 
   Attributes:
@@ -778,7 +779,7 @@ SamplewiseConfusionMatrixAggState = dict[str, utils.MeanState]
 
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.METRIC)
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class SamplewiseClassification(base.MergeableMetric, base.HasAsAggFn):
+class SamplewiseClassification(chainable.MergeableMetric, chainable.HasAsAggFn):
   """SamplewiseClassification metric.
 
   Attributes:
@@ -819,8 +820,8 @@ class SamplewiseClassification(base.MergeableMetric, base.HasAsAggFn):
       )
     object.__setattr__(self, '_metrics', _normalize_metrics(self.metrics))
 
-  def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(
+  def as_agg_fn(self) -> chainable.AggregateFn:
+    return chainable.as_agg_fn(
         self.__class__,
         metrics=self.metrics,
         pos_label=self.pos_label,
@@ -893,6 +894,6 @@ class SamplewiseClassification(base.MergeableMetric, base.HasAsAggFn):
     return result
 
 
-def SamplewiseConfusionMatrixAggFn(**kwargs) -> base.AggregateFn:  # pylint: disable=invalid-name
+def SamplewiseConfusionMatrixAggFn(**kwargs) -> chainable.AggregateFn:  # pylint: disable=invalid-name
   """Convenient alias as a AggregateFn constructor."""
   return SamplewiseClassification(**kwargs).as_agg_fn()

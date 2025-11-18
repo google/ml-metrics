@@ -15,11 +15,11 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
+from chainable import test_utils
 from ml_metrics._src.aggregates import classification as agg_classification
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.metrics import classification
 from ml_metrics._src.utils import math_utils
-from ml_metrics._src.utils import test_utils
 import numpy as np
 
 

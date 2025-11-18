@@ -18,7 +18,7 @@ from collections.abc import Sequence
 import dataclasses
 from typing import Any
 
-from ml_metrics._src.aggregates import base
+import chainable
 from ml_metrics._src.aggregates import classification
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.metrics import utils
@@ -63,7 +63,7 @@ CalibrationHistogramResult = collections.namedtuple(
 # TODO: b/368067018 - Inherit from ml_metrics._src.aggregates.stats.Histogram.
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.METRIC)
 @dataclasses.dataclass
-class CalibrationHistogram(base.MergeableMetric):
+class CalibrationHistogram(chainable.MergeableMetric):
   """Computes the Histogram of the inputs.
 
   Attributes:
@@ -174,10 +174,10 @@ class CalibrationHistogram(base.MergeableMetric):
 
 
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.METRIC)
-class ClassificationAggFn(base.AggregateFn):
+class ClassificationAggFn(chainable.AggregateFn):
   """Wrapper over the Classification AggFn classes."""
 
-  agg_fn: base.AggregateFn
+  agg_fn: chainable.AggregateFn
 
   def __init__(
       self,

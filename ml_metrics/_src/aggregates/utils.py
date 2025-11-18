@@ -17,13 +17,13 @@ from __future__ import annotations
 import collections
 import dataclasses
 
-from ml_metrics._src.aggregates import base
-from ml_metrics._src.aggregates import types
+import chainable
+from chainable import types
 from ml_metrics._src.utils import math_utils
 
 
 @dataclasses.dataclass
-class MeanState(base.CallableMetric):
+class MeanState(chainable.CallableMetric):
   """Mergeable states for batch update in an aggregate function."""
 
   total: types.NumbersT = 0.0
@@ -41,7 +41,7 @@ class MeanState(base.CallableMetric):
 
 
 @dataclasses.dataclass
-class TupleMeanState(base.CallableMetric):
+class TupleMeanState(chainable.CallableMetric):
   """MeanState for a tuple of inputs."""
 
   states: tuple[MeanState, ...] = ()

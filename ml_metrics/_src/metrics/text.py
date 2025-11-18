@@ -15,10 +15,10 @@
 
 from collections.abc import Sequence
 
+import chainable
 from ml_metrics._src.aggregates import stats
 from ml_metrics._src.aggregates import text
 from ml_metrics._src.signals import text as text_scores
-from ml_metrics._src.utils import iter_utils
 from ml_metrics._src.tools.telemetry import telemetry
 
 
@@ -124,7 +124,7 @@ def avg_alphabetical_char_count(
   if not list(texts):
     raise ValueError('`texts` must not be empty.')
 
-  batch_scorer_fn = iter_utils.iterate_fn(text_scores.alphabetical_char_count)
+  batch_scorer_fn = chainable.iterate_fn(text_scores.alphabetical_char_count)
   return stats.MeanAndVariance(batch_score_fn=batch_scorer_fn).as_agg_fn()(
       texts
   )

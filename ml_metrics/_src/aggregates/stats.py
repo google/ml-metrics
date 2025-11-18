@@ -23,7 +23,7 @@ import itertools
 import math
 from typing import Any, Generic, Self, TypeVar
 
-from ml_metrics._src.aggregates import base
+import chainable
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.utils import math_utils
 from ml_metrics._src.tools.telemetry import telemetry
@@ -35,7 +35,7 @@ _T = TypeVar('_T')
 
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(kw_only=True)
-class UnboundedSampler(base.CallableMetric, base.HasAsAggFn):
+class UnboundedSampler(chainable.CallableMetric, chainable.HasAsAggFn):
   """Stores all the inputs in memory."""
 
   _samples: tuple[list[Any], ...] = ()
@@ -49,8 +49,8 @@ class UnboundedSampler(base.CallableMetric, base.HasAsAggFn):
   def multi_input(self) -> bool:
     return self._multi_input
 
-  def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(self.__class__)
+  def as_agg_fn(self) -> chainable.AggregateFn:
+    return chainable.as_agg_fn(self.__class__)
 
   def new(self, *inputs: tuple[Iterable[Any], ...]) -> Self:
     multi_input = len(inputs) != 1
@@ -72,7 +72,7 @@ class UnboundedSampler(base.CallableMetric, base.HasAsAggFn):
 
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
-class FixedSizeSample(base.MergeableMetric, base.HasAsAggFn):
+class FixedSizeSample(chainable.MergeableMetric, chainable.HasAsAggFn):
   """Generates a fixed size sample of the data stream.
 
   This sampler is used to generate a fixed size sample of the data stream.
@@ -115,8 +115,8 @@ class FixedSizeSample(base.MergeableMetric, base.HasAsAggFn):
   def logw(self) -> float:
     return self._logw
 
-  def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(self.__class__, self.max_size, seed=self.seed)
+  def as_agg_fn(self) -> chainable.AggregateFn:
+    return chainable.as_agg_fn(self.__class__, self.max_size, seed=self.seed)
 
   def _add_samples_to_reservoir(self, samples: list[Any], n: int):
     # This is Algorithm L: https://dl.acm.org/doi/10.1145/198429.198435.
@@ -167,13 +167,14 @@ class FixedSizeSample(base.MergeableMetric, base.HasAsAggFn):
 
 
 HistogramResult = collections.namedtuple(
-    'HistogramResult', ('hist', 'bin_edges'),
+    'HistogramResult',
+    ('hist', 'bin_edges'),
 )
 
 
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True, kw_only=True)
-class Histogram(base.CallableMetric, base.HasAsAggFn):
+class Histogram(chainable.CallableMetric, chainable.HasAsAggFn):
   """Computes the Histogram of the inputs.
 
   Attributes:
@@ -209,8 +210,8 @@ class Histogram(base.CallableMetric, base.HasAsAggFn):
   def bin_edges(self) -> np.ndarray:
     return self._bin_edges
 
-  def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(self.__class__, range=self.range, bins=self.bins)
+  def as_agg_fn(self) -> chainable.AggregateFn:
+    return chainable.as_agg_fn(self.__class__, range=self.range, bins=self.bins)
 
   def new(
       self, inputs: types.NumbersT, weights: types.NumbersT | None = None
@@ -258,7 +259,7 @@ class Histogram(base.CallableMetric, base.HasAsAggFn):
 
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True, kw_only=True)
-class Counter(base.CallableMetric, base.HasAsAggFn, Generic[_T]):
+class Counter(chainable.CallableMetric, chainable.HasAsAggFn, Generic[_T]):
   """An CallableMetric version of collections.Counter."""
 
   batched_inputs: bool = False
@@ -271,8 +272,8 @@ class Counter(base.CallableMetric, base.HasAsAggFn, Generic[_T]):
   def counter(self):
     return self._counter
 
-  def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(
+  def as_agg_fn(self) -> chainable.AggregateFn:
+    return chainable.as_agg_fn(
         self.__class__,
         batched_inputs=self.batched_inputs,
         input_fn=self.input_fn,
@@ -297,15 +298,15 @@ class Counter(base.CallableMetric, base.HasAsAggFn, Generic[_T]):
 
 
 @dataclasses.dataclass(slots=True, kw_only=True)
-class Count(base.CallableMetric):
+class Count(chainable.CallableMetric):
   """Computes the count of a batch of values."""
 
   batched_inputs: bool = True
   count_fn: Callable[..., types.NumbersT] | None = None
   _count: int = 0
 
-  def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(
+  def as_agg_fn(self) -> chainable.AggregateFn:
+    return chainable.as_agg_fn(
         self.__class__,
         batched_inputs=self.batched_inputs,
         count_fn=self.count_fn,
@@ -339,7 +340,7 @@ class Count(base.CallableMetric):
 
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(kw_only=True, eq=True)
-class Mean(base.CallableMetric):
+class Mean(chainable.CallableMetric):
   """Computes the mean and variance of a batch of values."""
 
   batch_score_fn: Callable[..., types.NumbersT] | None = None
@@ -347,8 +348,8 @@ class Mean(base.CallableMetric):
   _mean: types.NumbersT = np.nan
   _input_shape: tuple[int, ...] = ()
 
-  def as_agg_fn(self, *, nested: bool = False) -> base.AggregateFn:
-    return base.as_agg_fn(
+  def as_agg_fn(self, *, nested: bool = False) -> chainable.AggregateFn:
+    return chainable.as_agg_fn(
         self.__class__,
         batch_score_fn=self.batch_score_fn if not nested else None,
         nested=nested,
@@ -486,7 +487,7 @@ class Var(MeanAndVariance):
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 # TODO(b/345249574): Add a preprocessing function of len per row.
 @dataclasses.dataclass(slots=True)
-class MinMaxAndCount(base.CallableMetric):
+class MinMaxAndCount(chainable.CallableMetric):
   """Computes the Min, Max, and Count.
 
   Given a batch of inputs, MinMaxAndCount computes the following statistics:
@@ -501,8 +502,8 @@ class MinMaxAndCount(base.CallableMetric):
   _min: int = np.inf
   _max: int = -np.inf
 
-  def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(self.__class__, self.batch_score_fn, self.axis)
+  def as_agg_fn(self) -> chainable.AggregateFn:
+    return chainable.as_agg_fn(self.__class__, self.batch_score_fn, self.axis)
 
   def __eq__(self, other: 'MinMaxAndCount') -> bool:
     return (
@@ -561,7 +562,7 @@ def _auto_concat(x, y):
 
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
-class ValueAccumulator(base.CallableMetric):
+class ValueAccumulator(chainable.CallableMetric):
   """This stores and accumulates all the values."""
 
   concat_fn: Callable[[Any, Any], Any] = _auto_concat
@@ -573,8 +574,8 @@ class ValueAccumulator(base.CallableMetric):
   def data(self) -> tuple[list[Any], ...]:
     return self._data
 
-  def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(
+  def as_agg_fn(self) -> chainable.AggregateFn:
+    return chainable.as_agg_fn(
         self.__class__,
         self.concat_fn,
         self.metric_fns,
@@ -603,7 +604,7 @@ class ValueAccumulator(base.CallableMetric):
 
 
 @dataclasses.dataclass(slots=True)
-class R2Tjur(abc.ABC, base.CallableMetric):
+class R2Tjur(abc.ABC, chainable.CallableMetric):
   """Base class for Tjur's R^2.
 
   Also known as Tjur's D or Tjur's coefficient of discrimination, the Tjur
@@ -628,8 +629,8 @@ class R2Tjur(abc.ABC, base.CallableMetric):
   sum_neg_y_true: float = 0
   sum_neg_y_pred: float = 0
 
-  def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(self.__class__)
+  def as_agg_fn(self) -> chainable.AggregateFn:
+    return chainable.as_agg_fn(self.__class__)
 
   def __eq__(self, other: Self) -> bool:
     return (
@@ -683,7 +684,7 @@ class R2TjurRelative(R2Tjur):
 
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
-class RRegression(base.CallableMetric):
+class RRegression(chainable.CallableMetric):
   """Computes the Pearson Correlation Coefficient (PCC).
 
   The Pearson correlation coefficient (PCC) is a correlation coefficient that
@@ -712,8 +713,8 @@ class RRegression(base.CallableMetric):
   sum_yy: float = 0  # sum(y**2)
   sum_xy: types.NumbersT = 0  # sum(x * y)
 
-  def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(self.__class__, self.center)
+  def as_agg_fn(self) -> chainable.AggregateFn:
+    return chainable.as_agg_fn(self.__class__, self.center)
 
   def __eq__(self, other: Self) -> bool:
     return (
@@ -805,7 +806,7 @@ class RRegression(base.CallableMetric):
 
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
-class SymmetricPredictionDifference(base.CallableMetric):
+class SymmetricPredictionDifference(chainable.CallableMetric):
   """Computes the Symmetric Prediction Difference.
 
   Creates a summary model by taking the pointwise symmetric relative prediction
@@ -818,8 +819,8 @@ class SymmetricPredictionDifference(base.CallableMetric):
   sum_half_pointwise_rel_diff: float = 0
   # TODO: b/356933410 - Add k_epsilon.
 
-  def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(self.__class__)
+  def as_agg_fn(self) -> chainable.AggregateFn:
+    return chainable.as_agg_fn(self.__class__)
 
   def new(self, x: types.NumbersT, y: types.NumbersT) -> Self:
     x = np.asarray(x).astype('float64')

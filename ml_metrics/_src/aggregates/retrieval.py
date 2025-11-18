@@ -23,16 +23,16 @@ import functools
 import itertools
 from typing import Any
 
-from ml_metrics._src.aggregates import base
-from ml_metrics._src.aggregates import types
+import chainable
+from chainable import types
+from ml_metrics._src.aggregates import types as agg_types
 from ml_metrics._src.aggregates import utils
 from ml_metrics._src.utils import math_utils
 from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
 
-InputType = types.InputType
-
+InputType = agg_types.InputType
 MeanState = utils.MeanState
 MeanStatesPerMetric = dict[str, MeanState]
 
@@ -58,6 +58,7 @@ class RetrievalMetric(enum.StrEnum):  # pylint: disable=invalid-enum-extension
   MEAN_RECIPROCAL_RANK = 'mean_reciprocal_rank'
   DCG_SCORE = 'dcg_score'  # Discounted Cumulative Gain
   NDCG_SCORE = 'ndcg_score'  # Normalized Discounted Cumulative Gain
+
 
 _DEFAULT_RETRIEVAL_METRICS = (
     RetrievalMetric.PRECISION,
@@ -306,7 +307,7 @@ class _ThresholdedConfusionMatrix:
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class ThresholdedRetrieval(base.MergeableMetric):
+class ThresholdedRetrieval(chainable.MergeableMetric):
   """TopKRetrievals with continuous input.
 
   A typical use case is to calculate the retrieval metrics but with thresholds.
@@ -428,7 +429,7 @@ class ThresholdedRetrieval(base.MergeableMetric):
 
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.METRIC)
 @dataclasses.dataclass(frozen=True, kw_only=True)
-class TopKRetrieval(base.MergeableMetric, base.HasAsAggFn):
+class TopKRetrieval(chainable.MergeableMetric, chainable.HasAsAggFn):
   """TopKRetrievals.
 
   Attributes:
@@ -459,8 +460,8 @@ class TopKRetrieval(base.MergeableMetric, base.HasAsAggFn):
     metrics = [RetrievalMetric(metric) for metric in metrics]
     object.__setattr__(self, '_metrics', metrics)
 
-  def as_agg_fn(self) -> base.AggregateFn:
-    return base.as_agg_fn(
+  def as_agg_fn(self) -> chainable.AggregateFn:
+    return chainable.as_agg_fn(
         self.__class__,
         k_list=self.k_list,
         metrics=self.metrics,
@@ -625,6 +626,6 @@ class TopKRetrieval(base.MergeableMetric, base.HasAsAggFn):
 @telemetry.function_monitor(
     api='ml_metrics', category=telemetry.CATEGORY.METRIC
 )
-def TopKRetrievalAggFn(**kwargs) -> base.AggregateFn:  # pylint: disable=invalid-name
+def TopKRetrievalAggFn(**kwargs) -> chainable.AggregateFn:  # pylint: disable=invalid-name
   """Convenient alias as a AggregateFn constructor."""
   return TopKRetrieval(**kwargs).as_agg_fn()
