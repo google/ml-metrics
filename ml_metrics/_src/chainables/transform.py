@@ -417,9 +417,11 @@ class TransformRunner(aggregates.Aggregatable, Iterable[_ValueT]):
       data_source = self.data_source
     data_source = io.maybe_shardable(data_source)
     if self.num_threads and types.is_shardable(data_source):
+      num_threads = self.num_threads
+      if isinstance(data_source, Sized):
+        num_threads = min(self.num_threads, len(data_source))
       data_sources = [
-          data_source.shard(i, self.num_threads)
-          for i in range(self.num_threads)
+          data_source.shard(i, num_threads) for i in range(num_threads)
       ]
     else:
       data_sources = [data_source]
