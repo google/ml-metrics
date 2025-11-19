@@ -14,7 +14,6 @@
 
 from absl.testing import absltest
 from absl.testing import parameterized
-# from chainable._src.utils import test_utils
 from chainable import test_utils
 from ml_metrics._src.aggregates import classification
 from ml_metrics._src.aggregates import types as agg_types
