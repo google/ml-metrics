@@ -15,26 +15,4 @@
 
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
-from ml_metrics._src.chainables.lazy_fns import cache_info
-from ml_metrics._src.chainables.lazy_fns import clear_cache
-from ml_metrics._src.chainables.lazy_fns import LazyFn
-from ml_metrics._src.chainables.lazy_fns import LazyObject
-from ml_metrics._src.chainables.lazy_fns import makeables
-from ml_metrics._src.chainables.lazy_fns import maybe_make
-from ml_metrics._src.chainables.lazy_fns import pickler
-from ml_metrics._src.chainables.lazy_fns import trace
-from ml_metrics._src.chainables.transform import AggregateResult
-from ml_metrics._src.chainables.transform import AggregateTransform
-from ml_metrics._src.chainables.transform import iterate_with_returned
-from ml_metrics._src.chainables.transform import MetricKey
-from ml_metrics._src.chainables.transform import RunnerMode
-from ml_metrics._src.chainables.transform import TreeTransform as Pipeline
-from ml_metrics._src.chainables.tree import Key
-from ml_metrics._src.chainables.tree import tree_shape
-from ml_metrics._src.chainables.tree import TreeMapView
-from ml_metrics._src.chainables.tree_fns import SliceKey
-from ml_metrics._src.utils import test_utils
-from ml_metrics._src.utils.iter_utils import iterate_fn
-
-# Alias for Pipeline: `chainable.P()` is same as `chainable.Pipeline()`.
-P = Pipeline
+from chainable import *  # pylint: disable=wildcard-import

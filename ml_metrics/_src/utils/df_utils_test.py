@@ -13,8 +13,7 @@
 # limitations under the License.
 
 from absl.testing import absltest
-from ml_metrics._src.chainables import transform
-from ml_metrics._src.chainables import tree_fns
+import chainable
 from ml_metrics._src.utils import df_utils
 import pandas as pd
 
@@ -22,8 +21,8 @@ import pandas as pd
 class DfUtilsTest(absltest.TestCase):
 
   def test_as_dataframe_default(self):
-    key = transform.MetricKey(
-        metrics='m2', slice=tree_fns.SliceKey(('f1',), ('a',))
+    key = chainable.MetricKey(
+        metrics='m2', slice=chainable.SliceKey(('f1',), ('a',))
     )
     agg_result = {'m1': 1, key: 2}
     df = df_utils.metrics_to_df(agg_result)

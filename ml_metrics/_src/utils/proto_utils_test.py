@@ -11,9 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from ml_metrics import chainable as cnb
+import chainable as cnb
+from chainable import test_utils
 from ml_metrics._src.utils import proto_utils
-from ml_metrics._src.utils import test_utils
 import numpy as np
 from absl.testing import absltest
 from absl.testing import parameterized
