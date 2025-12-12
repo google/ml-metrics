@@ -658,6 +658,82 @@ class CountTest(parameterized.TestCase):
     self.assertEqual('count: 3', str(count))
 
 
+class TfExampleStatsTest(parameterized.TestCase):
+
+  def test_single_example(self):
+    examples = [{'a': [1], 'b': [1, 2]}]
+    agg = stats.TfExampleStats()
+    agg.add(examples)
+    self.assertEqual(
+        {
+            'num_examples': 1,
+            'num_non_missing': {'a': 1, 'b': 1},
+            'max_num_values': {'a': 1, 'b': 2},
+            'min_num_values': {'a': 1, 'b': 2},
+            'tot_num_values': {'a': 1, 'b': 2},
+            'avg_num_values': {'a': 1.0, 'b': 2.0},
+            'num_missing': {'a': 0, 'b': 0},
+        },
+        agg.result(),
+    )
+
+  def test_multiple_examples(self):
+    examples = [{'a': [1], 'b': [1, 2]}, {'a': [1, 2, 3]}]
+    agg = stats.TfExampleStats()
+    agg.add(examples)
+    self.assertEqual(
+        {
+            'num_examples': 2,
+            'num_non_missing': {'a': 2, 'b': 1},
+            'max_num_values': {'a': 3, 'b': 2},
+            'min_num_values': {'a': 1, 'b': 2},
+            'tot_num_values': {'a': 4, 'b': 2},
+            'avg_num_values': {'a': 2.0, 'b': 2.0},
+            'num_missing': {'a': 0, 'b': 1},
+        },
+        agg.result(),
+    )
+
+  def test_merge(self):
+    examples1 = [{'a': [1], 'b': [1, 2]}, {'a': [1, 2, 3]}]
+    examples2 = [{'b': [1, 2, 3, 4], 'c': [1]}]
+    agg1 = stats.TfExampleStats()
+    agg1.add(examples1)
+    agg2 = stats.TfExampleStats()
+    agg2.add(examples2)
+    agg1.merge(agg2)
+    self.assertEqual(
+        {
+            'num_examples': 3,
+            'num_non_missing': {'a': 2, 'b': 2, 'c': 1},
+            'max_num_values': {'a': 3, 'b': 4, 'c': 1},
+            'min_num_values': {'a': 1, 'b': 2, 'c': 1},
+            'tot_num_values': {'a': 4, 'b': 6, 'c': 1},
+            'avg_num_values': {'a': 2.0, 'b': 3.0, 'c': 1.0},
+            'num_missing': {'a': 1, 'b': 1, 'c': 2},
+        },
+        agg1.result(),
+    )
+
+  def test_unbatched(self):
+    examples = [{'a': [1], 'b': [1, 2]}, {'a': [1, 2, 3]}]
+    agg = stats.TfExampleStats(batched_inputs=False)
+    for example in examples:
+      agg.add(example)
+    self.assertEqual(
+        {
+            'num_examples': 2,
+            'num_non_missing': {'a': 2, 'b': 1},
+            'max_num_values': {'a': 3, 'b': 2},
+            'min_num_values': {'a': 1, 'b': 2},
+            'tot_num_values': {'a': 4, 'b': 2},
+            'avg_num_values': {'a': 2.0, 'b': 2.0},
+            'num_missing': {'a': 0, 'b': 1},
+        },
+        agg.result(),
+    )
+
+
 class MeanAndVarianceTest(parameterized.TestCase):
 
   def assertDataclassAlmostEqual(
