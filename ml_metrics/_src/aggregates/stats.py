@@ -338,19 +338,64 @@ class Count(chainable.CallableMetric):
     return f'count: {self.result()}'
 
 
+@dataclasses.dataclass(slots=True)
+class FeatureStats:
+  """Statistics for a single feature."""
+
+  num_non_missing: int = 0
+  max_num_values: int = 0
+  min_num_values: int | None = None
+  tot_num_values: int = 0
+  avg_num_values: float = 0.0
+
+  def update(self, length: int):
+    self.merge(
+        FeatureStats(
+            num_non_missing=1,
+            max_num_values=length,
+            min_num_values=length,
+            tot_num_values=length,
+            avg_num_values=float(length),
+        )
+    )
+
+  def merge(self, other: Self):
+    self.num_non_missing += other.num_non_missing
+    self.max_num_values = max(self.max_num_values, other.max_num_values)
+    if other.min_num_values is None:
+      pass
+    elif self.min_num_values is None:
+      self.min_num_values = other.min_num_values
+    else:
+      self.min_num_values = min(self.min_num_values, other.min_num_values)
+    self.tot_num_values += other.tot_num_values
+    self.avg_num_values = (
+        self.tot_num_values / self.num_non_missing
+        if self.num_non_missing
+        else 0.0
+    )
+
+
+@dataclasses.dataclass(slots=True)
+class TfExampleStats:
+  """The result of TfExampleStatsAgg."""
+
+  num_examples: int = 0
+  feature_stats: dict[str, FeatureStats] = dataclasses.field(
+      default_factory=dict
+  )
+
+
 @telemetry.class_monitor(category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True, kw_only=True)
-class TfExampleStats(chainable.CallableMetric):
+class TfExampleStatsAgg(chainable.CallableMetric):
   """Computes statistics on features."""
 
   batched_inputs: bool = True
   _num_examples: int = 0
-  _num_non_missing: collections.Counter[str] = dataclasses.field(
-      default_factory=collections.Counter
+  _feature_stats: dict[str, FeatureStats] = dataclasses.field(
+      default_factory=dict
   )
-  _max_num_values: dict[str, int] = dataclasses.field(default_factory=dict)
-  _min_num_values: dict[str, int] = dataclasses.field(default_factory=dict)
-  _tot_num_values: dict[str, int] = dataclasses.field(default_factory=dict)
 
   def as_agg_fn(self) -> chainable.AggregateFn:
     return chainable.as_agg_fn(
@@ -363,20 +408,8 @@ class TfExampleStats(chainable.CallableMetric):
     return self._num_examples
 
   @property
-  def num_non_missing(self) -> collections.Counter[str]:
-    return self._num_non_missing
-
-  @property
-  def max_num_values(self) -> dict[str, int]:
-    return self._max_num_values
-
-  @property
-  def min_num_values(self) -> dict[str, int]:
-    return self._min_num_values
-
-  @property
-  def tot_num_values(self) -> dict[str, int]:
-    return self._tot_num_values
+  def feature_stats(self) -> dict[str, FeatureStats]:
+    return self._feature_stats
 
   def new(
       self, inputs: dict[str, list[Any]] | list[dict[str, list[Any]]]
@@ -390,57 +423,29 @@ class TfExampleStats(chainable.CallableMetric):
       inputs_list = inputs
 
     num_examples = 0
-    num_non_missing = collections.Counter()
-    max_num_values = {}
-    min_num_values = {}
-    tot_num_values = {}
+    feature_stats = collections.defaultdict(FeatureStats)
     for example in inputs_list:
       num_examples += 1
       for key, value in example.items():
-        num_non_missing[key] += 1
-        length = len(value)
-        max_num_values[key] = max(max_num_values.get(key, 0), length)
-        min_num_values[key] = min(
-            min_num_values.get(key, np.iinfo(np.int64).max), length
-        )
-        tot_num_values[key] = tot_num_values.get(key, 0) + length
+        feature_stats[key].update(len(value))
     return self.__class__(
         batched_inputs=self.batched_inputs,
         _num_examples=num_examples,
-        _num_non_missing=num_non_missing,
-        _max_num_values=max_num_values,
-        _min_num_values=min_num_values,
-        _tot_num_values=tot_num_values,
+        _feature_stats=dict(feature_stats),
     )
 
   def merge(self, other: Self) -> None:
     self._num_examples += other.num_examples
-    self._num_non_missing.update(other.num_non_missing)
-    for key, value in other.max_num_values.items():
-      self._max_num_values[key] = max(self._max_num_values.get(key, 0), value)
-    for key, value in other.min_num_values.items():
-      self._min_num_values[key] = min(
-          self._min_num_values.get(key, np.iinfo(np.int64).max), value
-      )
-    for key, value in other.tot_num_values.items():
-      self._tot_num_values[key] = self._tot_num_values.get(key, 0) + value
+    for key, value in other.feature_stats.items():
+      if key in self._feature_stats:
+        self._feature_stats[key].merge(value)
+      else:
+        self._feature_stats[key] = value
 
-  def result(self) -> dict[str, Any]:
-    return {
-        'num_examples': self._num_examples,
-        'num_non_missing': self._num_non_missing,
-        'max_num_values': self._max_num_values,
-        'min_num_values': self._min_num_values,
-        'tot_num_values': self._tot_num_values,
-        'avg_num_values': {
-            key: self._tot_num_values[key] / count if count else 0
-            for key, count in self._num_non_missing.items()
-        },
-        'num_missing': {
-            key: self._num_examples - count
-            for key, count in self._num_non_missing.items()
-        },
-    }
+  def result(self) -> TfExampleStats:
+    return TfExampleStats(
+        num_examples=self._num_examples, feature_stats=self._feature_stats
+    )
 
 
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)

@@ -658,78 +658,148 @@ class CountTest(parameterized.TestCase):
     self.assertEqual('count: 3', str(count))
 
 
-class TfExampleStatsTest(parameterized.TestCase):
+class FeatureStatsTest(parameterized.TestCase):
+
+  def test_avg_num_values(self):
+    stats1 = stats.FeatureStats(
+        num_non_missing=10,
+        max_num_values=5,
+        min_num_values=1,
+        tot_num_values=30,
+        avg_num_values=3.0,
+    )
+    self.assertAlmostEqual(3.0, stats1.avg_num_values)
+
+  def test_avg_num_values_zero_non_missing(self):
+    stats1 = stats.FeatureStats(
+        num_non_missing=0,
+        max_num_values=0,
+        min_num_values=np.iinfo(np.int64).max,
+        tot_num_values=0,
+        avg_num_values=0.0,
+    )
+    self.assertAlmostEqual(0.0, stats1.avg_num_values)
+
+
+class TfExampleStatsAggTest(parameterized.TestCase):
 
   def test_single_example(self):
     examples = [{'a': [1], 'b': [1, 2]}]
-    agg = stats.TfExampleStats()
+    agg = stats.TfExampleStatsAgg()
     agg.add(examples)
     self.assertEqual(
-        {
-            'num_examples': 1,
-            'num_non_missing': {'a': 1, 'b': 1},
-            'max_num_values': {'a': 1, 'b': 2},
-            'min_num_values': {'a': 1, 'b': 2},
-            'tot_num_values': {'a': 1, 'b': 2},
-            'avg_num_values': {'a': 1.0, 'b': 2.0},
-            'num_missing': {'a': 0, 'b': 0},
-        },
+        stats.TfExampleStats(
+            num_examples=1,
+            feature_stats={
+                'a': stats.FeatureStats(
+                    num_non_missing=1,
+                    max_num_values=1,
+                    min_num_values=1,
+                    tot_num_values=1,
+                    avg_num_values=1.0,
+                ),
+                'b': stats.FeatureStats(
+                    num_non_missing=1,
+                    max_num_values=2,
+                    min_num_values=2,
+                    tot_num_values=2,
+                    avg_num_values=2.0,
+                ),
+            },
+        ),
         agg.result(),
     )
 
   def test_multiple_examples(self):
     examples = [{'a': [1], 'b': [1, 2]}, {'a': [1, 2, 3]}]
-    agg = stats.TfExampleStats()
+    agg = stats.TfExampleStatsAgg()
     agg.add(examples)
     self.assertEqual(
-        {
-            'num_examples': 2,
-            'num_non_missing': {'a': 2, 'b': 1},
-            'max_num_values': {'a': 3, 'b': 2},
-            'min_num_values': {'a': 1, 'b': 2},
-            'tot_num_values': {'a': 4, 'b': 2},
-            'avg_num_values': {'a': 2.0, 'b': 2.0},
-            'num_missing': {'a': 0, 'b': 1},
-        },
+        stats.TfExampleStats(
+            num_examples=2,
+            feature_stats={
+                'a': stats.FeatureStats(
+                    num_non_missing=2,
+                    max_num_values=3,
+                    min_num_values=1,
+                    tot_num_values=4,
+                    avg_num_values=2.0,
+                ),
+                'b': stats.FeatureStats(
+                    num_non_missing=1,
+                    max_num_values=2,
+                    min_num_values=2,
+                    tot_num_values=2,
+                    avg_num_values=2.0,
+                ),
+            },
+        ),
         agg.result(),
     )
 
   def test_merge(self):
     examples1 = [{'a': [1], 'b': [1, 2]}, {'a': [1, 2, 3]}]
     examples2 = [{'b': [1, 2, 3, 4], 'c': [1]}]
-    agg1 = stats.TfExampleStats()
+    agg1 = stats.TfExampleStatsAgg()
     agg1.add(examples1)
-    agg2 = stats.TfExampleStats()
+    agg2 = stats.TfExampleStatsAgg()
     agg2.add(examples2)
     agg1.merge(agg2)
     self.assertEqual(
-        {
-            'num_examples': 3,
-            'num_non_missing': {'a': 2, 'b': 2, 'c': 1},
-            'max_num_values': {'a': 3, 'b': 4, 'c': 1},
-            'min_num_values': {'a': 1, 'b': 2, 'c': 1},
-            'tot_num_values': {'a': 4, 'b': 6, 'c': 1},
-            'avg_num_values': {'a': 2.0, 'b': 3.0, 'c': 1.0},
-            'num_missing': {'a': 1, 'b': 1, 'c': 2},
-        },
+        stats.TfExampleStats(
+            num_examples=3,
+            feature_stats={
+                'a': stats.FeatureStats(
+                    num_non_missing=2,
+                    max_num_values=3,
+                    min_num_values=1,
+                    tot_num_values=4,
+                    avg_num_values=2.0,
+                ),
+                'b': stats.FeatureStats(
+                    num_non_missing=2,
+                    max_num_values=4,
+                    min_num_values=2,
+                    tot_num_values=6,
+                    avg_num_values=3.0,
+                ),
+                'c': stats.FeatureStats(
+                    num_non_missing=1,
+                    max_num_values=1,
+                    min_num_values=1,
+                    tot_num_values=1,
+                    avg_num_values=1.0,
+                ),
+            },
+        ),
         agg1.result(),
     )
 
   def test_unbatched(self):
     examples = [{'a': [1], 'b': [1, 2]}, {'a': [1, 2, 3]}]
-    agg = stats.TfExampleStats(batched_inputs=False)
+    agg = stats.TfExampleStatsAgg(batched_inputs=False)
     for example in examples:
       agg.add(example)
     self.assertEqual(
-        {
-            'num_examples': 2,
-            'num_non_missing': {'a': 2, 'b': 1},
-            'max_num_values': {'a': 3, 'b': 2},
-            'min_num_values': {'a': 1, 'b': 2},
-            'tot_num_values': {'a': 4, 'b': 2},
-            'avg_num_values': {'a': 2.0, 'b': 2.0},
-            'num_missing': {'a': 0, 'b': 1},
-        },
+        stats.TfExampleStats(
+            num_examples=2,
+            feature_stats={
+                'a': stats.FeatureStats(
+                    num_non_missing=2,
+                    max_num_values=3,
+                    min_num_values=1,
+                    tot_num_values=4,
+                    avg_num_values=2.0,
+                ),
+                'b': stats.FeatureStats(
+                    num_non_missing=1,
+                    max_num_values=2,
+                    min_num_values=2,
+                    tot_num_values=2,
+                    avg_num_values=2.0,
+                ),
+            },
+        ),
         agg.result(),
     )
 
