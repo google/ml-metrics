@@ -662,6 +662,7 @@ class FeatureStatsTest(parameterized.TestCase):
 
   def test_avg_num_values(self):
     stats1 = stats.FeatureStats(
+        num_missing=0,
         num_non_missing=10,
         max_num_values=5,
         min_num_values=1,
@@ -672,9 +673,10 @@ class FeatureStatsTest(parameterized.TestCase):
 
   def test_avg_num_values_zero_non_missing(self):
     stats1 = stats.FeatureStats(
+        num_missing=0,
         num_non_missing=0,
         max_num_values=0,
-        min_num_values=np.iinfo(np.int64).max,
+        min_num_values=None,
         tot_num_values=0,
         avg_num_values=0.0,
     )
@@ -692,6 +694,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
             num_examples=1,
             feature_stats={
                 'a': stats.FeatureStats(
+                    num_missing=0,
                     num_non_missing=1,
                     max_num_values=1,
                     min_num_values=1,
@@ -699,6 +702,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
                     avg_num_values=1.0,
                 ),
                 'b': stats.FeatureStats(
+                    num_missing=0,
                     num_non_missing=1,
                     max_num_values=2,
                     min_num_values=2,
@@ -719,6 +723,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
             num_examples=2,
             feature_stats={
                 'a': stats.FeatureStats(
+                    num_missing=0,
                     num_non_missing=2,
                     max_num_values=3,
                     min_num_values=1,
@@ -726,6 +731,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
                     avg_num_values=2.0,
                 ),
                 'b': stats.FeatureStats(
+                    num_missing=1,
                     num_non_missing=1,
                     max_num_values=2,
                     min_num_values=2,
@@ -750,6 +756,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
             num_examples=3,
             feature_stats={
                 'a': stats.FeatureStats(
+                    num_missing=1,
                     num_non_missing=2,
                     max_num_values=3,
                     min_num_values=1,
@@ -757,6 +764,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
                     avg_num_values=2.0,
                 ),
                 'b': stats.FeatureStats(
+                    num_missing=1,
                     num_non_missing=2,
                     max_num_values=4,
                     min_num_values=2,
@@ -764,6 +772,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
                     avg_num_values=3.0,
                 ),
                 'c': stats.FeatureStats(
+                    num_missing=2,
                     num_non_missing=1,
                     max_num_values=1,
                     min_num_values=1,
@@ -785,6 +794,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
             num_examples=2,
             feature_stats={
                 'a': stats.FeatureStats(
+                    num_missing=0,
                     num_non_missing=2,
                     max_num_values=3,
                     min_num_values=1,
@@ -792,6 +802,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
                     avg_num_values=2.0,
                 ),
                 'b': stats.FeatureStats(
+                    num_missing=1,
                     num_non_missing=1,
                     max_num_values=2,
                     min_num_values=2,

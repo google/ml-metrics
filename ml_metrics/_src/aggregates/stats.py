@@ -342,6 +342,7 @@ class Count(chainable.CallableMetric):
 class FeatureStats:
   """Statistics for a single feature."""
 
+  num_missing: int = 0
   num_non_missing: int = 0
   max_num_values: int = 0
   min_num_values: int | None = None
@@ -443,6 +444,8 @@ class TfExampleStatsAgg(chainable.CallableMetric):
         self._feature_stats[key] = value
 
   def result(self) -> TfExampleStats:
+    for feature in self._feature_stats.values():
+      feature.num_missing = self._num_examples - feature.num_non_missing
     return TfExampleStats(
         num_examples=self._num_examples, feature_stats=self._feature_stats
     )
