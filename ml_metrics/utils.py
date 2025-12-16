@@ -15,9 +15,3 @@
 
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
-from ml_metrics._src.utils.df_utils import index
-from ml_metrics._src.utils.df_utils import merge
-from ml_metrics._src.utils.df_utils import metrics_to_df
-from ml_metrics._src.utils.proto_utils import dict_to_tf_example
-from ml_metrics._src.utils.proto_utils import tf_example_to_dict
-from ml_metrics._src.utils.proto_utils import tf_examples_to_dict
