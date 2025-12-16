@@ -29,6 +29,8 @@ from ml_metrics._src.utils import math_utils
 from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
+from tensorflow_metadata.proto.v0 import statistics_pb2
+
 _EPSNEG = np.finfo(float).epsneg
 _T = TypeVar('_T')
 
@@ -385,6 +387,37 @@ class TfExampleStats:
   feature_stats: dict[str, FeatureStats] = dataclasses.field(
       default_factory=dict
   )
+
+  def to_proto(self):
+    """Writes the data to the sink."""
+    feature_stats_proto = statistics_pb2.DatasetFeatureStatistics(
+        num_examples=self.num_examples
+    )
+    for name, feature_stats in self.feature_stats.items():
+      feature_name_stats = feature_stats_proto.features.add(
+          path={'step': [name]}
+      )
+      feature_name_stats.num_stats.common_stats.num_missing = (
+          feature_stats.num_missing
+      )
+      feature_name_stats.num_stats.common_stats.num_non_missing = (
+          feature_stats.num_non_missing
+      )
+      feature_name_stats.num_stats.common_stats.min_num_values = (
+          feature_stats.min_num_values
+      )
+      feature_name_stats.num_stats.common_stats.max_num_values = (
+          feature_stats.max_num_values
+      )
+      feature_name_stats.num_stats.common_stats.avg_num_values = (
+          feature_stats.avg_num_values
+      )
+      feature_name_stats.num_stats.common_stats.tot_num_values = (
+          feature_stats.tot_num_values
+      )
+    return statistics_pb2.DatasetFeatureStatisticsList(
+        datasets=[feature_stats_proto]
+    )
 
 
 @telemetry.class_monitor(category=telemetry.CATEGORY.STATS)

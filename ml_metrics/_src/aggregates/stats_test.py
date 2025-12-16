@@ -1896,5 +1896,30 @@ class SymmetricPredictionDifferenceTest(absltest.TestCase):
       metric.add(x, y)
 
 
+class TfdvTest(absltest.TestCase):
+
+  def test_to_proto(self):
+    feature_stats_instance = stats.FeatureStats()
+    feature_stats_instance.update(1)
+    feature_stats_instance.update(2)
+    data = stats.TfExampleStats(
+        num_examples=2,
+        feature_stats={
+            'feature1': feature_stats_instance,
+        },
+    )
+    stats_list = data.to_proto()
+    self.assertLen(stats_list.datasets, 1)
+    self.assertEqual(stats_list.datasets[0].num_examples, 2)
+    self.assertLen(stats_list.datasets[0].features, 1)
+    feature = stats_list.datasets[0].features[0]
+    self.assertEqual(feature.path.step[0], 'feature1')
+    self.assertEqual(feature.num_stats.common_stats.num_non_missing, 2)
+    self.assertEqual(feature.num_stats.common_stats.min_num_values, 1)
+    self.assertEqual(feature.num_stats.common_stats.max_num_values, 2)
+    self.assertEqual(feature.num_stats.common_stats.avg_num_values, 1.5)
+    self.assertEqual(feature.num_stats.common_stats.tot_num_values, 3)
+
+
 if __name__ == '__main__':
   absltest.main()
