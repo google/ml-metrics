@@ -686,67 +686,132 @@ class FeatureStatsTest(parameterized.TestCase):
 
 class TfExampleStatsAggTest(parameterized.TestCase):
 
+  def assert_feature_stats_equal(self, fs1, fs2, places=6):
+    self.assertEqual(fs1.feature_type, fs2.feature_type)
+    self.assertEqual(fs1.num_missing, fs2.num_missing)
+    self.assertEqual(fs1.num_non_missing, fs2.num_non_missing)
+    self.assertEqual(fs1.max_num_values, fs2.max_num_values)
+    self.assertEqual(fs1.min_num_values, fs2.min_num_values)
+    self.assertEqual(fs1.tot_num_values, fs2.tot_num_values)
+    self.assertAlmostEqual(
+        fs1.avg_num_values, fs2.avg_num_values, places=places
+    )
+    if fs1.numeric_stats is None:
+      self.assertIsNone(fs2.numeric_stats)
+    else:
+      self.assertIsNotNone(fs2.numeric_stats)
+      self.assertEqual(fs1.numeric_stats.num_zeros, fs2.numeric_stats.num_zeros)
+      self.assertAlmostEqual(
+          fs1.numeric_stats.min, fs2.numeric_stats.min, places=places
+      )
+      self.assertAlmostEqual(
+          fs1.numeric_stats.max, fs2.numeric_stats.max, places=places
+      )
+      self.assertAlmostEqual(
+          fs1.numeric_stats.mean, fs2.numeric_stats.mean, places=places
+      )
+      self.assertAlmostEqual(
+          fs1.numeric_stats.std_dev, fs2.numeric_stats.std_dev, places=places
+      )
+
+  def assert_tf_example_stats_equal(self, expected, actual, places=6):
+    self.assertEqual(expected.num_examples, actual.num_examples)
+    self.assertCountEqual(
+        expected.feature_stats.keys(), actual.feature_stats.keys()
+    )
+    for key in expected.feature_stats:
+      with self.subTest(key):
+        self.assert_feature_stats_equal(
+            expected.feature_stats[key],
+            actual.feature_stats[key],
+            places=places,
+        )
+
   def test_single_example(self):
     examples = [{'a': [1], 'b': [1, 2]}]
     agg = stats.TfExampleStatsAgg()
     agg.add(examples)
-    self.assertEqual(
-        stats.TfExampleStats(
-            num_examples=1,
-            feature_stats={
-                'a': stats.FeatureStats(
-                    feature_type=stats.FeatureType.INT,
-                    num_missing=0,
-                    num_non_missing=1,
-                    max_num_values=1,
-                    min_num_values=1,
-                    tot_num_values=1,
-                    avg_num_values=1.0,
+    expected = stats.TfExampleStats(
+        num_examples=1,
+        feature_stats={
+            'a': stats.FeatureStats(
+                feature_type=stats.FeatureType.INT,
+                num_missing=0,
+                num_non_missing=1,
+                max_num_values=1,
+                min_num_values=1,
+                tot_num_values=1,
+                avg_num_values=1.0,
+                numeric_stats=stats.NumericStats(
+                    min=1.0,
+                    max=1.0,
+                    mean=1.0,
+                    std_dev=0.0,
+                    num_zeros=0,
                 ),
-                'b': stats.FeatureStats(
-                    feature_type=stats.FeatureType.INT,
-                    num_missing=0,
-                    num_non_missing=1,
-                    max_num_values=2,
-                    min_num_values=2,
-                    tot_num_values=2,
-                    avg_num_values=2.0,
+            ),
+            'b': stats.FeatureStats(
+                feature_type=stats.FeatureType.INT,
+                num_missing=0,
+                num_non_missing=1,
+                max_num_values=2,
+                min_num_values=2,
+                tot_num_values=2,
+                avg_num_values=2.0,
+                numeric_stats=stats.NumericStats(
+                    min=1.0,
+                    max=2.0,
+                    mean=1.5,
+                    std_dev=0.5,
+                    num_zeros=0,
                 ),
-            },
-        ),
-        agg.result(),
+            ),
+        },
     )
+    self.assert_tf_example_stats_equal(expected, agg.result())
 
   def test_multiple_examples(self):
     examples = [{'a': [1], 'b': [1, 2]}, {'a': [1, 2, 3]}]
     agg = stats.TfExampleStatsAgg()
     agg.add(examples)
-    self.assertEqual(
-        stats.TfExampleStats(
-            num_examples=2,
-            feature_stats={
-                'a': stats.FeatureStats(
-                    feature_type=stats.FeatureType.INT,
-                    num_missing=0,
-                    num_non_missing=2,
-                    max_num_values=3,
-                    min_num_values=1,
-                    tot_num_values=4,
-                    avg_num_values=2.0,
+    expected = stats.TfExampleStats(
+        num_examples=2,
+        feature_stats={
+            'a': stats.FeatureStats(
+                feature_type=stats.FeatureType.INT,
+                num_missing=0,
+                num_non_missing=2,
+                max_num_values=3,
+                min_num_values=1,
+                tot_num_values=4,
+                avg_num_values=2.0,
+                numeric_stats=stats.NumericStats(
+                    min=1.0,
+                    max=3.0,
+                    mean=1.75,
+                    std_dev=0.8291561975800501,
+                    num_zeros=0,
                 ),
-                'b': stats.FeatureStats(
-                    feature_type=stats.FeatureType.INT,
-                    num_missing=1,
-                    num_non_missing=1,
-                    max_num_values=2,
-                    min_num_values=2,
-                    tot_num_values=2,
-                    avg_num_values=2.0,
+            ),
+            'b': stats.FeatureStats(
+                feature_type=stats.FeatureType.INT,
+                num_missing=1,
+                num_non_missing=1,
+                max_num_values=2,
+                min_num_values=2,
+                tot_num_values=2,
+                avg_num_values=2.0,
+                numeric_stats=stats.NumericStats(
+                    min=1.0,
+                    max=2.0,
+                    mean=1.5,
+                    std_dev=0.5,
+                    num_zeros=0,
                 ),
-            },
-        ),
-        agg.result(),
+            ),
+        },
     )
+    self.assert_tf_example_stats_equal(expected, agg.result())
 
   def test_merge(self):
     examples1 = [{'a': [1], 'b': [1, 2]}, {'a': [1, 2, 3]}]
@@ -756,111 +821,158 @@ class TfExampleStatsAggTest(parameterized.TestCase):
     agg2 = stats.TfExampleStatsAgg()
     agg2.add(examples2)
     agg1.merge(agg2)
-    self.assertEqual(
-        stats.TfExampleStats(
-            num_examples=3,
-            feature_stats={
-                'a': stats.FeatureStats(
-                    feature_type=stats.FeatureType.INT,
-                    num_missing=1,
-                    num_non_missing=2,
-                    max_num_values=3,
-                    min_num_values=1,
-                    tot_num_values=4,
-                    avg_num_values=2.0,
+    expected = stats.TfExampleStats(
+        num_examples=3,
+        feature_stats={
+            'a': stats.FeatureStats(
+                feature_type=stats.FeatureType.INT,
+                num_missing=1,
+                num_non_missing=2,
+                max_num_values=3,
+                min_num_values=1,
+                tot_num_values=4,
+                avg_num_values=2.0,
+                numeric_stats=stats.NumericStats(
+                    min=1.0,
+                    max=3.0,
+                    mean=1.75,
+                    std_dev=0.8291561975800501,
+                    num_zeros=0,
                 ),
-                'b': stats.FeatureStats(
-                    feature_type=stats.FeatureType.INT,
-                    num_missing=1,
-                    num_non_missing=2,
-                    max_num_values=4,
-                    min_num_values=2,
-                    tot_num_values=6,
-                    avg_num_values=3.0,
+            ),
+            'b': stats.FeatureStats(
+                feature_type=stats.FeatureType.INT,
+                num_missing=1,
+                num_non_missing=2,
+                max_num_values=4,
+                min_num_values=2,
+                tot_num_values=6,
+                avg_num_values=3.0,
+                numeric_stats=stats.NumericStats(
+                    min=1.0,
+                    max=4.0,
+                    mean=2.1666666666666665,
+                    std_dev=1.067187372604722,
+                    num_zeros=0,
                 ),
-                'c': stats.FeatureStats(
-                    feature_type=stats.FeatureType.INT,
-                    num_missing=2,
-                    num_non_missing=1,
-                    max_num_values=1,
-                    min_num_values=1,
-                    tot_num_values=1,
-                    avg_num_values=1.0,
+            ),
+            'c': stats.FeatureStats(
+                feature_type=stats.FeatureType.INT,
+                num_missing=2,
+                num_non_missing=1,
+                max_num_values=1,
+                min_num_values=1,
+                tot_num_values=1,
+                avg_num_values=1.0,
+                numeric_stats=stats.NumericStats(
+                    min=1.0,
+                    max=1.0,
+                    mean=1.0,
+                    std_dev=0.0,
+                    num_zeros=0,
                 ),
-            },
-        ),
-        agg1.result(),
+            ),
+        },
     )
+    self.assert_tf_example_stats_equal(expected, agg1.result())
 
   def test_unbatched(self):
     examples = [{'a': [1], 'b': [1, 2]}, {'a': [1, 2, 3]}]
     agg = stats.TfExampleStatsAgg(batched_inputs=False)
     for example in examples:
       agg.add(example)
-    self.assertEqual(
-        stats.TfExampleStats(
-            num_examples=2,
-            feature_stats={
-                'a': stats.FeatureStats(
-                    feature_type=stats.FeatureType.INT,
-                    num_missing=0,
-                    num_non_missing=2,
-                    max_num_values=3,
-                    min_num_values=1,
-                    tot_num_values=4,
-                    avg_num_values=2.0,
+    expected = stats.TfExampleStats(
+        num_examples=2,
+        feature_stats={
+            'a': stats.FeatureStats(
+                feature_type=stats.FeatureType.INT,
+                num_missing=0,
+                num_non_missing=2,
+                max_num_values=3,
+                min_num_values=1,
+                tot_num_values=4,
+                avg_num_values=2.0,
+                numeric_stats=stats.NumericStats(
+                    min=1.0,
+                    max=3.0,
+                    mean=1.75,
+                    std_dev=0.8291561975800501,
+                    num_zeros=0,
                 ),
-                'b': stats.FeatureStats(
-                    feature_type=stats.FeatureType.INT,
-                    num_missing=1,
-                    num_non_missing=1,
-                    max_num_values=2,
-                    min_num_values=2,
-                    tot_num_values=2,
-                    avg_num_values=2.0,
+            ),
+            'b': stats.FeatureStats(
+                feature_type=stats.FeatureType.INT,
+                num_missing=1,
+                num_non_missing=1,
+                max_num_values=2,
+                min_num_values=2,
+                tot_num_values=2,
+                avg_num_values=2.0,
+                numeric_stats=stats.NumericStats(
+                    min=1.0,
+                    max=2.0,
+                    mean=1.5,
+                    std_dev=0.5,
+                    num_zeros=0,
                 ),
-            },
-        ),
-        agg.result(),
+            ),
+        },
     )
+    self.assert_tf_example_stats_equal(expected, agg.result())
 
   def test_feature_types(self):
     examples = [{'a': [1], 'b': [1.0, 2.0], 'c': ['foo', 'bar']}]
     agg = stats.TfExampleStatsAgg()
     agg.add(examples)
-    self.assertEqual(
-        stats.TfExampleStats(
-            num_examples=1,
-            feature_stats={
-                'a': stats.FeatureStats(
-                    feature_type=stats.FeatureType.INT,
-                    num_missing=0,
-                    num_non_missing=1,
-                    max_num_values=1,
-                    min_num_values=1,
-                    tot_num_values=1,
-                    avg_num_values=1.0,
+    expected = stats.TfExampleStats(
+        num_examples=1,
+        feature_stats={
+            'a': stats.FeatureStats(
+                feature_type=stats.FeatureType.INT,
+                num_missing=0,
+                num_non_missing=1,
+                max_num_values=1,
+                min_num_values=1,
+                tot_num_values=1,
+                avg_num_values=1.0,
+                numeric_stats=stats.NumericStats(
+                    min=1.0,
+                    max=1.0,
+                    mean=1.0,
+                    std_dev=0.0,
+                    num_zeros=0,
                 ),
-                'b': stats.FeatureStats(
-                    feature_type=stats.FeatureType.FLOAT,
-                    num_missing=0,
-                    num_non_missing=1,
-                    max_num_values=2,
-                    min_num_values=2,
-                    tot_num_values=2,
-                    avg_num_values=2.0,
+            ),
+            'b': stats.FeatureStats(
+                feature_type=stats.FeatureType.FLOAT,
+                num_missing=0,
+                num_non_missing=1,
+                max_num_values=2,
+                min_num_values=2,
+                tot_num_values=2,
+                avg_num_values=2.0,
+                numeric_stats=stats.NumericStats(
+                    min=1.0,
+                    max=2.0,
+                    mean=1.5,
+                    std_dev=0.5,
+                    num_zeros=0,
                 ),
-                'c': stats.FeatureStats(
-                    feature_type=stats.FeatureType.STRING,
-                    num_missing=0,
-                    num_non_missing=1,
-                    max_num_values=2,
-                    min_num_values=2,
-                    tot_num_values=2,
-                    avg_num_values=2.0,
-                ),
-            },
-        ),
+            ),
+            'c': stats.FeatureStats(
+                feature_type=stats.FeatureType.STRING,
+                num_missing=0,
+                num_non_missing=1,
+                max_num_values=2,
+                min_num_values=2,
+                tot_num_values=2,
+                avg_num_values=2.0,
+                numeric_stats=None,
+            ),
+        },
+    )
+    self.assert_tf_example_stats_equal(
+        expected,
         agg.result(),
     )
 
@@ -1976,8 +2088,8 @@ class TfdvTest(absltest.TestCase):
 
   def test_to_proto(self):
     feature_stats_instance = stats.FeatureStats()
-    feature_stats_instance.update(1, stats.FeatureType.INT)
-    feature_stats_instance.update(2, stats.FeatureType.INT)
+    feature_stats_instance.update([1])
+    feature_stats_instance.update([1, 2])
     data = stats.TfExampleStats(
         num_examples=2,
         feature_stats={
