@@ -23,6 +23,7 @@ import more_itertools as mit
 import numpy as np
 
 from absl.testing import absltest
+from tensorflow_metadata.proto.v0 import statistics_pb2
 
 
 class HistogramTest(parameterized.TestCase):
@@ -694,6 +695,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
             num_examples=1,
             feature_stats={
                 'a': stats.FeatureStats(
+                    feature_type=stats.FeatureType.INT,
                     num_missing=0,
                     num_non_missing=1,
                     max_num_values=1,
@@ -702,6 +704,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
                     avg_num_values=1.0,
                 ),
                 'b': stats.FeatureStats(
+                    feature_type=stats.FeatureType.INT,
                     num_missing=0,
                     num_non_missing=1,
                     max_num_values=2,
@@ -723,6 +726,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
             num_examples=2,
             feature_stats={
                 'a': stats.FeatureStats(
+                    feature_type=stats.FeatureType.INT,
                     num_missing=0,
                     num_non_missing=2,
                     max_num_values=3,
@@ -731,6 +735,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
                     avg_num_values=2.0,
                 ),
                 'b': stats.FeatureStats(
+                    feature_type=stats.FeatureType.INT,
                     num_missing=1,
                     num_non_missing=1,
                     max_num_values=2,
@@ -756,6 +761,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
             num_examples=3,
             feature_stats={
                 'a': stats.FeatureStats(
+                    feature_type=stats.FeatureType.INT,
                     num_missing=1,
                     num_non_missing=2,
                     max_num_values=3,
@@ -764,6 +770,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
                     avg_num_values=2.0,
                 ),
                 'b': stats.FeatureStats(
+                    feature_type=stats.FeatureType.INT,
                     num_missing=1,
                     num_non_missing=2,
                     max_num_values=4,
@@ -772,6 +779,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
                     avg_num_values=3.0,
                 ),
                 'c': stats.FeatureStats(
+                    feature_type=stats.FeatureType.INT,
                     num_missing=2,
                     num_non_missing=1,
                     max_num_values=1,
@@ -794,6 +802,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
             num_examples=2,
             feature_stats={
                 'a': stats.FeatureStats(
+                    feature_type=stats.FeatureType.INT,
                     num_missing=0,
                     num_non_missing=2,
                     max_num_values=3,
@@ -802,6 +811,7 @@ class TfExampleStatsAggTest(parameterized.TestCase):
                     avg_num_values=2.0,
                 ),
                 'b': stats.FeatureStats(
+                    feature_type=stats.FeatureType.INT,
                     num_missing=1,
                     num_non_missing=1,
                     max_num_values=2,
@@ -813,6 +823,72 @@ class TfExampleStatsAggTest(parameterized.TestCase):
         ),
         agg.result(),
     )
+
+  def test_feature_types(self):
+    examples = [{'a': [1], 'b': [1.0, 2.0], 'c': ['foo', 'bar']}]
+    agg = stats.TfExampleStatsAgg()
+    agg.add(examples)
+    self.assertEqual(
+        stats.TfExampleStats(
+            num_examples=1,
+            feature_stats={
+                'a': stats.FeatureStats(
+                    feature_type=stats.FeatureType.INT,
+                    num_missing=0,
+                    num_non_missing=1,
+                    max_num_values=1,
+                    min_num_values=1,
+                    tot_num_values=1,
+                    avg_num_values=1.0,
+                ),
+                'b': stats.FeatureStats(
+                    feature_type=stats.FeatureType.FLOAT,
+                    num_missing=0,
+                    num_non_missing=1,
+                    max_num_values=2,
+                    min_num_values=2,
+                    tot_num_values=2,
+                    avg_num_values=2.0,
+                ),
+                'c': stats.FeatureStats(
+                    feature_type=stats.FeatureType.STRING,
+                    num_missing=0,
+                    num_non_missing=1,
+                    max_num_values=2,
+                    min_num_values=2,
+                    tot_num_values=2,
+                    avg_num_values=2.0,
+                ),
+            },
+        ),
+        agg.result(),
+    )
+
+  def test_conflicting_types_in_batch(self):
+    examples = [{'a': [1]}, {'a': ['foo']}]
+    agg = stats.TfExampleStatsAgg()
+    with self.assertRaisesRegex(ValueError, 'Feature a has conflicting types'):
+      agg.add(examples)
+
+  def test_conflicting_types_in_merge(self):
+    examples1 = [{'a': [1]}]
+    examples2 = [{'a': ['foo']}]
+    agg1 = stats.TfExampleStatsAgg()
+    agg1.add(examples1)
+    agg2 = stats.TfExampleStatsAgg()
+    agg2.add(examples2)
+    with self.assertRaisesRegex(ValueError, 'Feature a has conflicting types'):
+      agg1.merge(agg2)
+
+  def test_bytes_feature_type_invalid_utf8_error(self):
+    examples = [{'a': [b'\xff']}]
+    agg = stats.TfExampleStatsAgg()
+    with self.assertRaisesRegex(
+        ValueError,
+        'Unsupported bytes feature type. Feature could not be decoded as UTF-8'
+        ' string',
+    ):
+      agg.add(examples)
 
 
 class MeanAndVarianceTest(parameterized.TestCase):
@@ -1900,8 +1976,8 @@ class TfdvTest(absltest.TestCase):
 
   def test_to_proto(self):
     feature_stats_instance = stats.FeatureStats()
-    feature_stats_instance.update(1)
-    feature_stats_instance.update(2)
+    feature_stats_instance.update(1, stats.FeatureType.INT)
+    feature_stats_instance.update(2, stats.FeatureType.INT)
     data = stats.TfExampleStats(
         num_examples=2,
         feature_stats={
@@ -1919,6 +1995,7 @@ class TfdvTest(absltest.TestCase):
     self.assertEqual(feature.num_stats.common_stats.max_num_values, 2)
     self.assertEqual(feature.num_stats.common_stats.avg_num_values, 1.5)
     self.assertEqual(feature.num_stats.common_stats.tot_num_values, 3)
+    self.assertEqual(feature.type, statistics_pb2.FeatureNameStatistics.INT)
 
 
 if __name__ == '__main__':

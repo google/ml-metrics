@@ -19,6 +19,7 @@ import array
 import collections
 from collections.abc import Callable, Iterable
 import dataclasses
+import enum
 import itertools
 import math
 from typing import Any, Generic, Self, TypeVar
@@ -33,6 +34,38 @@ from tensorflow_metadata.proto.v0 import statistics_pb2
 
 _EPSNEG = np.finfo(float).epsneg
 _T = TypeVar('_T')
+
+
+@enum.unique
+class FeatureType(enum.Enum):
+  """Feature types."""
+
+  INT = 'int'
+  FLOAT = 'float'
+  STRING = 'string'
+
+
+def _get_feature_type(value: list[Any]) -> FeatureType | None:
+  """Returns the feature type of the given value."""
+  if not value:
+    return None
+  if isinstance(value[0], str):
+    return FeatureType.STRING
+  elif isinstance(value[0], bytes):
+    try:
+      value[0].decode('utf-8')
+      return FeatureType.STRING
+    except UnicodeDecodeError as e:
+      raise ValueError(
+          'Unsupported bytes feature type. Feature could not be decoded as'
+          f' UTF-8 string: {e}'
+      ) from e
+  elif isinstance(value[0], int):
+    return FeatureType.INT
+  elif isinstance(value[0], float):
+    return FeatureType.FLOAT
+  else:
+    raise ValueError(f'Unsupported feature type: {type(value[0])}')
 
 
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
@@ -344,6 +377,7 @@ class Count(chainable.CallableMetric):
 class FeatureStats:
   """Statistics for a single feature."""
 
+  feature_type: FeatureType | None = None
   num_missing: int = 0
   num_non_missing: int = 0
   max_num_values: int = 0
@@ -351,9 +385,10 @@ class FeatureStats:
   tot_num_values: int = 0
   avg_num_values: float = 0.0
 
-  def update(self, length: int):
+  def update(self, length: int, feature_type: FeatureType | None):
     self.merge(
         FeatureStats(
+            feature_type=feature_type,
             num_non_missing=1,
             max_num_values=length,
             min_num_values=length,
@@ -363,6 +398,15 @@ class FeatureStats:
     )
 
   def merge(self, other: Self):
+    """Merges with other feature stats."""
+    if other.feature_type is not None:
+      if self.feature_type is None:
+        self.feature_type = other.feature_type
+      elif self.feature_type != other.feature_type:
+        raise ValueError(
+            f'Feature has conflicting types: {self.feature_type} vs'
+            f' {other.feature_type}'
+        )
     self.num_non_missing += other.num_non_missing
     self.max_num_values = max(self.max_num_values, other.max_num_values)
     if other.min_num_values is None:
@@ -415,6 +459,12 @@ class TfExampleStats:
       feature_name_stats.num_stats.common_stats.tot_num_values = (
           feature_stats.tot_num_values
       )
+      if feature_stats.feature_type:
+        feature_name_stats.type = (
+            statistics_pb2.FeatureNameStatistics.Type.Value(
+                feature_stats.feature_type.name
+            )
+        )
     return statistics_pb2.DatasetFeatureStatisticsList(
         datasets=[feature_stats_proto]
     )
@@ -426,10 +476,7 @@ class TfExampleStatsAgg(chainable.CallableMetric):
   """Computes statistics on features."""
 
   batched_inputs: bool = True
-  _num_examples: int = 0
-  _feature_stats: dict[str, FeatureStats] = dataclasses.field(
-      default_factory=dict
-  )
+  _stats: TfExampleStats = dataclasses.field(default_factory=TfExampleStats)
 
   def as_agg_fn(self) -> chainable.AggregateFn:
     return chainable.as_agg_fn(
@@ -439,11 +486,11 @@ class TfExampleStatsAgg(chainable.CallableMetric):
 
   @property
   def num_examples(self) -> int:
-    return self._num_examples
+    return self._stats.num_examples
 
   @property
   def feature_stats(self) -> dict[str, FeatureStats]:
-    return self._feature_stats
+    return self._stats.feature_stats
 
   def new(
       self, inputs: dict[str, list[Any]] | list[dict[str, list[Any]]]
@@ -461,27 +508,37 @@ class TfExampleStatsAgg(chainable.CallableMetric):
     for example in inputs_list:
       num_examples += 1
       for key, value in example.items():
-        feature_stats[key].update(len(value))
+        try:
+          feature_stats[key].update(len(value), _get_feature_type(value))
+        except ValueError as e:
+          if 'conflicting types' in str(e):
+            raise ValueError(f'Feature {key} has conflicting types: {e}') from e
+          raise
     return self.__class__(
         batched_inputs=self.batched_inputs,
-        _num_examples=num_examples,
-        _feature_stats=dict(feature_stats),
+        _stats=TfExampleStats(
+            num_examples=num_examples,
+            feature_stats=dict(feature_stats),
+        ),
     )
 
   def merge(self, other: Self) -> None:
-    self._num_examples += other.num_examples
+    self._stats.num_examples += other.num_examples
     for key, value in other.feature_stats.items():
-      if key in self._feature_stats:
-        self._feature_stats[key].merge(value)
+      if key in self._stats.feature_stats:
+        try:
+          self._stats.feature_stats[key].merge(value)
+        except ValueError as e:
+          if 'conflicting types' in str(e):
+            raise ValueError(f'Feature {key} has conflicting types: {e}') from e
+          raise
       else:
-        self._feature_stats[key] = value
+        self._stats.feature_stats[key] = value
 
   def result(self) -> TfExampleStats:
-    for feature in self._feature_stats.values():
-      feature.num_missing = self._num_examples - feature.num_non_missing
-    return TfExampleStats(
-        num_examples=self._num_examples, feature_stats=self._feature_stats
-    )
+    for feature in self._stats.feature_stats.values():
+      feature.num_missing = self._stats.num_examples - feature.num_non_missing
+    return self._stats
 
 
 @telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
