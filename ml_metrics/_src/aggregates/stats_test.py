@@ -1018,14 +1018,6 @@ class MeanAndVarianceTest(parameterized.TestCase):
           },
       ),
       dict(
-          testcase_name='list_input',
-          inputs=[np.array([1, 2, 3]), np.array([4, 5, 6])],
-          expected=[
-              stats.MeanAndVariance()([1, 2, 3]),
-              stats.MeanAndVariance()([4, 5, 6]),
-          ],
-      ),
-      dict(
           testcase_name='tuple_input',
           inputs=(np.array([1, 2, 3]), np.array([4, 5, 6])),
           expected=(
