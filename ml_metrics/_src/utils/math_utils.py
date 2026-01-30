@@ -13,7 +13,6 @@
 # limitations under the License.
 """Math Utils."""
 
-from ml_metrics._src import types
 from ml_metrics._src.aggregates import types as agg_types
 import numpy as np
 
@@ -70,7 +69,9 @@ def where(
     condition: agg_types.NumbersT, x: agg_types.NumbersT, y: agg_types.NumbersT
 ):
   """Like np.where, but directly returns itself if condition is scalar."""
-  if types.is_array_like(condition):
+  if isinstance(condition, (list, tuple)) or (
+      hasattr(condition, '__array__') and condition.ndim > 0
+  ):
     return np.where(condition, x, y)
   # If x or y is scalar, return it directly to keep its type (vs. np.where
   # that wraps it in a one-element array).
