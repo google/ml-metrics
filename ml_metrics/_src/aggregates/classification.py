@@ -25,6 +25,7 @@ import chainable
 from ml_metrics._src.aggregates import types
 from ml_metrics._src.aggregates import utils
 from ml_metrics._src.utils import math_utils
+from ml_metrics.google.tools.signal_registry import registry
 from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
@@ -558,7 +559,10 @@ def _multiclass_confusion_matrix(
 ConfusionMatrixAggState = _ConfusionMatrix
 
 
-@telemetry.class_monitor(category=telemetry.CATEGORY.METRIC)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    usage_category=telemetry.CATEGORY.METRIC,
+)
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class ConfusionMatrixAggFn(chainable.AggregateFn):
   """ConfusionMatrix aggregate.
@@ -729,7 +733,10 @@ def _topk_confusion_matrix(
   return _TopKConfusionMatrix(*tuple(zip(*cms)))
 
 
-@telemetry.class_monitor(category=telemetry.CATEGORY.METRIC)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    usage_category=telemetry.CATEGORY.METRIC,
+)
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class TopKConfusionMatrixAggFn(ConfusionMatrixAggFn):
   """ConfusionMatrixAtK aggregate.
@@ -777,7 +784,10 @@ class TopKConfusionMatrixAggFn(ConfusionMatrixAggFn):
 SamplewiseConfusionMatrixAggState = dict[str, utils.MeanState]
 
 
-@telemetry.class_monitor(category=telemetry.CATEGORY.METRIC)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    usage_category=telemetry.CATEGORY.METRIC,
+)
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class SamplewiseClassification(chainable.MergeableMetric, chainable.HasAsAggFn):
   """SamplewiseClassification metric.
@@ -894,6 +904,10 @@ class SamplewiseClassification(chainable.MergeableMetric, chainable.HasAsAggFn):
     return result
 
 
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def SamplewiseConfusionMatrixAggFn(**kwargs) -> chainable.AggregateFn:  # pylint: disable=invalid-name
   """Convenient alias as a AggregateFn constructor."""
   return SamplewiseClassification(**kwargs).as_agg_fn()

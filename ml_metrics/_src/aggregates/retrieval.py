@@ -28,6 +28,7 @@ from chainable import types
 from ml_metrics._src.aggregates import types as agg_types
 from ml_metrics._src.aggregates import utils
 from ml_metrics._src.utils import math_utils
+from ml_metrics.google.tools.signal_registry import registry
 from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
@@ -201,6 +202,10 @@ def _ndcg_score(tp, k_range, k_list, y_true_count):
   return result
 
 
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    usage_category=telemetry.CATEGORY.METRIC
+)
 class RetrievalMetricAtThreshold(str):
   """Retrieval metric at threshold in a format of metric@threshold.
 
@@ -306,6 +311,10 @@ class _ThresholdedConfusionMatrix:
       )
 
 
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    usage_category=telemetry.CATEGORY.METRIC,
+)
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class ThresholdedRetrieval(chainable.MergeableMetric):
   """TopKRetrievals with continuous input.
@@ -427,7 +436,10 @@ class ThresholdedRetrieval(chainable.MergeableMetric):
     return result
 
 
-@telemetry.class_monitor(category=telemetry.CATEGORY.METRIC)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    usage_category=telemetry.CATEGORY.METRIC
+)
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class TopKRetrieval(chainable.MergeableMetric, chainable.HasAsAggFn):
   """TopKRetrievals.
@@ -623,7 +635,10 @@ class TopKRetrieval(chainable.MergeableMetric, chainable.HasAsAggFn):
     return dict(zip(self._metrics, result))
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.METRIC)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    usage_category=telemetry.CATEGORY.METRIC
+)
 def TopKRetrievalAggFn(**kwargs) -> chainable.AggregateFn:  # pylint: disable=invalid-name
   """Convenient alias as a AggregateFn constructor."""
   return TopKRetrieval(**kwargs).as_agg_fn()
