@@ -14,6 +14,7 @@
 """Module for cross entropy loss functions."""
 
 from ml_metrics._src.aggregates import types
+from ml_metrics.google.tools.signal_registry import registry
 from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
@@ -25,7 +26,10 @@ def _check_y_true_contains_only_0_and_1(y_true: types.NumbersT) -> None:
     )
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def binary_cross_entropy(
     y_true: types.NumbersT,
     y_pred: types.NumbersT,
@@ -46,7 +50,10 @@ def binary_cross_entropy(
   return -np.mean(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def categorical_cross_entropy(
     y_true: types.NumbersT,
     y_pred: types.NumbersT,

@@ -9,11 +9,15 @@ https://arxiv.org/pdf/2301.00930.pdf (Section A.2).
 """
 
 from ml_metrics._src.aggregates import types
+from ml_metrics.google.tools.signal_registry import registry
 from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def complexity_gap_score(
     labels: types.NumbersT,
     embeddings: types.NumbersT,
@@ -22,7 +26,9 @@ def complexity_gap_score(
     class_balance_ratio: float = 1.0,
     random_seed: int = 0,
 ) -> types.NumbersT:
-  """Calculates the Complexity Gap (CG) score for identifying influential instances.
+  """Calculates the Complexity Gap (CG) score.
+
+  This score is used for identifying influential instances.
 
   Args:
       labels: Labels in binary vector representations.
