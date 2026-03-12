@@ -25,9 +25,7 @@ def _check_y_true_contains_only_0_and_1(y_true: types.NumbersT) -> None:
     )
 
 
-@telemetry.function_monitor(
-    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
-)
+@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
 def binary_cross_entropy(
     y_true: types.NumbersT,
     y_pred: types.NumbersT,
@@ -48,9 +46,7 @@ def binary_cross_entropy(
   return -np.mean(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))
 
 
-@telemetry.function_monitor(
-    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
-)
+@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
 def categorical_cross_entropy(
     y_true: types.NumbersT,
     y_pred: types.NumbersT,

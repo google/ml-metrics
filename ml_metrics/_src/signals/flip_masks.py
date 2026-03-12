@@ -18,9 +18,7 @@ from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
 
-@telemetry.function_monitor(
-    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
-)
+@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
 def binary_flip_mask(
     base_prediction: types.NumbersT,
     model_prediction: types.NumbersT,
@@ -34,9 +32,7 @@ def binary_flip_mask(
   return np.logical_xor(base_prediction, model_prediction).astype(int)
 
 
-@telemetry.function_monitor(
-    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
-)
+@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
 def neg_to_pos_flip_mask(
     base_prediction: types.NumbersT,
     model_prediction: types.NumbersT,
@@ -52,9 +48,7 @@ def neg_to_pos_flip_mask(
   return np.logical_and(base_under_threshold, model_over_threshold).astype(int)
 
 
-@telemetry.function_monitor(
-    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
-)
+@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
 def pos_to_neg_flip_mask(
     base_prediction: types.NumbersT,
     model_prediction: types.NumbersT,

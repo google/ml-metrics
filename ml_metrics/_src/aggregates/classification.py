@@ -558,7 +558,7 @@ def _multiclass_confusion_matrix(
 ConfusionMatrixAggState = _ConfusionMatrix
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.METRIC)
+@telemetry.class_monitor(category=telemetry.CATEGORY.METRIC)
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class ConfusionMatrixAggFn(chainable.AggregateFn):
   """ConfusionMatrix aggregate.
@@ -729,7 +729,7 @@ def _topk_confusion_matrix(
   return _TopKConfusionMatrix(*tuple(zip(*cms)))
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.METRIC)
+@telemetry.class_monitor(category=telemetry.CATEGORY.METRIC)
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class TopKConfusionMatrixAggFn(ConfusionMatrixAggFn):
   """ConfusionMatrixAtK aggregate.
@@ -777,7 +777,7 @@ class TopKConfusionMatrixAggFn(ConfusionMatrixAggFn):
 SamplewiseConfusionMatrixAggState = dict[str, utils.MeanState]
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.METRIC)
+@telemetry.class_monitor(category=telemetry.CATEGORY.METRIC)
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class SamplewiseClassification(chainable.MergeableMetric, chainable.HasAsAggFn):
   """SamplewiseClassification metric.

@@ -13,9 +13,7 @@ from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
 
-@telemetry.function_monitor(
-    api='ml_metrics', category=telemetry.CATEGORY.SIGNAL
-)
+@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
 def complexity_gap_score(
     labels: types.NumbersT,
     embeddings: types.NumbersT,

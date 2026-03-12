@@ -40,7 +40,7 @@ def tf_examples_to_dict(examples: _ExampleOrBytes):
   )
 
 
-@telemetry.function_monitor(api='ml_metrics', category=telemetry.CATEGORY.UTIL)
+@telemetry.function_monitor(category=telemetry.CATEGORY.UTIL)
 def tf_example_to_dict(
     example: _ExampleOrBytes,
     *,
@@ -65,7 +65,7 @@ def tf_example_to_dict(
   return result
 
 
-@telemetry.function_monitor(api='ml_metrics', category=telemetry.CATEGORY.UTIL)
+@telemetry.function_monitor(category=telemetry.CATEGORY.UTIL)
 def dict_to_tf_example(data: dict[str, Any]) -> example_pb2.Example:
   """Creates a tf.Example from a dictionary."""
   example = example_pb2.Example()

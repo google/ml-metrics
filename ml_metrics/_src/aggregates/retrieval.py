@@ -427,7 +427,7 @@ class ThresholdedRetrieval(chainable.MergeableMetric):
     return result
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.METRIC)
+@telemetry.class_monitor(category=telemetry.CATEGORY.METRIC)
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class TopKRetrieval(chainable.MergeableMetric, chainable.HasAsAggFn):
   """TopKRetrievals.
@@ -623,9 +623,7 @@ class TopKRetrieval(chainable.MergeableMetric, chainable.HasAsAggFn):
     return dict(zip(self._metrics, result))
 
 
-@telemetry.function_monitor(
-    api='ml_metrics', category=telemetry.CATEGORY.METRIC
-)
+@telemetry.function_monitor(category=telemetry.CATEGORY.METRIC)
 def TopKRetrievalAggFn(**kwargs) -> chainable.AggregateFn:  # pylint: disable=invalid-name
   """Convenient alias as a AggregateFn constructor."""
   return TopKRetrieval(**kwargs).as_agg_fn()

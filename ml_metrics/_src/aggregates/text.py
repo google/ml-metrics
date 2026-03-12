@@ -64,7 +64,7 @@ class TopKWordNGrams(chainable.MergeableMetric, chainable.HasAsAggFn):
 
   def __post_init__(self):
     telemetry.increment_counter(
-        api='ml_metrics', category='metric', reference=self.__class__.__name__
+        category='metric', reference=self.__class__.__name__
     )
     if self.k <= 0 or self.n <= 0:
       raise ValueError(
@@ -139,7 +139,7 @@ class PatternFrequency(chainable.MergeableMetric, chainable.HasAsAggFn):
 
   def __post_init__(self):
     telemetry.increment_counter(
-        api='ml_metrics', category='metric', reference=self.__class__.__name__
+        category='metric', reference=self.__class__.__name__
     )
     if not self.patterns:
       raise ValueError('Patterns must not be empty.')

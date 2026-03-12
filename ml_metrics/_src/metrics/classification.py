@@ -61,7 +61,7 @@ CalibrationHistogramResult = collections.namedtuple(
 
 
 # TODO: b/368067018 - Inherit from ml_metrics._src.aggregates.stats.Histogram.
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.METRIC)
+@telemetry.class_monitor(category=telemetry.CATEGORY.METRIC)
 @dataclasses.dataclass
 class CalibrationHistogram(chainable.MergeableMetric):
   """Computes the Histogram of the inputs.
@@ -173,7 +173,7 @@ class CalibrationHistogram(chainable.MergeableMetric):
     )
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.METRIC)
+@telemetry.class_monitor(category=telemetry.CATEGORY.METRIC)
 class ClassificationAggFn(chainable.AggregateFn):
   """Wrapper over the Classification AggFn classes."""
 

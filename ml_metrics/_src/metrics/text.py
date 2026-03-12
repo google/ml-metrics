@@ -22,9 +22,7 @@ from ml_metrics._src.signals import text as text_scores
 from ml_metrics._src.tools.telemetry import telemetry
 
 
-@telemetry.function_monitor(
-    api='ml_metrics', category=telemetry.CATEGORY.METRIC
-)
+@telemetry.function_monitor(category=telemetry.CATEGORY.METRIC)
 def topk_word_ngrams(
     texts: Sequence[str],
     k: int,
@@ -76,9 +74,7 @@ def topk_word_ngrams(
   ).as_agg_fn()(texts)
 
 
-@telemetry.function_monitor(
-    api='ml_metrics', category=telemetry.CATEGORY.METRIC
-)
+@telemetry.function_monitor(category=telemetry.CATEGORY.METRIC)
 def pattern_frequency(
     texts: Sequence[str], patterns: Sequence[str], count_duplicate: bool = True
 ) -> list[tuple[str, float]]:
@@ -113,9 +109,7 @@ def pattern_frequency(
   ).as_agg_fn()(texts)
 
 
-@telemetry.function_monitor(
-    api='ml_metrics', category=telemetry.CATEGORY.METRIC
-)
+@telemetry.function_monitor(category=telemetry.CATEGORY.METRIC)
 def avg_alphabetical_char_count(
     texts: Sequence[str],
 ) -> stats.MeanAndVariance:

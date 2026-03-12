@@ -33,7 +33,7 @@ _EPSNEG = np.finfo(float).epsneg
 _T = TypeVar('_T')
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
+@telemetry.class_monitor(category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(kw_only=True)
 class UnboundedSampler(chainable.CallableMetric, chainable.HasAsAggFn):
   """Stores all the inputs in memory."""
@@ -70,7 +70,7 @@ class UnboundedSampler(chainable.CallableMetric, chainable.HasAsAggFn):
     return self._samples[0]
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
+@telemetry.class_monitor(category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
 class FixedSizeSample(chainable.MergeableMetric, chainable.HasAsAggFn):
   """Generates a fixed size sample of the data stream.
@@ -172,7 +172,7 @@ HistogramResult = collections.namedtuple(
 )
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
+@telemetry.class_monitor(category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True, kw_only=True)
 class Histogram(chainable.CallableMetric, chainable.HasAsAggFn):
   """Computes the Histogram of the inputs.
@@ -257,7 +257,7 @@ class Histogram(chainable.CallableMetric, chainable.HasAsAggFn):
     )
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
+@telemetry.class_monitor(category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True, kw_only=True)
 class Counter(chainable.CallableMetric, chainable.HasAsAggFn, Generic[_T]):
   """An CallableMetric version of collections.Counter."""
@@ -338,7 +338,7 @@ class Count(chainable.CallableMetric):
     return f'count: {self.result()}'
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
+@telemetry.class_monitor(category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(kw_only=True, eq=True)
 class Mean(chainable.CallableMetric):
   """Computes the mean and variance of a batch of values."""
@@ -417,7 +417,7 @@ class Mean(chainable.CallableMetric):
     return f'mean: {self.mean}'
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
+@telemetry.class_monitor(category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(kw_only=True, eq=True)
 class MeanAndVariance(Mean):
   """Computes the mean and variance of a batch of values."""
@@ -474,7 +474,7 @@ class MeanAndVariance(Mean):
     )
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
+@telemetry.class_monitor(category=telemetry.CATEGORY.STATS)
 class Var(MeanAndVariance):
 
   def result(self) -> types.NumbersT:
@@ -484,7 +484,7 @@ class Var(MeanAndVariance):
     return f'var: {self.var}'
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
+@telemetry.class_monitor(category=telemetry.CATEGORY.STATS)
 # TODO(b/345249574): Add a preprocessing function of len per row.
 @dataclasses.dataclass(slots=True)
 class MinMaxAndCount(chainable.CallableMetric):
@@ -560,7 +560,7 @@ def _auto_concat(x, y):
     raise TypeError(f'Unsupported type: {type(x)}') from e
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
+@telemetry.class_monitor(category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
 class ValueAccumulator(chainable.CallableMetric):
   """This stores and accumulates all the values."""
@@ -667,7 +667,7 @@ class R2Tjur(abc.ABC, chainable.CallableMetric):
     )
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
+@telemetry.class_monitor(category=telemetry.CATEGORY.STATS)
 class R2TjurRelative(R2Tjur):
 
   def result(self) -> types.NumbersT:
@@ -682,7 +682,7 @@ class R2TjurRelative(R2Tjur):
     )
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
+@telemetry.class_monitor(category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
 class RRegression(chainable.CallableMetric):
   """Computes the Pearson Correlation Coefficient (PCC).
@@ -804,7 +804,7 @@ class RRegression(chainable.CallableMetric):
     return numerator / denominator
 
 
-@telemetry.class_monitor(api='ml_metrics', category=telemetry.CATEGORY.STATS)
+@telemetry.class_monitor(category=telemetry.CATEGORY.STATS)
 @dataclasses.dataclass(slots=True)
 class SymmetricPredictionDifference(chainable.CallableMetric):
   """Computes the Symmetric Prediction Difference.
