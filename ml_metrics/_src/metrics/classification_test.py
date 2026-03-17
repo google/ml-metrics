@@ -421,12 +421,6 @@ class ClassificationTest(parameterized.TestCase):
         input_type=types.InputType.MULTICLASS_MULTIOUTPUT,
         average=types.AverageType.MICRO,
     )
-    metric_doc_details = "\n".join(
-        metric_fn.__doc__.split("\n")[1:]
-    ).strip()  # ignore the description line for comparison
-    self.assertEqual(
-        metric_doc_details, classification._METRIC_PYDOC_POSTFIX.strip()
-    )
     np.testing.assert_allclose(expected_no_k_list, actual_no_k_list)
     k_list = [1, 2]
     # k=[1 2], tp=[5 6], tn=[12 12], fp=[3 3], fn=[4 3]

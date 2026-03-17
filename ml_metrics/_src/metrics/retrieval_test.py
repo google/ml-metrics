@@ -157,12 +157,6 @@ class RetrievalTest(parameterized.TestCase):
     k_list = [1, 2]
     y_pred = [["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]]
     y_true = [["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]]
-    metric_doc_details = "\n".join(
-        metric_fn.__doc__.split("\n")[1:]
-    ).strip()  # ignore the description line for comparison
-    self.assertEqual(
-        metric_doc_details, retrieval._METRIC_PYDOC_POSTFIX.strip()
-    )
     np.testing.assert_allclose(
         expected,
         metric_fn(

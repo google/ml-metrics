@@ -19,10 +19,14 @@ import chainable
 from ml_metrics._src.aggregates import stats
 from ml_metrics._src.aggregates import text
 from ml_metrics._src.signals import text as text_scores
+from ml_metrics.google.tools.signal_registry import registry
 from ml_metrics._src.tools.telemetry import telemetry
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.METRIC)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.METRIC,
+)
 def topk_word_ngrams(
     texts: Sequence[str],
     k: int,
@@ -74,7 +78,10 @@ def topk_word_ngrams(
   ).as_agg_fn()(texts)
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.METRIC)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.METRIC,
+)
 def pattern_frequency(
     texts: Sequence[str], patterns: Sequence[str], count_duplicate: bool = True
 ) -> list[tuple[str, float]]:
@@ -109,7 +116,10 @@ def pattern_frequency(
   ).as_agg_fn()(texts)
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.METRIC)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.METRIC,
+)
 def avg_alphabetical_char_count(
     texts: Sequence[str],
 ) -> stats.MeanAndVariance:

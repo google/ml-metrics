@@ -5,10 +5,14 @@ from typing import Any
 
 from ml_metrics._src.aggregates import classification
 from ml_metrics._src.aggregates import types
+from ml_metrics.google.tools.signal_registry import registry
 from ml_metrics._src.tools.telemetry import telemetry
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.METRIC)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    usage_category=telemetry.CATEGORY.METRIC,
+)
 def verify_input(y_true, y_pred, average, input_type, vocab, pos_label):
   if (
       average == types.AverageType.BINARY

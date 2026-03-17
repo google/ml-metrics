@@ -16,29 +16,18 @@
 from collections.abc import Sequence
 from ml_metrics._src.aggregates import retrieval
 from ml_metrics._src.aggregates import types
+from ml_metrics.google.tools.signal_registry import registry
 
 
 # TODO: b/368688941 - Remove this alias once all users are migrated to the new
 # module structure.
 TopKRetrievalAggFn = retrieval.TopKRetrievalAggFn
 
-_METRIC_PYDOC_POSTFIX = """
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
-        input_type: one input type from types.InputType
-
-  Returns:
-    Tuple with metric value(s)
-"""
-
-
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def topk_retrieval_metrics(
     metrics: Sequence[retrieval.RetrievalMetric],
     *,
@@ -69,13 +58,31 @@ def topk_retrieval_metrics(
   )(y_true, y_pred)
 
 
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def precision(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute Precision Retrieval metric."""
+  """Compute Precision Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrieval(
       metrics=retrieval.RetrievalMetric.PRECISION,
       k_list=k_list,
@@ -83,16 +90,31 @@ def precision(
   ).as_agg_fn()(y_true, y_pred)
 
 
-precision.__doc__ += _METRIC_PYDOC_POSTFIX
-
-
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def ppv(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute PPV Retrieval metric."""
+  """Compute PPV Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.PPV,
       k_list=k_list,
@@ -100,16 +122,31 @@ def ppv(
   )(y_true, y_pred)
 
 
-ppv.__doc__ += _METRIC_PYDOC_POSTFIX
-
-
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def recall(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute Recall Retrieval metric."""
+  """Compute Recall Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.RECALL,
       k_list=k_list,
@@ -117,31 +154,63 @@ def recall(
   )(y_true, y_pred)
 
 
-recall.__doc__ += _METRIC_PYDOC_POSTFIX
-
-
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def sensitivity(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute Sensitivity Retrieval metric."""
+  """Compute Sensitivity Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.SENSITIVITY,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
-sensitivity.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def tpr(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute TPR Retrieval metric."""
+  """Compute TPR Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.TPR,
       k_list=k_list,
@@ -149,46 +218,95 @@ def tpr(
   )(y_true, y_pred)
 
 
-tpr.__doc__ += _METRIC_PYDOC_POSTFIX
-
-
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def intersection_over_union(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute Intersection Over Union Retrieval metric."""
+  """Compute Intersection Over Union Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.INTERSECTION_OVER_UNION,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
-intersection_over_union.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def positive_predictive_value(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute Positive Predictive Value Retrieval metric."""
+  """Compute Positive Predictive Value Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.POSITIVE_PREDICTIVE_VALUE,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
-positive_predictive_value.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def f1_score(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute F1 Score Retrieval metric."""
+  """Compute F1 Score Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.F1_SCORE,
       k_list=k_list,
@@ -196,16 +314,31 @@ def f1_score(
   )(y_true, y_pred)
 
 
-f1_score.__doc__ += _METRIC_PYDOC_POSTFIX
-
-
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def miss_rate(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute Miss Rate Retrieval metric."""
+  """Compute Miss Rate Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.MISS_RATE,
       k_list=k_list,
@@ -213,124 +346,257 @@ def miss_rate(
   )(y_true, y_pred)
 
 
-miss_rate.__doc__ += _METRIC_PYDOC_POSTFIX
-
-
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def mean_average_precision(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute Mean Average Precision Retrieval metric."""
+  """Compute Mean Average Precision Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.MEAN_AVERAGE_PRECISION,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
-mean_average_precision.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def mean_reciprocal_rank(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute Mean Reciprocal Rank Retrieval metric."""
+  """Compute Mean Reciprocal Rank Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.MEAN_RECIPROCAL_RANK,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
-mean_reciprocal_rank.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def accuracy(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute Accuracy Retrieval metric."""
+  """Compute Accuracy Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.ACCURACY,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
-accuracy.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def dcg_score(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute DCG Score Retrieval metric."""
+  """Compute DCG Score Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.DCG_SCORE,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
-dcg_score.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def ndcg_score(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute NDCG Score Retrieval metric."""
+  """Compute NDCG Score Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.NDCG_SCORE,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
-ndcg_score.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def fowlkes_mallows_index(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute Fowlkes Mallows Index Retrieval metric."""
+  """Compute Fowlkes Mallows Index Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.FOWLKES_MALLOWS_INDEX,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
-fowlkes_mallows_index.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def false_discovery_rate(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute False Discovery Rate Retrieval metric."""
+  """Compute False Discovery Rate Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.FALSE_DISCOVERY_RATE,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
-false_discovery_rate.__doc__ += _METRIC_PYDOC_POSTFIX
 
 
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    enable_telemetry=False,
+)
 def threat_score(
     y_true,
     y_pred,
     k_list: list[int] | None = None,
     input_type: types.InputType = types.InputType.MULTICLASS_MULTIOUTPUT,
 ) -> tuple[float, ...]:
-  """Compute Threat Score Retrieval metric."""
+  """Compute Threat Score Retrieval metric.
+
+  Args:
+    y_true: array of sample's true labels
+    y_pred: array of sample's label predictions
+    k_list: k_list is only applicable for average_type != Samples and
+      multiclass/multioutput input types. It is a list of topk each of which
+      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+      descending order. Default 'None' means consider all outputs in the
+      prediction.
+    input_type: one input type from types.InputType
+
+  Returns:
+    Tuple with metric value(s)
+  """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.THREAT_SCORE,
       k_list=k_list,
       input_type=input_type,
   )(y_true, y_pred)
-threat_score.__doc__ += _METRIC_PYDOC_POSTFIX
