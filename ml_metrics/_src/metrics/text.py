@@ -20,11 +20,12 @@ from ml_metrics._src.aggregates import stats
 from ml_metrics._src.aggregates import text
 from ml_metrics._src.signals import text as text_scores
 from ml_metrics.google.tools.signal_registry import registry
+from ml_metrics.google.tools.signal_registry import signal_types
 from ml_metrics._src.tools.telemetry import telemetry
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.TEXT,
+    signal_modality=signal_types.SignalModality.TEXT,
     usage_category=telemetry.CATEGORY.METRIC,
 )
 def topk_word_ngrams(
@@ -79,7 +80,7 @@ def topk_word_ngrams(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.TEXT,
+    signal_modality=signal_types.SignalModality.TEXT,
     usage_category=telemetry.CATEGORY.METRIC,
 )
 def pattern_frequency(
@@ -117,7 +118,7 @@ def pattern_frequency(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.TEXT,
+    signal_modality=signal_types.SignalModality.TEXT,
     usage_category=telemetry.CATEGORY.METRIC,
 )
 def avg_alphabetical_char_count(

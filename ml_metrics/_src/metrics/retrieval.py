@@ -17,6 +17,7 @@ from collections.abc import Sequence
 from ml_metrics._src.aggregates import retrieval
 from ml_metrics._src.aggregates import types
 from ml_metrics.google.tools.signal_registry import registry
+from ml_metrics.google.tools.signal_registry import signal_types
 
 
 # TODO: b/368688941 - Remove this alias once all users are migrated to the new
@@ -25,7 +26,7 @@ TopKRetrievalAggFn = retrieval.TopKRetrievalAggFn
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def topk_retrieval_metrics(
@@ -59,7 +60,7 @@ def topk_retrieval_metrics(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def precision(
@@ -91,7 +92,7 @@ def precision(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def ppv(
@@ -123,7 +124,7 @@ def ppv(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def recall(
@@ -155,7 +156,7 @@ def recall(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def sensitivity(
@@ -187,7 +188,7 @@ def sensitivity(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def tpr(
@@ -219,7 +220,7 @@ def tpr(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def intersection_over_union(
@@ -251,7 +252,7 @@ def intersection_over_union(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def positive_predictive_value(
@@ -283,7 +284,7 @@ def positive_predictive_value(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def f1_score(
@@ -315,7 +316,7 @@ def f1_score(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def miss_rate(
@@ -347,7 +348,7 @@ def miss_rate(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def mean_average_precision(
@@ -379,7 +380,7 @@ def mean_average_precision(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def mean_reciprocal_rank(
@@ -411,7 +412,7 @@ def mean_reciprocal_rank(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def accuracy(
@@ -443,7 +444,7 @@ def accuracy(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def dcg_score(
@@ -475,7 +476,7 @@ def dcg_score(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def ndcg_score(
@@ -507,7 +508,7 @@ def ndcg_score(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def fowlkes_mallows_index(
@@ -539,7 +540,7 @@ def fowlkes_mallows_index(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def false_discovery_rate(
@@ -571,7 +572,7 @@ def false_discovery_rate(
 
 
 @registry.register_signal(
-    signal_modality=registry.SignalModality.OTHER,
+    signal_modality=signal_types.SignalModality.OTHER,
     enable_telemetry=False,
 )
 def threat_score(
