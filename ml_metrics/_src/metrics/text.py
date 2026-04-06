@@ -23,6 +23,8 @@ from ml_metrics.google.tools.signal_registry import registry
 from ml_metrics._src.tools.telemetry import telemetry
 
 
+# TODO: b/499440242 - Remove this message once signals are pushed from this
+#   file.
 @registry.register_signal(
     signal_modality=registry.SignalModality.TEXT,
     usage_category=telemetry.CATEGORY.METRIC,

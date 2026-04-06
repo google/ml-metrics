@@ -24,6 +24,8 @@ from ml_metrics.google.tools.signal_registry import registry
 TopKRetrievalAggFn = retrieval.TopKRetrievalAggFn
 
 
+# TODO: b/499440242 - Remove this message once signals are pushed from this
+#   file.
 @registry.register_signal(
     signal_modality=registry.SignalModality.OTHER,
     enable_telemetry=False,
