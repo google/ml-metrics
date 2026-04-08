@@ -17,6 +17,7 @@ from collections.abc import Callable, Sequence
 import re
 from typing import Any
 
+from ml_metrics.google.tools.signal_registry import registry
 from ml_metrics._src.tools.telemetry import telemetry
 
 
@@ -29,13 +30,19 @@ def _maybe_tuple(
   return reference
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def alphabetical_char_count(text: str) -> int:
   """Computes the number of alphabetical characters."""
   return len(re.sub(r'[^a-zA-Z]', '', text))
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def word_count(text: str) -> int:
   """Computes the number of words.
 
@@ -53,13 +60,19 @@ def word_count(text: str) -> int:
   return len(_get_words(text))
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def token_count(text: str, tokenizer: Callable[[str], Sequence[Any]]) -> int:
   """Computes the number of tokens."""
   return len(tokenizer(text))
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def token_match_rate(
     sample: str, reference: str, tokenizer: Callable[[str], Sequence[Any]]
 ) -> float:
@@ -76,15 +89,19 @@ def token_match_rate(
   return matched / length
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def exact_match(sample: str, reference: str | Sequence[str]) -> bool:
   """Computes the exact match between sample and reference."""
   references = _maybe_tuple(reference)
   return any(sample == ref for ref in references)
 
 
-@telemetry.function_monitor(
-    category=telemetry.CATEGORY.SIGNAL,
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
 )
 def sample_startswith_reference_match(
     sample: str, reference: str | Sequence[str]
@@ -94,8 +111,9 @@ def sample_startswith_reference_match(
   return any(sample.startswith(ref) for ref in references)
 
 
-@telemetry.function_monitor(
-    category=telemetry.CATEGORY.SIGNAL,
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
 )
 def reference_startswith_sample_match(
     sample: str, reference: str | Sequence[str]
@@ -105,7 +123,10 @@ def reference_startswith_sample_match(
   return any(ref.startswith(sample) for ref in references)
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def reference_in_sample_match(
     sample: str, reference: str | Sequence[str]
 ) -> bool:
@@ -114,7 +135,10 @@ def reference_in_sample_match(
   return any(ref in sample for ref in references)
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def sample_in_reference_match(
     sample: str, reference: str | Sequence[str]
 ) -> bool:
@@ -123,13 +147,19 @@ def sample_in_reference_match(
   return any(sample in ref for ref in references)
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def non_ascii_char_count(text: str) -> int:
   """Computes the number of non-ascii characters."""
   return len(re.sub(r'[^\x00-\x7F]+', '', text))
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def is_all_whitespace(text: str) -> bool:
   r"""Checks if the text is all whitespace.
 
@@ -144,7 +174,10 @@ def is_all_whitespace(text: str) -> bool:
   return not text.strip()
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def average_word_length(text: str) -> float:
   """Computes the average word length."""
   words = _get_words(text)
@@ -158,19 +191,28 @@ def _get_words(text: str) -> list[str]:
   return re.sub(r'[^a-zA-Z ]', '', text).split()
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def unique_word_count(text: str) -> int:
   """Computes the number of unique words."""
   return len(set(_get_words(text)))
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def number_of_characters(text: str) -> int:
   """Computes the number of characters."""
   return len(text)
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def percentage_all_caps(text: str) -> float:
   """Computes the percentage of all caps."""
   words = _get_words(text)
@@ -179,8 +221,9 @@ def percentage_all_caps(text: str) -> float:
   return len([word for word in words if word.isupper()]) / len(words)
 
 
-@telemetry.function_monitor(
-    category=telemetry.CATEGORY.SIGNAL,
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
 )
 def percentage_non_ascii_characters(text: str) -> float:
   """Computes the percentage of non-ascii characters."""
@@ -189,7 +232,10 @@ def percentage_non_ascii_characters(text: str) -> float:
   return 1 - (non_ascii_char_count(text) / number_of_characters(text))
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.TEXT,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def type_token_ratio(text: str) -> float:
   """Computes the type token ratio.
 

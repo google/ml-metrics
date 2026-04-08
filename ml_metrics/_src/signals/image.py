@@ -15,6 +15,7 @@
 
 import io
 
+from ml_metrics.google.tools.signal_registry import registry
 from ml_metrics._src.tools.telemetry import telemetry
 from PIL import Image
 
@@ -22,7 +23,10 @@ from PIL import Image
 MEGAPIXELS = 1024 * 1024
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.IMAGE,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def content_metadata(image_bytes: bytes) -> dict[str, int | float | str]:
   """Extracts the content metadata of an image."""
 

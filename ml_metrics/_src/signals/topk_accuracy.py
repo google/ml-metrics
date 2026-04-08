@@ -1,11 +1,15 @@
 """Topk accuracy metric."""
 
 from ml_metrics._src.aggregates import types
+from ml_metrics.google.tools.signal_registry import registry
 from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
 
-@telemetry.function_monitor(category=telemetry.CATEGORY.SIGNAL)
+@registry.register_signal(
+    signal_modality=registry.SignalModality.OTHER,
+    usage_category=telemetry.CATEGORY.SIGNAL,
+)
 def topk_accurate(
     y_pred: types.NumbersT,
     label: int,
