@@ -37,13 +37,15 @@ def binary_cross_entropy(
   """Calculates binary cross entropy loss for two lists of labels.
 
   Args:
-    y_true: Truth label. This is either 0 or 1.
-    y_pred: Predicted value. This is the model's prediction, i.e, a single
-      floating-point value which represents a probability (i.e., value in (0.,
-      1.)).
+    y_true: A sequence of true binary labels (0 or 1).
+    y_pred: A sequence of predicted probabilities (values in (0, 1)).
 
   Returns:
     The binary cross-entropy loss between true labels and predicted labels.
+
+  Examples:
+    >>> binary_cross_entropy([0, 1], [0.1, 0.9])
+    0.10536051565782631
   """
   _check_y_true_contains_only_0_and_1(y_true)
 
@@ -61,13 +63,16 @@ def categorical_cross_entropy(
   """Calculates categorical cross entropy loss for two lists of labels.
 
   Args:
-    y_true: Truth label. This is either 0 or 1.
-    y_pred: Predicted value. This is the model's prediction, i.e, a single
-      floating-point value which represents a probability (i.e., value in [0.,
-      1.]).
+    y_true: A sequence of true class probabilities (must contain only 0s and
+      1s).
+    y_pred: A sequence of predicted class probabilities.
 
   Returns:
     The categorical cross-entropy loss between true labels and predicted labels.
+
+  Examples:
+    >>> categorical_cross_entropy([0, 1, 0], [0.2, 0.7, 0.1])
+    0.35667494393873245
   """
   _check_y_true_contains_only_0_and_1(y_true)
 

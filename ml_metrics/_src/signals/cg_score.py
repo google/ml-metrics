@@ -29,8 +29,8 @@ def complexity_gap_score(
   """Calculates the Complexity Gap (CG) score for identifying influential instances.
 
   Args:
-      labels: Labels in binary vector representations.
-      embeddings: Embeddings in vector representations.
+      labels: A sequence of binary labels (e.g., 0 or 1).
+      embeddings: A sequence of embeddings corresponding to the labels.
       num_repetitions: Number of times to repeat the CG score calculation.
       class_balance_ratio: Ratio for balancing classes during calculation (e.g.,
         1.0 for perfect balance).
@@ -38,6 +38,14 @@ def complexity_gap_score(
 
   Returns:
       A NumPy array containing the CG score for each data point.
+
+  Example:
+      >>> import numpy as np
+      >>> labels = np.array([0, 1, 0, 1])
+      >>> embeddings = np.array([[1.0, 0.0], [0.0, 1.0], [1.1, 0.1], [0.1,
+      1.1]])
+      >>> complexity_gap_score(labels, embeddings, random_seed=42)
+      array([...])
   """
   if (l := len(np.unique(labels))) > 2:
     raise ValueError(f'CG score only works for binary labels, got {l} labels.')

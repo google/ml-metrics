@@ -28,7 +28,27 @@ def binary_flip_mask(
     model_prediction: types.NumbersT,
     threshold: types.NumbersT | None = None,
 ) -> types.NumbersT:
-  """AKA symmetric flip mask. Returns a 1 if the predictions don't match."""
+  """Calculates the binary (symmetric) flip mask between two predictions.
+
+  A flip occurs when the base prediction and the model prediction do not match.
+
+  Args:
+    base_prediction: The predictions from the base model.
+    model_prediction: The predictions from the candidate model.
+    threshold: Optional threshold to binarize predictions. If provided,
+      predictions are converted to booleans (> threshold) before comparison.
+
+  Returns:
+    An integer or array of integers where 1 indicates a flip and 0 indicates no
+    flip.
+
+  Examples:
+    >>> binary_flip_mask(np.array([0, 1]), np.array([1, 1]))
+    array([1, 0])
+    >>> binary_flip_mask(np.array([0.1, 0.6]), np.array([0.2, 0.4]),
+    threshold=0.5)
+    array([0, 1])
+  """
   if threshold is not None:
     base_prediction = base_prediction > threshold
     model_prediction = model_prediction > threshold
@@ -45,7 +65,29 @@ def neg_to_pos_flip_mask(
     model_prediction: types.NumbersT,
     threshold: types.NumbersT | None = None,
 ) -> types.NumbersT:
-  """Returns a 1 if base_prediction <= threshold < model_prediction."""
+  """Calculates the negative-to-positive flip mask.
+
+  A flip occurs when the base prediction is <= threshold and the model
+  prediction is > threshold.
+
+  Args:
+    base_prediction: The predictions from the base model.
+    model_prediction: The predictions from the candidate model.
+    threshold: Optional threshold to binarize predictions. If None, predictions
+      are assumed to be boolean scalars.
+
+  Returns:
+    An integer or array of integers where 1 indicates a negative-to-positive
+    flip and 0 indicates no flip. If threshold is None and inputs are scalars,
+    returns a boolean.
+
+  Examples:
+    >>> neg_to_pos_flip_mask(np.array([0.1, 0.6]), np.array([0.6, 0.4]),
+    threshold=0.5)
+    array([1, 0])
+    >>> neg_to_pos_flip_mask(False, True)
+    True
+  """
   if threshold is None:
     return not base_prediction and model_prediction
 
@@ -64,7 +106,29 @@ def pos_to_neg_flip_mask(
     model_prediction: types.NumbersT,
     threshold: types.NumbersT | None = None,
 ) -> types.NumbersT:
-  """Returns a 1 if base_prediction > threshold >= model_prediction."""
+  """Calculates the positive-to-negative flip mask.
+
+  A flip occurs when the base prediction is > threshold and the model
+  prediction is <= threshold.
+
+  Args:
+    base_prediction: The predictions from the base model.
+    model_prediction: The predictions from the candidate model.
+    threshold: Optional threshold to binarize predictions. If None, predictions
+      are assumed to be boolean scalars.
+
+  Returns:
+    An integer or array of integers where 1 indicates a positive-to-negative
+    flip and 0 indicates no flip. If threshold is None and inputs are scalars,
+    returns a boolean.
+
+  Examples:
+    >>> pos_to_neg_flip_mask(np.array([0.6, 0.1]), np.array([0.4, 0.6]),
+    threshold=0.5)
+    array([1, 0])
+    >>> pos_to_neg_flip_mask(True, False)
+    True
+  """
   if threshold is None:
     return base_prediction and not model_prediction
 

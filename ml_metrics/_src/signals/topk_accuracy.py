@@ -27,6 +27,14 @@ def topk_accurate(
 
   Returns:
     True if the label is in the top-k predictions, False otherwise.
+
+  Examples:
+    >>> topk_accurate([0.1, 0.2, 0.7], 2, k=1)
+    True
+    >>> topk_accurate([0.1, 0.2, 0.7], 1, k=2)
+    True
+    >>> topk_accurate([0.1, 0.2, 0.7], 0, weights=[10.0, 1.0, 1.0], k=1)
+    True
   """
   weighted_pred = np.asarray(y_pred) * np.asarray(weights)
   # Get indices of top-k predictions

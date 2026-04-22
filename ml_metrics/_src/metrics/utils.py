@@ -16,6 +16,37 @@ from ml_metrics._src.tools.telemetry import telemetry
     usage_category=telemetry.CATEGORY.METRIC,
 )
 def verify_input(y_true, y_pred, average, input_type, vocab, pos_label):
+  """Verifies the input for ML metrics.
+
+  Validates that the positive label is present in the vocabulary when performing
+  binary classification with binary input.
+
+  Args:
+    y_true: Iterable of true labels.
+    y_pred: Iterable of predicted labels.
+    average: The averaging strategy (e.g., `types.AverageType`).
+    input_type: The type of input data (e.g., `types.InputType`).
+    vocab: An optional dictionary mapping labels to indices.
+    pos_label: The label to treat as positive.
+
+  Returns:
+    None.
+
+  Raises:
+    ValueError: If `average` is binary and `input_type` is binary, and
+      `pos_label` is not in the inferred or provided vocabulary.
+
+  Example:
+    >>> from ml_metrics._src.aggregates import types
+    >>> verify_input(
+    ...     y_true=[0, 1],
+    ...     y_pred=[1, 0],
+    ...     average=types.AverageType.BINARY,
+    ...     input_type=types.InputType.BINARY,
+    ...     vocab={0: 0, 1: 1},
+    ...     pos_label=1
+    ... )
+  """
   if (
       average == types.AverageType.BINARY
       and input_type == types.InputType.BINARY

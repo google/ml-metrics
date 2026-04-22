@@ -47,24 +47,24 @@ def topk_word_ngrams(
   or the number of distinct n-grams tuples, whichever is less.
 
   Args:
-    texts:
-      Sequence of texts.
-    k:
-      Number of most frequent word n-grams.
-    n:
-      Number of grams.
-    use_first_ngram_only:
-      If `True`, only the first n words of each text will be used to form the
-      n-grams and `count_duplicate` will be ignored. Otherwise, all words
-      present in each text will be considered for generating the n-grams.
-      Default to `False`.
-    count_duplicate:
-      If `True`, duplicate n-grams within the text are included in the total
-      count. Otherwise, the count of a unique N-gram will only consider its
-      first occurrence.
+    texts: Sequence of texts.
+    k: Number of most frequent word n-grams.
+    n: Number of grams.
+    use_first_ngram_only: If `True`, only the first n words of each text will be
+      used to form the n-grams and `count_duplicate` will be ignored. Otherwise,
+      all words present in each text will be considered for generating the
+      n-grams. Default to `False`.
+    count_duplicate: If `True`, duplicate n-grams within the text are included
+      in the total count. Otherwise, the count of a unique N-gram will only
+      consider its first occurrence.
 
   Returns:
     List of tuples of ngram and its frequency of appearance as a pair.
+
+  Examples:
+    >>> texts = ['c c', 'b B b', 'd a a']
+    >>> topk_word_ngrams(texts, k=2, n=2, count_duplicate=True)
+    [('b b', 0.6666666666666666), ('a a', 0.3333333333333333)]
   """
 
   if k <= 0 or n <= 0:
@@ -92,19 +92,20 @@ def pattern_frequency(
   Identify the frequency of occurrence for each pattern found within the given
   texts.
 
-
   Args:
-    texts:
-      Sequence of texts.
-    patterns:
-      Sequence of text patterns.
-    count_duplicate:
-      If `True`, duplicate pattern within the text are included in the total
-      count. Otherwise, the count of a pattern will only consider its first
-      occurrence. Default to `False`.
+    texts: Sequence of texts.
+    patterns: Sequence of text patterns.
+    count_duplicate: If `True`, duplicate pattern within the text are included
+      in the total count. Otherwise, the count of a pattern will only consider
+      its first occurrence. Default to `False`.
 
   Returns:
     List of tuples of pattern and its frequency of appearance as a pair.
+
+  Examples:
+    >>> texts = ['ab ab xyx', 'xyxyx']
+    >>> pattern_frequency(texts, patterns=['ab', 'xyx'], count_duplicate=True)
+    [('xyx', 1.5), ('ab', 1.0)]
   """
 
   if not patterns:
@@ -125,7 +126,25 @@ def pattern_frequency(
 def avg_alphabetical_char_count(
     texts: Sequence[str],
 ) -> stats.MeanAndVariance:
-  """Average alphabetical character count metric."""
+  """Average alphabetical character count metric.
+
+  Computes the mean and variance of the number of alphabetical characters
+  in a sequence of texts.
+
+  Args:
+    texts: Sequence of texts.
+
+  Returns:
+    A `stats.MeanAndVariance` object containing the mean and variance of the
+    alphabetical character counts.
+
+  Examples:
+    >>> result = avg_alphabetical_char_count(['ab', 'a b', '', 'ok?'])
+    >>> result.mean
+    1.5
+    >>> result.var
+    0.75
+  """
 
   if not list(texts):
     raise ValueError('`texts` must not be empty.')

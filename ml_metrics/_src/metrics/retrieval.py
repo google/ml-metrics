@@ -54,6 +54,21 @@ def topk_retrieval_metrics(
   Returns:
     Tuple containing the evaluation metric values. in the corresponding order of
       given metric names in metrics list.
+
+  Examples:
+    >>> from ml_metrics._src.aggregates import retrieval
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> topk_retrieval_metrics(
+    ...     metrics=[
+    ...         retrieval.RetrievalMetric.PRECISION,
+    ...         retrieval.RetrievalMetric.RECALL,
+    ...     ],
+    ...     y_true=y_true,
+    ...     y_pred=y_pred,
+    ...     k_list=[1, 2],
+    ... )
+    ((1.0, 1.0), (1.0, 1.0))
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=metrics, k_list=k_list, input_type=input_type
@@ -84,6 +99,12 @@ def precision(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> precision(y_true, y_pred, k_list=[1, 2])
+    (1.0, 1.0)
   """
   return retrieval.TopKRetrieval(
       metrics=retrieval.RetrievalMetric.PRECISION,
@@ -116,6 +137,12 @@ def ppv(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> ppv(y_true, y_pred, k_list=[1, 2])
+    (1.0, 1.0)
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.PPV,
@@ -148,6 +175,12 @@ def recall(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> recall(y_true, y_pred, k_list=[1, 2])
+    (1.0, 1.0)
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.RECALL,
@@ -180,6 +213,12 @@ def sensitivity(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> sensitivity(y_true, y_pred, k_list=[1, 2])
+    (1.0, 1.0)
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.SENSITIVITY,
@@ -212,6 +251,12 @@ def tpr(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> tpr(y_true, y_pred, k_list=[1, 2])
+    (1.0, 1.0)
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.TPR,
@@ -244,6 +289,12 @@ def intersection_over_union(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> intersection_over_union(y_true, y_pred, k_list=[1, 2])
+    (1.0, 1.0)
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.INTERSECTION_OVER_UNION,
@@ -276,6 +327,12 @@ def positive_predictive_value(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> positive_predictive_value(y_true, y_pred, k_list=[1, 2])
+    (1.0, 1.0)
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.POSITIVE_PREDICTIVE_VALUE,
@@ -308,6 +365,12 @@ def f1_score(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> f1_score(y_true, y_pred, k_list=[1, 2])
+    (1.0, 1.0)
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.F1_SCORE,
@@ -340,6 +403,12 @@ def miss_rate(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> miss_rate(y_true, y_pred, k_list=[1, 2])
+    (0.0, 0.0)
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.MISS_RATE,
@@ -372,6 +441,12 @@ def mean_average_precision(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> mean_average_precision(y_true, y_pred, k_list=[1, 2])
+    (1.0, 1.0)
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.MEAN_AVERAGE_PRECISION,
@@ -404,6 +479,12 @@ def mean_reciprocal_rank(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> mean_reciprocal_rank(y_true, y_pred, k_list=[1, 2])
+    (1.0, 1.0)
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.MEAN_RECIPROCAL_RANK,
@@ -436,6 +517,12 @@ def accuracy(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> accuracy(y_true, y_pred, k_list=[1, 2])
+    (1.0, 1.0)
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.ACCURACY,
@@ -468,6 +555,12 @@ def dcg_score(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> dcg_score(y_true, y_pred, k_list=[1, 2])
+    (1.0, 1.0)
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.DCG_SCORE,
@@ -500,6 +593,12 @@ def ndcg_score(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> ndcg_score(y_true, y_pred, k_list=[1, 2])
+    (1.0, 1.0)
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.NDCG_SCORE,
@@ -532,6 +631,12 @@ def fowlkes_mallows_index(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> fowlkes_mallows_index(y_true, y_pred, k_list=[1, 2])
+    (1.0, 1.0)
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.FOWLKES_MALLOWS_INDEX,
@@ -564,6 +669,12 @@ def false_discovery_rate(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> false_discovery_rate(y_true, y_pred, k_list=[1, 2])
+    (0.0, 0.0)
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.FALSE_DISCOVERY_RATE,
@@ -596,6 +707,12 @@ def threat_score(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> y_true = [["a"]]
+    >>> y_pred = [["a"]]
+    >>> threat_score(y_true, y_pred, k_list=[1, 2])
+    (1.0, 1.0)
   """
   return retrieval.TopKRetrievalAggFn(
       metrics=retrieval.RetrievalMetric.THREAT_SCORE,

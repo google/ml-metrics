@@ -46,10 +46,17 @@ CalibrationHistogramResult = collections.namedtuple(
 class CalibrationHistogram(chainable.MergeableMetric):
   """Computes the Histogram of the inputs.
 
+  Examples:
+    >>> hist = CalibrationHistogram(bins=2, range=(0, 1))
+    >>> hist.add([0.1], [0.2])
+    >>> hist.result()
+
   Attributes:
     range: The lower and upper range of the bins. e.g. range = (0, 1).
     bins: The number of buckets to use.
-    _hist: The values of the histogram.
+    _num_examples_hist: The values of the histogram.
+    _labels_hist: The values of the histogram for labels.
+    _predictions_hist: The values of the histogram for predictions.
     _bin_edges: The bin edges of the histogram. All but the right-most bin are
       half-open. I.e. if the bins_edges are (0, 1, 2, 3, ..., 8, 9, 10), then
       the bin ranges are [0, 1), [1, 2), [2, 3), ... [8, 9), [9, 10].
@@ -158,7 +165,12 @@ class CalibrationHistogram(chainable.MergeableMetric):
     usage_category=telemetry.CATEGORY.METRIC,
 )
 class ClassificationAggFn(chainable.AggregateFn):
-  """Wrapper over the Classification AggFn classes."""
+  """Wrapper over the Classification AggFn classes.
+
+  Examples:
+    >>> agg = ClassificationAggFn(metrics=['precision'])
+    >>> agg.create_state()
+  """
 
   agg_fn: chainable.AggregateFn
 
@@ -173,6 +185,19 @@ class ClassificationAggFn(chainable.AggregateFn):
       dtype: type[Any] | None = None,
       k_list: Sequence[int] | None = None,
   ):
+    """Initializes the instance.
+
+    Args:
+      metrics: List of CFM metrics.
+      pos_label: The class to report if average='binary' and the data is binary.
+      input_type: one input type from types.InputType.
+      average: one average type from types.AverageType.
+      vocab: an external vocabulary that maps categorical value to integer class
+        id.
+      dtype: dtype of the confusion matrix and all computations.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types.
+    """
     if average == types.AverageType.SAMPLES:
       if k_list:
         raise ValueError('k_list is not supported for average=SAMPLES')
@@ -261,8 +286,11 @@ def classification_metrics(
       prediction.
 
   Returns:
-    Tuple containing the evaluation metric values. in the corresponding order of
-      given metric names in metrics list.
+    Dict containing the evaluation metric values.
+
+  Examples:
+    >>> classification_metrics(['precision'], y_true=[0, 1], y_pred=[0, 1])
+    {'precision': 1.0}
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -314,6 +342,10 @@ def precision(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> precision([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -365,6 +397,10 @@ def ppv(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> ppv([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -416,6 +452,10 @@ def recall(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> recall([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -467,6 +507,10 @@ def f1_score(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> f1_score([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -518,6 +562,10 @@ def accuracy(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> accuracy([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -569,6 +617,10 @@ def binary_accuracy(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> binary_accuracy([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -620,6 +672,10 @@ def sensitivity(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> sensitivity([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -671,6 +727,10 @@ def tpr(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> tpr([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -722,6 +782,10 @@ def specificity(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> specificity([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -773,6 +837,10 @@ def tnr(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> tnr([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -824,6 +892,10 @@ def fall_out(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> fall_out([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -875,6 +947,10 @@ def fpr(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> fpr([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -926,6 +1002,10 @@ def miss_rate(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> miss_rate([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -977,6 +1057,10 @@ def fnr(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> fnr([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -1028,6 +1112,10 @@ def negative_predictive_value(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> negative_predictive_value([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -1079,6 +1167,10 @@ def npv(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> npv([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -1130,6 +1222,10 @@ def false_discovery_rate(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> false_discovery_rate([0, 1], [0, 1])
+    (0.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -1181,6 +1277,10 @@ def false_omission_rate(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> false_omission_rate([0, 1], [0, 1])
+    (0.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -1232,6 +1332,10 @@ def threat_score(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> threat_score([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -1283,6 +1387,10 @@ def positive_likelihood_ratio(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> positive_likelihood_ratio([0, 1], [0, 1])
+    (inf,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -1334,6 +1442,10 @@ def negative_likelihood_ratio(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> negative_likelihood_ratio([0, 1], [0, 1])
+    (0.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -1385,6 +1497,10 @@ def diagnostic_odds_ratio(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> diagnostic_odds_ratio([0, 1], [0, 1])
+    (inf,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -1436,6 +1552,10 @@ def positive_predictive_value(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> positive_predictive_value([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -1487,6 +1607,10 @@ def intersection_over_union(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> intersection_over_union([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -1538,6 +1662,10 @@ def prevalence(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> prevalence([0, 1], [0, 1])
+    (0.5,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -1589,6 +1717,10 @@ def prevalence_threshold(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> prevalence_threshold([0, 1], [0, 1])
+    (0.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -1640,6 +1772,10 @@ def matthews_correlation_coefficient(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> matthews_correlation_coefficient([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -1691,6 +1827,10 @@ def informedness(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> informedness([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -1742,6 +1882,10 @@ def markedness(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> markedness([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
@@ -1793,6 +1937,10 @@ def balanced_accuracy(
 
   Returns:
     Tuple with metric value(s)
+
+  Examples:
+    >>> balanced_accuracy([0, 1], [0, 1])
+    (1.0,)
   """
   utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
   return ClassificationAggFn(
