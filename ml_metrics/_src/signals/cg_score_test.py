@@ -60,7 +60,7 @@ class CgScoreTest(absltest.TestCase):
     embeddings = np.array([[0, 1], [1, 0], [0, 1], [1, 0]])
     labels = np.array([1, 1, 0, 0])
     cg_scores = cg_score.complexity_gap_score(
-        labels, embeddings, num_repetitions=1
+        labels, embeddings, num_repetitions=1, random_seed=80
     )
     self.assertSequenceAlmostEqual(cg_scores, [0, 0, 0, 0])
 
