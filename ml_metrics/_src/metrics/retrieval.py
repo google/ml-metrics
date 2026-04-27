@@ -19,8 +19,6 @@ from ml_metrics._src.aggregates import types
 from ml_metrics.google.tools.signal_registry import registry
 
 
-# TODO: b/368688941 - Remove this alias once all users are migrated to the new
-# module structure.
 TopKRetrievalAggFn = retrieval.TopKRetrievalAggFn
 
 

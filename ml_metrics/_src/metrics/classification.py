@@ -36,8 +36,6 @@ CalibrationHistogramResult = collections.namedtuple(
 
 
 # TODO: b/368067018 - Inherit from ml_metrics._src.aggregates.stats.Histogram.
-# TODO: b/499440242 - Remove this message once signals are pushed from this
-#   file.
 @registry.register_signal(
     signal_modality=registry.SignalModality.OTHER,
     usage_category=telemetry.CATEGORY.METRIC,
