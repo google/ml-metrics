@@ -1,0 +1,18 @@
+// CLs sent to this alias will be handled by this GwsQ config.
+send_cls_to('ml-analysis-team-reviews@google.com');
+
+define Main {
+  list TeamMembers = mdb('ml-analysis-team');
+  list AvailableTeamMembers = in_office(TeamMembers);
+  list ColocatedReviewers = colocated(AvailableTeamMembers, max_timezone_difference=3);
+  if (!reassign_to_list(ColocatedReviewers)) {
+    // Fallback
+    if (!reassign_to_list(AvailableTeamMembers)) {
+      // Fallback further: Assign to anyone in the group if everyone is OOO
+      reassign_to_list(TeamMembers);
+      add_comment('Assigned reviewer is OOO. GwsQ could not find an available reviewer.');
+    }
+  }
+
+  add_comment('A reviewer from ml-analysis-team has been assigned. Please wait for their review.');
+}
