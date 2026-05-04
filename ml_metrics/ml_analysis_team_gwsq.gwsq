@@ -1,5 +1,5 @@
 // CLs sent to this alias will be handled by this GwsQ config.
-send_cls_to('ml-metrics-dev+reviews@google.com');
+send_cls_to('ml-metrics-dev+reviews');
 
 define Main {
   list TeamMembers = mdb('ml-analysis-team');
