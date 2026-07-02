@@ -246,8 +246,8 @@ def retrieval_matcher(
     matched_y_prob: Same as y_pro but autofilled with 1s when not provided.
   """
   matched_true_prob, matched_pred_prob, matched_y_prob = [], [], []
-  y_prob = y_prob or [None] * len(y_true)
-  for row_true, row_pred, row_prob in zip(y_true, y_pred, y_prob, strict=True):
+  y_prob = y_prob or [None] * len(y_true)  # pyrefly: ignore[bad-argument-type, bad-assignment]
+  for row_true, row_pred, row_prob in zip(y_true, y_pred, y_prob, strict=True):  # pyrefly: ignore[bad-argument-type]
     row_prob = (
         np.ones_like(row_pred, dtype=np.float32)
         if row_prob is None
@@ -299,10 +299,10 @@ class _ThresholdedConfusionMatrix:
 
   def get_metric(self, metric: RetrievalMetricAtThreshold):
     if metric.threshold is None:
-      return getattr(self, metric.metric)
+      return getattr(self, metric.metric)  # pyrefly: ignore[bad-argument-type]
     else:
-      return np.interp(
-          metric.threshold, self.thresholds, getattr(self, metric.metric)
+      return np.interp(  # pyrefly: ignore[no-matching-overload]
+          metric.threshold, self.thresholds, getattr(self, metric.metric)  # pyrefly: ignore[bad-argument-type]
       )
 
 
@@ -347,7 +347,7 @@ class ThresholdedRetrieval(chainable.MergeableMetric):
   )
 
   def __post_init__(self):
-    thresholds = np.asarray(sorted(self.thresholds), dtype=np.float32)
+    thresholds = np.asarray(sorted(self.thresholds), dtype=np.float32)  # pyrefly: ignore[bad-argument-type]
     object.__setattr__(self, 'thresholds', thresholds)
     confusion_matrix = _ThresholdedConfusionMatrix(thresholds=thresholds)
     object.__setattr__(self, '_confusion_matrix', confusion_matrix)
@@ -385,11 +385,11 @@ class ThresholdedRetrieval(chainable.MergeableMetric):
       ThresholdedConfusionMatrix for this batch.
     """
     if matched_true_prob is None or matched_pred_prob is None:
-      matched_true_prob, matched_pred_prob, y_prob = self.matcher(
+      matched_true_prob, matched_pred_prob, y_prob = self.matcher(  # pyrefly: ignore[not-callable]
           y_true, y_pred, y_prob
       )
     # Flatten the 2D list of list to 1D array.
-    y_prob = np.array(list(itertools.chain(*y_prob)))
+    y_prob = np.array(list(itertools.chain(*y_prob)))  # pyrefly: ignore[not-iterable]
     matched_true_prob = np.array(list(itertools.chain(*matched_true_prob)))
     matched_pred_prob = np.array(list(itertools.chain(*matched_pred_prob)))
     matched_true_prob = matched_true_prob[matched_true_prob >= 0]
@@ -397,12 +397,12 @@ class ThresholdedRetrieval(chainable.MergeableMetric):
     # 2D array of true positives at each threshold with a dimension of
     # num_thresholds x num_y.
     y_trues = np.array(
-        [matched_true_prob > threshold for threshold in self.thresholds]
+        [matched_true_prob > threshold for threshold in self.thresholds]  # pyrefly: ignore[not-iterable]
     )
     y_preds = np.array(
-        [matched_pred_prob > threshold for threshold in self.thresholds]
+        [matched_pred_prob > threshold for threshold in self.thresholds]  # pyrefly: ignore[not-iterable]
     )
-    y_probs = np.array([y_prob > threshold for threshold in self.thresholds])
+    y_probs = np.array([y_prob > threshold for threshold in self.thresholds])  # pyrefly: ignore[not-iterable]
     tp_trues, true_p_count = y_trues.sum(axis=1), len(matched_true_prob)
     tp_preds, pred_p_count = y_preds.sum(axis=1), y_probs.sum(axis=1)
     confusion_matrix = _ThresholdedConfusionMatrix(
@@ -450,7 +450,7 @@ class TopKRetrieval(chainable.MergeableMetric, chainable.HasAsAggFn):
       init=False,
   )
 
-  def __post_init__(self, input_type: InputType):
+  def __post_init__(self, input_type: InputType):  # pyrefly: ignore[bad-function-definition]
     if InputType(input_type) not in (
         InputType.MULTICLASS_MULTIOUTPUT,
         InputType.MULTICLASS,
@@ -465,7 +465,7 @@ class TopKRetrieval(chainable.MergeableMetric, chainable.HasAsAggFn):
         self.__class__,
         k_list=self.k_list,
         metrics=self.metrics,
-        input_type=self.input_type,
+        input_type=self.input_type,  # pyrefly: ignore[missing-attribute]
     )
 
   @property
@@ -483,7 +483,7 @@ class TopKRetrieval(chainable.MergeableMetric, chainable.HasAsAggFn):
     for y_pred_row, y_true_row in zip(y_pred, y_true):
       tp.append([
           int(y_pred_row[i] in y_true_row) if i < len(y_pred_row) else 0
-          for i in range(max_pred_count)
+          for i in range(max_pred_count)  # pyrefly: ignore[bad-argument-type]
       ])
     tp = np.asarray(tp)
     # True positives at TopK is of a dimension of Examples x K as the following:

@@ -317,8 +317,8 @@ class UnboundesSamplerTest(absltest.TestCase):
     expected_state = stats.UnboundedSampler(
         _samples=(['a', 'b', 'c'],), _multi_input=False
     )
-    self.assertEqual(expected_state, it.agg_state[metric_key])
-    self.assertEqual(['a', 'b', 'c'], it.agg_result['samples'])
+    self.assertEqual(expected_state, it.agg_state[metric_key])  # pyrefly: ignore[unsupported-operation]
+    self.assertEqual(['a', 'b', 'c'], it.agg_result['samples'])  # pyrefly: ignore[unsupported-operation]
 
   def test_with_transform_with_input_keys(self):
     t = chainable.Pipeline().agg(
@@ -329,8 +329,8 @@ class UnboundesSamplerTest(absltest.TestCase):
     inputs = [{'a': [0, 1], 'b': [10]}, {'a': [2, 3], 'b': [20]}]
     it = t.make().iterate(inputs)
     _ = mit.last(it)
-    self.assertEqual([0, 1, 2, 3], it.agg_result['a'])
-    self.assertEqual([10, 20], it.agg_result['b'])
+    self.assertEqual([0, 1, 2, 3], it.agg_result['a'])  # pyrefly: ignore[unsupported-operation]
+    self.assertEqual([10, 20], it.agg_result['b'])  # pyrefly: ignore[unsupported-operation]
 
 
 class FixedSizeSampleTest(parameterized.TestCase):
@@ -596,8 +596,8 @@ class FixedSizeSampleTest(parameterized.TestCase):
       sampler = stats.FixedSizeSample(max_size=max_size, seed=i)
       for batch in mit.batched(np.arange(max_range), 9):
         sampler.add(batch)
-      for v in sampler.result():
-        actual_counter[v] += 1
+      for v in sampler.result():  # pyrefly: ignore[not-iterable]
+        actual_counter[v] += 1  # pyrefly: ignore[bad-index, unsupported-operation]
     actual_counter /= num_runs
     np.testing.assert_array_less(actual_counter - max_size / max_range, 0.03)
 
@@ -612,8 +612,8 @@ class FixedSizeSampleTest(parameterized.TestCase):
         other = stats.FixedSizeSample(max_size=max_size, seed=i)
         other.add(batch)
         sampler.merge(other)
-      for v in sampler.result():
-        actual_counter[v] += 1
+      for v in sampler.result():  # pyrefly: ignore[not-iterable]
+        actual_counter[v] += 1  # pyrefly: ignore[bad-index, unsupported-operation]
     actual_counter /= num_runs
     np.testing.assert_array_less(actual_counter - max_size / max_range, 0.03)
 
@@ -666,19 +666,19 @@ class MeanAndVarianceTest(parameterized.TestCase):
       got: 'dataclasses.DataclassInstance',
   ):
     """Helper function for using assertAlmostEquals in dictionaries."""
-    expected = dataclasses.asdict(expected)
-    got = dataclasses.asdict(got)
-    self.assertEqual(expected.keys(), got.keys())
-    for key, value in expected.items():
+    expected = dataclasses.asdict(expected)  # pyrefly: ignore[bad-assignment]
+    got = dataclasses.asdict(got)  # pyrefly: ignore[bad-assignment]
+    self.assertEqual(expected.keys(), got.keys())  # pyrefly: ignore[missing-attribute]
+    for key, value in expected.items():  # pyrefly: ignore[missing-attribute]
       try:
         if key == 'batch_score_fn':
-          self.assertAlmostEqual(value, got[key])
+          self.assertAlmostEqual(value, got[key])  # pyrefly: ignore[bad-index]
         elif key == '_input_shape':
-          np.testing.assert_array_equal(value[1:], got[key][1:])
+          np.testing.assert_array_equal(value[1:], got[key][1:])  # pyrefly: ignore[bad-index]
         else:
-          np.testing.assert_allclose(value, got[key])
+          np.testing.assert_allclose(value, got[key])  # pyrefly: ignore[bad-index]
       except AssertionError:
-        self.fail(f'Failed to assert {key}: {value} == {got[key]}')
+        self.fail(f'Failed to assert {key}: {value} == {got[key]}')  # pyrefly: ignore[bad-index]
 
   def test_mean_normal(self):
     # This only tests that Mean().get_result() returns the mean value directly.
@@ -1433,14 +1433,14 @@ class R2TjurTest(parameterized.TestCase):
     for y_i in y:
       state.add(y_i, y_i)
     expected_result = 1
-    self.assertAlmostEqual(state.result(), expected_result, places=9)
+    self.assertAlmostEqual(state.result(), expected_result, places=9)  # pyrefly: ignore[no-matching-overload]
 
   def test_r2_tjur_relative_many_batches_direct_correlation(self):
     y = np.round(np.random.uniform(size=(1000, 1000)))
     state = stats.R2TjurRelative()
     for y_i in y:
       state.add(y_i, y_i)
-    self.assertTrue(math.isnan(state.result()))
+    self.assertTrue(math.isnan(state.result()))  # pyrefly: ignore[bad-argument-type]
 
   @parameterized.named_parameters(
       dict(
@@ -1569,7 +1569,7 @@ class RRegressionTest(parameterized.TestCase):
 
     # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
     expected_result = -0.0002932187695762664
-    self.assertAlmostEqual(actual_result, expected_result, places=13)
+    self.assertAlmostEqual(actual_result, expected_result, places=13)  # pyrefly: ignore[no-matching-overload]
 
   def test_r_regression_many_batches_little_correlation(self):
     np.random.seed(seed=0)
@@ -1581,7 +1581,7 @@ class RRegressionTest(parameterized.TestCase):
 
     # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
     expected_result = -0.00029321876957678797
-    self.assertAlmostEqual(state.result(), expected_result, places=14)
+    self.assertAlmostEqual(state.result(), expected_result, places=14)  # pyrefly: ignore[no-matching-overload]
 
   def test_r_regression_many_batches_much_correlation(self):
     np.random.seed(seed=0)
@@ -1595,7 +1595,7 @@ class RRegressionTest(parameterized.TestCase):
 
     # sklearn.feature_selection.r_regression(X=np.reshape(x, (-1, 1)), y=y)[0]
     expected_result = 0.9950319287287748
-    self.assertAlmostEqual(state.result(), expected_result, places=10)
+    self.assertAlmostEqual(state.result(), expected_result, places=10)  # pyrefly: ignore[no-matching-overload]
 
   def test_r_regression_many_batches_direct_correlation(self):
     x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
@@ -1603,7 +1603,7 @@ class RRegressionTest(parameterized.TestCase):
     for x_i in x:
       state.add(x_i, x_i)
     expected_result = 1
-    self.assertAlmostEqual(state.result(), expected_result, places=9)
+    self.assertAlmostEqual(state.result(), expected_result, places=9)  # pyrefly: ignore[no-matching-overload]
 
   def test_r_regression_many_batches_inverse_correlation(self):
     x = np.random.uniform(low=-1e6, high=1e6, size=(1000, 1000))
@@ -1611,7 +1611,7 @@ class RRegressionTest(parameterized.TestCase):
     for x_i in x:
       state.add(x_i, -x_i)
     expected_result = -1
-    self.assertAlmostEqual(state.result(), expected_result, places=9)
+    self.assertAlmostEqual(state.result(), expected_result, places=9)  # pyrefly: ignore[no-matching-overload]
 
   @parameterized.named_parameters(
       dict(testcase_name='empty_input', x=(), y=()),

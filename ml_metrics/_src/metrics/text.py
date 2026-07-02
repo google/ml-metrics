@@ -148,6 +148,6 @@ def avg_alphabetical_char_count(
     raise ValueError('`texts` must not be empty.')
 
   batch_scorer_fn = chainable.iterate_fn(text_scores.alphabetical_char_count)
-  return stats.MeanAndVariance(batch_score_fn=batch_scorer_fn).as_agg_fn()(
+  return stats.MeanAndVariance(batch_score_fn=batch_scorer_fn).as_agg_fn()(  # pyrefly: ignore[bad-argument-type]
       texts
   )

@@ -154,7 +154,7 @@ class _ConfusionMatrix:
     """Helper to call the right metric function given a Metric Enum."""
     match metric:
       case ConfusionMatrixMetric.CONFUSION_MATRIX:
-        return self
+        return self  # pyrefly: ignore[bad-return]
       case ConfusionMatrixMetric.PRECISION:
         result = _precision(self)
       case ConfusionMatrixMetric.PPV:
@@ -223,7 +223,7 @@ class _ConfusionMatrix:
     if average is None or average in ('micro', 'binary'):
       return result
     elif average == 'macro':
-      return np.mean(result, axis=0)
+      return np.mean(result, axis=0)  # pyrefly: ignore[no-matching-overload]
     else:
       raise NotImplementedError(f'"{average}" average is not supported.')
 
@@ -397,7 +397,7 @@ def _prevalence_threshold(cm: _ConfusionMatrix) -> types.NumbersT:
   tnr = _tnr(cm)
   tpr = _tpr(cm)
   return math_utils.safe_divide(
-      (math_utils.pos_sqrt(tpr * (1 - tnr)) + tnr - 1), (tpr + tnr - 1)
+      (math_utils.pos_sqrt(tpr * (1 - tnr)) + tnr - 1), (tpr + tnr - 1)  # pyrefly: ignore[unsupported-operation]
   )
 
 
@@ -412,7 +412,7 @@ def _matthews_correlation_coefficient(cm: _ConfusionMatrix) -> types.NumbersT:
 
 def _informedness(cm: _ConfusionMatrix) -> types.NumbersT:
   """Informedness or bookmaker informedness (BM)."""
-  return _tpr(cm) + _tnr(cm) - 1
+  return _tpr(cm) + _tnr(cm) - 1  # pyrefly: ignore[unsupported-operation]
 
 
 def _markedness(cm: _ConfusionMatrix) -> types.NumbersT:
@@ -421,7 +421,7 @@ def _markedness(cm: _ConfusionMatrix) -> types.NumbersT:
 
 
 def _balanced_accuracy(cm: _ConfusionMatrix) -> types.NumbersT:
-  return (_tpr(cm) + _tnr(cm)) / 2
+  return (_tpr(cm) + _tnr(cm)) / 2  # pyrefly: ignore[unsupported-operation]
 
 
 def _indicator_confusion_matrix(
@@ -543,9 +543,9 @@ def _multiclass_confusion_matrix(
   Returns:
     Confusion matrices with k in k_list.
   """
-  vocab = vocab or get_vocab(itertools.chain(y_true, y_pred), multioutput)
-  y_true_dense = _apply_vocab(y_true, vocab, multioutput)
-  y_pred_dense = _apply_vocab(y_pred, vocab, multioutput)
+  vocab = vocab or get_vocab(itertools.chain(y_true, y_pred), multioutput)  # pyrefly: ignore[bad-argument-type]
+  y_true_dense = _apply_vocab(y_true, vocab, multioutput)  # pyrefly: ignore[bad-argument-type]
+  y_pred_dense = _apply_vocab(y_pred, vocab, multioutput)  # pyrefly: ignore[bad-argument-type]
   return _indicator_confusion_matrix(
       y_true_dense,
       y_pred_dense,
@@ -661,7 +661,7 @@ class ConfusionMatrixAggFn(chainable.AggregateFn):
         for metric in self._metrics
     }
     if isinstance(self.metrics, (str, ConfusionMatrixMetric)):
-      return result[self.metrics]
+      return result[self.metrics]  # pyrefly: ignore[bad-index]
     return result
 
 
@@ -672,16 +672,16 @@ def _apply_vocab_at_k(
     k_list: Sequence[int],
 ):
   """Encodes a multiclass(-multioutput) input in multiclass-indicator format."""
-  result = np.full((len(rows), len(vocab)), False, dtype=np.bool_)
-  k_list = set(k_list)
+  result = np.full((len(rows), len(vocab)), False, dtype=np.bool_)  # pyrefly: ignore[bad-argument-type]
+  k_list = set(k_list)  # pyrefly: ignore[bad-assignment]
   for j in range(max(k_list)):
     if multioutput:
-      for i, row in enumerate(rows):
+      for i, row in enumerate(rows):  # pyrefly: ignore[bad-argument-type]
         if j < len(row):
           result[i][vocab[row[j]]] = True
     else:
       if j == 0:
-        for i, elem in enumerate(rows):
+        for i, elem in enumerate(rows):  # pyrefly: ignore[bad-argument-type]
           result[i][vocab[elem]] = True
     if j + 1 in k_list:
       yield j + 1, result
@@ -714,8 +714,8 @@ def _topk_confusion_matrix(
   Returns:
     Confusion matrices with k in k_list.
   """
-  vocab = vocab or get_vocab(itertools.chain(y_true, y_pred), multioutput)
-  y_true_dense = _apply_vocab(y_true, vocab, multioutput)
+  vocab = vocab or get_vocab(itertools.chain(y_true, y_pred), multioutput)  # pyrefly: ignore[bad-argument-type]
+  y_true_dense = _apply_vocab(y_true, vocab, multioutput)  # pyrefly: ignore[bad-argument-type]
   cms = []
   for k, y_pred_dense in _apply_vocab_at_k(y_pred, vocab, multioutput, k_list):
     cm = _indicator_confusion_matrix(
@@ -834,7 +834,7 @@ class SamplewiseClassification(chainable.MergeableMetric, chainable.HasAsAggFn):
     result = {}
     for metric in self._metrics:
       if (score := cm.derive_metric(metric)) is not None:
-        result[metric] = utils.MeanState(np.sum(score), len(score))
+        result[metric] = utils.MeanState(np.sum(score), len(score))  # pyrefly: ignore[bad-argument-type]
     return result
 
   def _calculate_confusion_matrix(
@@ -890,7 +890,7 @@ class SamplewiseClassification(chainable.MergeableMetric, chainable.HasAsAggFn):
     """Extracts the outputs from the aggregate states."""
     result = {metric: self._state[metric].result() for metric in self._metrics}
     if isinstance(self.metrics, (str, ConfusionMatrixMetric)):
-      return result[self.metrics]
+      return result[self.metrics]  # pyrefly: ignore[bad-index]
     return result
 
 

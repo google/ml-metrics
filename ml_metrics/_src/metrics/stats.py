@@ -34,7 +34,7 @@ def var(batch: types.NumbersT) -> float:
   return stats.MeanAndVariance().add(batch).var
 
 
-var.__doc__ += _METRIC_PYDOC_POSTFIX
+var.__doc__ += _METRIC_PYDOC_POSTFIX  # pyrefly: ignore[unsupported-operation]
 
 
 def stddev(batch: types.NumbersT) -> float:
@@ -42,7 +42,7 @@ def stddev(batch: types.NumbersT) -> float:
   return stats.MeanAndVariance().add(batch).stddev
 
 
-stddev.__doc__ += _METRIC_PYDOC_POSTFIX
+stddev.__doc__ += _METRIC_PYDOC_POSTFIX  # pyrefly: ignore[unsupported-operation]
 
 
 def mean(batch: types.NumbersT) -> float:
@@ -50,7 +50,7 @@ def mean(batch: types.NumbersT) -> float:
   return stats.MeanAndVariance().add(batch).mean
 
 
-mean.__doc__ += _METRIC_PYDOC_POSTFIX
+mean.__doc__ += _METRIC_PYDOC_POSTFIX  # pyrefly: ignore[unsupported-operation]
 
 
 def count(batch: types.NumbersT) -> int:
@@ -58,7 +58,7 @@ def count(batch: types.NumbersT) -> int:
   return stats.MeanAndVariance().add(batch).count
 
 
-count.__doc__ += _METRIC_PYDOC_POSTFIX
+count.__doc__ += _METRIC_PYDOC_POSTFIX  # pyrefly: ignore[unsupported-operation]
 
 
 def total(batch: types.NumbersT) -> float:
@@ -66,4 +66,4 @@ def total(batch: types.NumbersT) -> float:
   return stats.MeanAndVariance().add(batch).total
 
 
-total.__doc__ += _METRIC_PYDOC_POSTFIX
+total.__doc__ += _METRIC_PYDOC_POSTFIX  # pyrefly: ignore[unsupported-operation]

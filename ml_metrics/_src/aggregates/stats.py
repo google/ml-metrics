@@ -150,7 +150,7 @@ class FixedSizeSample(chainable.MergeableMetric, chainable.HasAsAggFn):
     return result
 
   def add(self, inputs: types.NumbersT):
-    self._add_samples_to_reservoir(inputs, n=len(inputs))
+    self._add_samples_to_reservoir(inputs, n=len(inputs))  # pyrefly: ignore[bad-argument-type]
 
   def merge(self, other: FixedSizeSample) -> None:
     if self.seed != other.seed:
@@ -218,7 +218,7 @@ class Histogram(chainable.CallableMetric, chainable.HasAsAggFn):
   ) -> Histogram:
     new_histogram, new_bin_edges = np.histogram(
         inputs,
-        bins=self.bins,
+        bins=self.bins,  # pyrefly: ignore[bad-argument-type]
         range=self.range,
         weights=weights,
     )
@@ -281,13 +281,13 @@ class Counter(chainable.CallableMetric, chainable.HasAsAggFn, Generic[_T]):
 
   def new(self, *inputs: tuple[Iterable[_T] | _T]) -> Self:
     if self.batched_inputs:
-      inputs = zip(*inputs)
+      inputs = zip(*inputs)  # pyrefly: ignore[bad-assignment]
     else:
-      inputs = [inputs]
+      inputs = [inputs]  # pyrefly: ignore[bad-assignment]
     if self.input_fn:
-      inputs = itertools.starmap(self.input_fn, inputs)
+      inputs = itertools.starmap(self.input_fn, inputs)  # pyrefly: ignore[bad-assignment]
     # For single column inputs, unwrap the tuple to a single element.
-    inputs = (elem[0] if len(elem) == 1 else elem for elem in inputs)
+    inputs = (elem[0] if len(elem) == 1 else elem for elem in inputs)  # pyrefly: ignore[bad-assignment]
     return self.__class__(_counter=collections.Counter(inputs))
 
   def merge(self, other: Self) -> None:
@@ -320,16 +320,16 @@ class Count(chainable.CallableMetric):
     """Computes the sufficient statistics of a batch of values."""
     if not self.count_fn:
       if self.batched_inputs:
-        return dataclasses.replace(self, _count=len(inputs))
+        return dataclasses.replace(self, _count=len(inputs))  # pyrefly: ignore[bad-argument-type]
 
       return dataclasses.replace(self, _count=1)
 
     if not self.batched_inputs:
-      inputs = [inputs]
-    return dataclasses.replace(self, _count=sum(map(self.count_fn, inputs)))
+      inputs = [inputs]  # pyrefly: ignore[bad-assignment]
+    return dataclasses.replace(self, _count=sum(map(self.count_fn, inputs)))  # pyrefly: ignore[bad-argument-type, no-matching-overload]
 
   def merge(self, other: Self) -> None:
-    self._count += other.count
+    self._count += other.count  # pyrefly: ignore[bad-assignment, unsupported-operation]
 
   def result(self) -> int | tuple[int, ...]:
     return self._count
@@ -390,7 +390,7 @@ class Mean(chainable.CallableMetric):
 
   @property
   def total(self) -> types.NumbersT:
-    return math_utils.where(self._count > 0, self._mean * self._count, 0)
+    return math_utils.where(self._count > 0, self._mean * self._count, 0)  # pyrefly: ignore[unsupported-operation]
 
   @property
   def input_shape(self) -> tuple[int, ...]:
@@ -405,13 +405,13 @@ class Mean(chainable.CallableMetric):
           f'Incompatible shape {other.input_shape} while the'
           f' other have shape {self._input_shape}.'
       )
-    self._count += other.count
-    mean_diff = math_utils.nanadd(other.mean, -self._mean)
-    update = mean_diff * math_utils.safe_divide(other.count, self._count)
+    self._count += other.count  # pyrefly: ignore[unsupported-operation]
+    mean_diff = math_utils.nanadd(other.mean, -self._mean)  # pyrefly: ignore[unsupported-operation]
+    update = mean_diff * math_utils.safe_divide(other.count, self._count)  # pyrefly: ignore[unsupported-operation]
     self._mean = math_utils.nanadd(self._mean, update)
 
   def result(self) -> Self:
-    return self.mean
+    return self.mean  # pyrefly: ignore[bad-return]
 
   def __str__(self):
     return f'mean: {self.mean}'
@@ -456,12 +456,12 @@ class MeanAndVariance(Mean):
     prev_count_ratio = math_utils.safe_divide(prev_count, self._count)
     other_count_ratio = math_utils.safe_divide(other.count, self._count)
     delta_mean = math_utils.nanadd(self._mean, -prev_mean)
-    mean_diff = math_utils.nanadd(other.mean, -self._mean)
+    mean_diff = math_utils.nanadd(other.mean, -self._mean)  # pyrefly: ignore[unsupported-operation]
     self._var = (
-        prev_count_ratio * self._var
-        + other_count_ratio * other.var
-        + prev_count_ratio * delta_mean**2
-        + other_count_ratio * mean_diff**2
+        prev_count_ratio * self._var  # pyrefly: ignore[unsupported-operation]
+        + other_count_ratio * other.var  # pyrefly: ignore[unsupported-operation]
+        + prev_count_ratio * delta_mean**2  # pyrefly: ignore[unsupported-operation]
+        + other_count_ratio * mean_diff**2  # pyrefly: ignore[unsupported-operation]
     )
 
   def result(self) -> types.NumbersT:
@@ -499,8 +499,8 @@ class MinMaxAndCount(chainable.CallableMetric):
   batch_score_fn: Callable[..., types.NumbersT] | None = None
   axis: int | None = None
   _count: int = 0
-  _min: int = np.inf
-  _max: int = -np.inf
+  _min: int = np.inf  # pyrefly: ignore[bad-assignment]
+  _max: int = -np.inf  # pyrefly: ignore[bad-assignment]
 
   def as_agg_fn(self) -> chainable.AggregateFn:
     return chainable.as_agg_fn(self.__class__, self.batch_score_fn, self.axis)
@@ -530,8 +530,8 @@ class MinMaxAndCount(chainable.CallableMetric):
     inputs = np.asarray(inputs)
     return self.__class__(
         _count=np.size(inputs, axis=self.axis),
-        _min=np.min(inputs, axis=self.axis) if inputs.size else np.inf,
-        _max=np.max(inputs, axis=self.axis) if inputs.size else -np.inf,
+        _min=np.min(inputs, axis=self.axis) if inputs.size else np.inf,  # pyrefly: ignore[bad-argument-type]
+        _max=np.max(inputs, axis=self.axis) if inputs.size else -np.inf,  # pyrefly: ignore[bad-argument-type]
     )
 
   def merge(self, other: Self) -> None:
@@ -750,11 +750,11 @@ class RRegression(chainable.CallableMetric):
 
   def merge(self, other: Self) -> None:
     self.num_samples += other.num_samples
-    self.sum_x += other.sum_x
+    self.sum_x += other.sum_x  # pyrefly: ignore[unsupported-operation]
     self.sum_y += other.sum_y
-    self.sum_xx += other.sum_xx
+    self.sum_xx += other.sum_xx  # pyrefly: ignore[unsupported-operation]
     self.sum_yy += other.sum_yy
-    self.sum_xy += other.sum_xy
+    self.sum_xy += other.sum_xy  # pyrefly: ignore[unsupported-operation]
 
   def result(self) -> types.NumbersT:
     """Calculates the Pearson Correlation Coefficient (PCC).
@@ -791,15 +791,15 @@ class RRegression(chainable.CallableMetric):
       # denominator_y = sqrt(sum(y_i ** 2) - n * y_bar ** 2)
       # denominator = denominator_x * denominator_y
 
-      numerator = self.sum_xy - self.sum_x * self.sum_y / self.num_samples
+      numerator = self.sum_xy - self.sum_x * self.sum_y / self.num_samples  # pyrefly: ignore[unsupported-operation]
 
-      denominator_x = np.sqrt(self.sum_xx - self.sum_x**2 / self.num_samples)
+      denominator_x = np.sqrt(self.sum_xx - self.sum_x**2 / self.num_samples)  # pyrefly: ignore[unsupported-operation]
       denominator_y = np.sqrt(self.sum_yy - self.sum_y**2 / self.num_samples)
       denominator = denominator_x * denominator_y
 
     else:  # Reflective Correlation
       numerator = self.sum_xy
-      denominator = np.sqrt(self.sum_xx * self.sum_yy)
+      denominator = np.sqrt(self.sum_xx * self.sum_yy)  # pyrefly: ignore[unsupported-operation]
 
     return numerator / denominator
 

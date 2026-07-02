@@ -390,7 +390,7 @@ class ClassificationTest(parameterized.TestCase):
               "positive_predictive_value": 2 / 3,
               "intersection_over_union": 2 / 5,
               "prevalence": 4 / 7,
-              "prevalence_threshold": math_utils.pos_sqrt(6) - 2,
+              "prevalence_threshold": math_utils.pos_sqrt(6) - 2,  # pyrefly: ignore[unsupported-operation]
               "matthews_correlation_coefficient": 1 / 6,
               "informedness": 1 / 6,
               "markedness": 1 / 6,
@@ -433,8 +433,8 @@ class ClassificationTest(parameterized.TestCase):
               "prevalence": (4 / 7 + 3 / 7) / 2,
               "prevalence_threshold": (
                   (
-                      (math_utils.pos_sqrt(6) - 2)
-                      + (2 * math_utils.pos_sqrt(3) - 3)
+                      (math_utils.pos_sqrt(6) - 2)  # pyrefly: ignore[unsupported-operation]
+                      + (2 * math_utils.pos_sqrt(3) - 3)  # pyrefly: ignore[unsupported-operation]
                   )
                   / 2
               ),
@@ -478,7 +478,7 @@ class ClassificationTest(parameterized.TestCase):
               "positive_predictive_value": 2 / 3,
               "intersection_over_union": 2 / 5,
               "prevalence": 4 / 7,
-              "prevalence_threshold": math_utils.pos_sqrt(6) - 2,
+              "prevalence_threshold": math_utils.pos_sqrt(6) - 2,  # pyrefly: ignore[unsupported-operation]
               "matthews_correlation_coefficient": 1 / 6,
               "informedness": 1 / 6,
               "markedness": 1 / 6,
@@ -520,7 +520,7 @@ class ClassificationTest(parameterized.TestCase):
               "positive_predictive_value": 2 / 3,
               "intersection_over_union": 2 / 5,
               "prevalence": 4 / 7,
-              "prevalence_threshold": math_utils.pos_sqrt(6) - 2,
+              "prevalence_threshold": math_utils.pos_sqrt(6) - 2,  # pyrefly: ignore[unsupported-operation]
               "matthews_correlation_coefficient": 1 / 6,
               "informedness": 1 / 6,
               "markedness": 1 / 6,
@@ -704,7 +704,7 @@ class ClassificationTest(parameterized.TestCase):
               "intersection_over_union": 0.625,  # MeanState(total=5.0, count=8)
               "prevalence": 3 / 8,  # MeanState(total=3, count=8)
               # MeanState(total=1.5 + sqrt(0.5), count=8)
-              "prevalence_threshold": (1 / math_utils.pos_sqrt(0.5) + 1) / 8,
+              "prevalence_threshold": (1 / math_utils.pos_sqrt(0.5) + 1) / 8,  # pyrefly: ignore[unsupported-operation]
               # MeanState(total=4, count=8)
               "matthews_correlation_coefficient": 0.5,
               "informedness": 0.5,  # MeanState(total=4, count=8)

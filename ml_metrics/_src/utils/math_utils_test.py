@@ -136,7 +136,7 @@ class MathUtilsTest(parameterized.TestCase):
   )
   def test_nanadd(self, a, b, expected):
     actual = math_utils.nanadd(a, b)
-    np.testing.assert_allclose(actual, expected)
+    np.testing.assert_allclose(actual, expected)  # pyrefly: ignore[no-matching-overload]
 
   def test_where(self):
     self.assertEqual(1, math_utils.where(True, 1, 0))

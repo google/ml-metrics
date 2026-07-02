@@ -382,8 +382,8 @@ class ClassificationTest(parameterized.TestCase):
       dict(
           testcase_name="prevalence_threshold",
           metric_fn=classification.prevalence_threshold,
-          expected_no_k_list=(math_utils.pos_sqrt(30) - 3) / 7,
-          expected_with_k_list=[3 / 8, (math_utils.pos_sqrt(30) - 3) / 7],
+          expected_no_k_list=(math_utils.pos_sqrt(30) - 3) / 7,  # pyrefly: ignore[unsupported-operation]
+          expected_with_k_list=[3 / 8, (math_utils.pos_sqrt(30) - 3) / 7],  # pyrefly: ignore[unsupported-operation]
       ),
       dict(
           testcase_name="matthews_correlation_coefficient",

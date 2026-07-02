@@ -50,8 +50,8 @@ def binary_flip_mask(
     array([0, 1])
   """
   if threshold is not None:
-    base_prediction = base_prediction > threshold
-    model_prediction = model_prediction > threshold
+    base_prediction = base_prediction > threshold  # pyrefly: ignore[unsupported-operation]
+    model_prediction = model_prediction > threshold  # pyrefly: ignore[unsupported-operation]
 
   return np.logical_xor(base_prediction, model_prediction).astype(int)
 
@@ -91,8 +91,8 @@ def neg_to_pos_flip_mask(
   if threshold is None:
     return not base_prediction and model_prediction
 
-  base_under_threshold = base_prediction <= threshold
-  model_over_threshold = model_prediction > threshold
+  base_under_threshold = base_prediction <= threshold  # pyrefly: ignore[unsupported-operation]
+  model_over_threshold = model_prediction > threshold  # pyrefly: ignore[unsupported-operation]
 
   return np.logical_and(base_under_threshold, model_over_threshold).astype(int)
 
@@ -132,7 +132,7 @@ def pos_to_neg_flip_mask(
   if threshold is None:
     return base_prediction and not model_prediction
 
-  base_over_threshold = base_prediction > threshold
-  model_under_threshold = model_prediction <= threshold
+  base_over_threshold = base_prediction > threshold  # pyrefly: ignore[unsupported-operation]
+  model_under_threshold = model_prediction <= threshold  # pyrefly: ignore[unsupported-operation]
 
   return np.logical_and(base_over_threshold, model_under_threshold).astype(int)

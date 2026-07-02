@@ -30,11 +30,11 @@ class MeanState(chainable.CallableMetric):
   count: types.NumbersT = 0
 
   def new(self, inputs: types.NumbersT) -> types.NumbersT:
-    return MeanState(total=sum(inputs), count=len(inputs))
+    return MeanState(total=sum(inputs), count=len(inputs))  # pyrefly: ignore[bad-argument-type, no-matching-overload]
 
   def merge(self, other: MeanState):
-    self.total += other.total
-    self.count += other.count
+    self.total += other.total  # pyrefly: ignore[unsupported-operation]
+    self.count += other.count  # pyrefly: ignore[unsupported-operation]
 
   def result(self):
     return math_utils.safe_divide(self.total, self.count)
@@ -47,7 +47,7 @@ class TupleMeanState(chainable.CallableMetric):
   states: tuple[MeanState, ...] = ()
 
   def new(self, *inputs: tuple[types.NumbersT, ...]) -> TupleMeanState:
-    return TupleMeanState(tuple(MeanState().new(x) for x in inputs))
+    return TupleMeanState(tuple(MeanState().new(x) for x in inputs))  # pyrefly: ignore[bad-argument-type]
 
   def merge(self, other: TupleMeanState):
     if not self.states:
@@ -79,4 +79,4 @@ class FrequencyState:
         for key, value in self.counter.items()
     ]
     result = sorted(result, key=lambda x: (-x[1], x[0]))
-    return result
+    return result  # pyrefly: ignore[bad-return]

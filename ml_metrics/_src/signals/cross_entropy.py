@@ -20,7 +20,7 @@ import numpy as np
 
 
 def _check_y_true_contains_only_0_and_1(y_true: types.NumbersT) -> None:
-  if not all(y == 0 or y == 1 for y in y_true):
+  if not all(y == 0 or y == 1 for y in y_true):  # pyrefly: ignore[not-iterable]
     raise ValueError(
         'y_true must contain only 0s and 1s, but recieved: {}'.format(y_true)
     )
@@ -49,7 +49,7 @@ def binary_cross_entropy(
   """
   _check_y_true_contains_only_0_and_1(y_true)
 
-  return -np.mean(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))
+  return -np.mean(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))  # pyrefly: ignore[unsupported-operation]
 
 
 @registry.register_signal(

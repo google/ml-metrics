@@ -50,12 +50,12 @@ def complexity_gap_score(
   if (l := len(np.unique(labels))) > 2:
     raise ValueError(f'CG score only works for binary labels, got {l} labels.')
 
-  cg_scores = np.zeros(len(labels))
+  cg_scores = np.zeros(len(labels))  # pyrefly: ignore[bad-argument-type]
 
   if l == 1:
     return cg_scores
 
-  data_by_label = _group_data_by_label(embeddings, labels)
+  data_by_label = _group_data_by_label(embeddings, labels)  # pyrefly: ignore[bad-argument-type]
   if random_seed:
     np.random.seed(random_seed)
 

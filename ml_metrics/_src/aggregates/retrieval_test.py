@@ -95,7 +95,7 @@ class ThresholdedRetrievalTest(parameterized.TestCase):
           thresholds=thresholds,
           metrics=metric_list,
       )
-    matched_true_prob, matched_pred_prob, y_prob = retrieval_metric.matcher(
+    matched_true_prob, matched_pred_prob, y_prob = retrieval_metric.matcher(  # pyrefly: ignore[not-callable]
         y_true, y_pred, y_prob
     )
     retrieval_metric.add(

@@ -57,9 +57,9 @@ def safe_to_scalar(arr: agg_types.NumbersT) -> agg_types.NumbersT:
     if not arr:
       # 0 elements.
       return 0.0
-    if len(arr) == 1:
+    if len(arr) == 1:  # pyrefly: ignore[bad-argument-type]
       # 1 element.
-      return arr[0]
+      return arr[0]  # pyrefly: ignore[bad-index]
 
   # >1 element.
   raise ValueError('Array should have exactly 1 value to a Python scalar')

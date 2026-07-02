@@ -60,7 +60,7 @@ class KerasAggregateFn(chainable.AggregateFn):
     else:
       try:
         assert hasattr(self.metric, "__call__")
-        self._metric = self.metric()
+        self._metric = self.metric()  # pyrefly: ignore[not-callable]
         if not is_keras_metric(self._metric):
           raise TypeError("metric must implement Keras metric base interface.")
       except Exception as e:

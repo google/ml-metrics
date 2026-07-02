@@ -42,7 +42,7 @@ class MockKerasMetric:
 class KerasTest(absltest.TestCase):
 
   def test_mock_keras_metric(self):
-    metric = keras_metric_wrapper.KerasAggregateFn(MockKerasMetric())
+    metric = keras_metric_wrapper.KerasAggregateFn(MockKerasMetric())  # pyrefly: ignore[bad-argument-type]
     self.assertEqual(6, metric([1, 2, 3]))
 
   def test_keras_metric_wrapper_merge(self):
