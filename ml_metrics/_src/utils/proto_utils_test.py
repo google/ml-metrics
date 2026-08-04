@@ -57,6 +57,14 @@ class TFExampleTest(parameterized.TestCase):
     actual = proto_utils.tf_example_to_dict(e)
     self.assertDictAlmostEqual(data, actual, places=6)
 
+  def test_dict_to_tf_example_with_set(self):
+    data = {
+        'set_key': {'a', 'b', 'c'},
+    }
+    e = proto_utils.dict_to_tf_example(data).SerializeToString()
+    actual = proto_utils.tf_example_to_dict(e)
+    self.assertCountEqual(['a', 'b', 'c'], actual['set_key'])
+
   def test_batch_example(self):
     data = {
         'bytes_key': [b'\x80abc', b'\x80def'],  # not utf-8 decodable

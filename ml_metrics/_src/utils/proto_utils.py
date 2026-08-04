@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Proto utils."""
+import collections.abc
 from typing import Any
 from absl import logging
 import deprecated
@@ -72,6 +73,10 @@ def dict_to_tf_example(data: dict[str, Any]) -> example_pb2.Example:
   for key, value in data.items():
     if isinstance(value, (str, bytes, np.floating, float, int, np.integer)):
       value = [value]
+    if isinstance(value, collections.abc.Iterable) and not isinstance(
+        value, (str, bytes, list, tuple, np.ndarray)
+    ):
+      value = list(value)
     feature = example.features.feature
     if isinstance(value[0], str):
       for v in value:
