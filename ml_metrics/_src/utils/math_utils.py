@@ -70,7 +70,7 @@ def where(
 ):
   """Like np.where, but directly returns itself if condition is scalar."""
   if isinstance(condition, (list, tuple)) or (
-      hasattr(condition, '__array__') and condition.ndim > 0
+      hasattr(condition, '__array__') and condition.ndim > 0  # pyrefly: ignore[missing-attribute]
   ):
     return np.where(condition, x, y)
   # If x or y is scalar, return it directly to keep its type (vs. np.where
