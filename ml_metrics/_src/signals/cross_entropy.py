@@ -76,4 +76,4 @@ def categorical_cross_entropy(
   """
   _check_y_true_contains_only_0_and_1(y_true)
 
-  return -np.sum(y_true * np.log(y_pred / np.sum(y_pred)))
+  return -np.sum(y_true * np.log(y_pred / np.sum(y_pred)))  # pyrefly: ignore[no-matching-overload]

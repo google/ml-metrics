@@ -216,7 +216,7 @@ class Histogram(chainable.CallableMetric, chainable.HasAsAggFn):
   def new(
       self, inputs: types.NumbersT, weights: types.NumbersT | None = None
   ) -> Histogram:
-    new_histogram, new_bin_edges = np.histogram(
+    new_histogram, new_bin_edges = np.histogram(  # pyrefly: ignore[no-matching-overload]
         inputs,
         bins=self.bins,  # pyrefly: ignore[bad-argument-type]
         range=self.range,
@@ -834,7 +834,7 @@ class SymmetricPredictionDifference(chainable.CallableMetric):
     # TODO: b/356933410 - Add logic for k_epsilon.
     return self.__class__(
         num_samples=x.size,
-        sum_half_pointwise_rel_diff=np.sum(
+        sum_half_pointwise_rel_diff=np.sum(  # pyrefly: ignore[no-matching-overload]
             math_utils.safe_divide(np.abs(x - y), np.abs(x + y))
         ),
     )

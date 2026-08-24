@@ -834,7 +834,7 @@ class SamplewiseClassification(chainable.MergeableMetric, chainable.HasAsAggFn):
     result = {}
     for metric in self._metrics:
       if (score := cm.derive_metric(metric)) is not None:
-        result[metric] = utils.MeanState(np.sum(score), len(score))  # pyrefly: ignore[bad-argument-type]
+        result[metric] = utils.MeanState(np.sum(score), len(score))  # pyrefly: ignore[bad-argument-type, no-matching-overload]
     return result
 
   def _calculate_confusion_matrix(

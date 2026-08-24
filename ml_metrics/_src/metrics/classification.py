@@ -102,8 +102,8 @@ class CalibrationHistogram(chainable.MergeableMetric):
         range=self.range,
     )
 
-    labels_hist, _ = np.histogram(labels, bins=bin_edges, weights=labels)
-    predictions_hist, _ = np.histogram(
+    labels_hist, _ = np.histogram(labels, bins=bin_edges, weights=labels)  # pyrefly: ignore[no-matching-overload]
+    predictions_hist, _ = np.histogram(  # pyrefly: ignore[no-matching-overload]
         predictions, bins=bin_edges, weights=predictions
     )
 
