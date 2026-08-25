@@ -14,24 +14,23 @@
 """Individual Classification based metrics."""
 
 import collections
-from collections.abc import Sequence
 import dataclasses
+from collections.abc import Sequence
 from typing import Any
 
 import chainable
-from ml_metrics._src.aggregates import classification
-from ml_metrics._src.aggregates import types
-from ml_metrics._src.metrics import utils
-from ml_metrics.google.tools.signal_registry import registry
-from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
 
+from ml_metrics._src.aggregates import classification, types
+from ml_metrics._src.metrics import utils
+from ml_metrics._src.tools.telemetry import telemetry
+from ml_metrics.google.tools.signal_registry import registry
 
 _StrOrMetric = classification.ConfusionMatrixMetric | str
 
 CalibrationHistogramResult = collections.namedtuple(
-    'CalibrationHistogramResult',
-    ('num_examples_hist', 'labels_hist', 'predictions_hist', 'bin_edges'),
+    "CalibrationHistogramResult",
+    ("num_examples_hist", "labels_hist", "predictions_hist", "bin_edges"),
 )
 
 
@@ -42,120 +41,120 @@ CalibrationHistogramResult = collections.namedtuple(
 )
 @dataclasses.dataclass
 class CalibrationHistogram(chainable.MergeableMetric):
-  """Computes the Histogram of the inputs.
+    """Computes the Histogram of the inputs.
 
-  Examples:
-    >>> hist = CalibrationHistogram(bins=2, range=(0, 1))
-    >>> hist.add([0.1], [0.2])
-    >>> hist.result()
+    Examples:
+      >>> hist = CalibrationHistogram(bins=2, range=(0, 1))
+      >>> hist.add([0.1], [0.2])
+      >>> hist.result()
 
-  Attributes:
-    range: The lower and upper range of the bins. e.g. range = (0, 1).
-    bins: The number of buckets to use.
-    _num_examples_hist: The values of the histogram.
-    _labels_hist: The values of the histogram for labels.
-    _predictions_hist: The values of the histogram for predictions.
-    _bin_edges: The bin edges of the histogram. All but the right-most bin are
-      half-open. I.e. if the bins_edges are (0, 1, 2, 3, ..., 8, 9, 10), then
-      the bin ranges are [0, 1), [1, 2), [2, 3), ... [8, 9), [9, 10].
-  """
+    Attributes:
+      range: The lower and upper range of the bins. e.g. range = (0, 1).
+      bins: The number of buckets to use.
+      _num_examples_hist: The values of the histogram.
+      _labels_hist: The values of the histogram for labels.
+      _predictions_hist: The values of the histogram for predictions.
+      _bin_edges: The bin edges of the histogram. All but the right-most bin are
+        half-open. I.e. if the bins_edges are (0, 1, 2, 3, ..., 8, 9, 10), then
+        the bin ranges are [0, 1), [1, 2), [2, 3), ... [8, 9), [9, 10].
+    """
 
-  range: tuple[float, float] = (0, 1)
-  bins: int = 10000
-  _num_examples_hist: np.ndarray = dataclasses.field(init=False)
-  _labels_hist: np.ndarray = dataclasses.field(init=False)
-  _predictions_hist: np.ndarray = dataclasses.field(init=False)
-  _bin_edges: np.ndarray = dataclasses.field(init=False)
+    range: tuple[float, float] = (0, 1)
+    bins: int = 10000
+    _num_examples_hist: np.ndarray = dataclasses.field(init=False)
+    _labels_hist: np.ndarray = dataclasses.field(init=False)
+    _predictions_hist: np.ndarray = dataclasses.field(init=False)
+    _bin_edges: np.ndarray = dataclasses.field(init=False)
 
-  def __post_init__(self):
-    default_hist, self._bin_edges = np.histogram(
-        a=(), bins=self.bins, range=self.range
-    )
-
-    self._num_examples_hist = self._labels_hist = self._predictions_hist = (
-        default_hist
-    )
-
-  @property
-  def num_examples_hist(self) -> np.ndarray:
-    return self._num_examples_hist
-
-  @property
-  def labels_hist(self) -> np.ndarray:
-    return self._labels_hist
-
-  @property
-  def predictions_hist(self) -> np.ndarray:
-    return self._predictions_hist
-
-  @property
-  def bin_edges(self) -> np.ndarray:
-    return self._bin_edges
-
-  # TODO: b/366063413 - Replace this with a batch_weights_fn.
-  def _get_histograms_and_bin_edges(
-      self, labels: types.NumbersT, predictions: types.NumbersT
-  ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    num_examples_hist, bin_edges = np.histogram(
-        np.concatenate((labels, predictions)),
-        bins=self.bins,
-        range=self.range,
-    )
-
-    labels_hist, _ = np.histogram(labels, bins=bin_edges, weights=labels)  # pyrefly: ignore[no-matching-overload]
-    predictions_hist, _ = np.histogram(  # pyrefly: ignore[no-matching-overload]
-        predictions, bins=bin_edges, weights=predictions
-    )
-
-    return num_examples_hist, labels_hist, predictions_hist, bin_edges
-
-  def _merge(
-      self,
-      num_examples_hist: np.ndarray,
-      labels_hist: np.ndarray,
-      predictions_hist: np.ndarray,
-      bin_edges: np.ndarray,
-  ) -> 'CalibrationHistogram':
-    if not np.array_equal(bin_edges, self._bin_edges):
-      # Self histo and new histo have different bin edges.
-      raise ValueError(
-          'The bin edges of the two Histograms must be equal, but recieved'
-          f' self._bin_edges={self._bin_edges} and new_bin_edges={bin_edges}.'
-      )
-
-    self._num_examples_hist = self._num_examples_hist + num_examples_hist
-    self._labels_hist = self._labels_hist + labels_hist
-    self._predictions_hist = self._predictions_hist + predictions_hist
-
-    return self
-
-  def add(
-      self, labels: types.NumbersT, predictions: types.NumbersT
-  ) -> 'CalibrationHistogram':
-    num_examples_hist, labels_hist, predictions_hist, new_bin_edges = (
-        self._get_histograms_and_bin_edges(
-            labels=labels, predictions=predictions
+    def __post_init__(self):
+        default_hist, self._bin_edges = np.histogram(
+            a=(), bins=self.bins, range=self.range
         )
-    )
-    return self._merge(
-        num_examples_hist, labels_hist, predictions_hist, new_bin_edges
-    )
 
-  def merge(self, other: 'CalibrationHistogram') -> 'CalibrationHistogram':
-    return self._merge(
-        other.num_examples_hist,
-        other.labels_hist,
-        other.predictions_hist,
-        other.bin_edges,
-    )
+        self._num_examples_hist = self._labels_hist = self._predictions_hist = (
+            default_hist
+        )
 
-  def result(self) -> CalibrationHistogramResult:
-    return CalibrationHistogramResult(
-        num_examples_hist=self._num_examples_hist.copy(),
-        labels_hist=self._labels_hist.copy(),
-        predictions_hist=self._predictions_hist.copy(),
-        bin_edges=self._bin_edges.copy(),
-    )
+    @property
+    def num_examples_hist(self) -> np.ndarray:
+        return self._num_examples_hist
+
+    @property
+    def labels_hist(self) -> np.ndarray:
+        return self._labels_hist
+
+    @property
+    def predictions_hist(self) -> np.ndarray:
+        return self._predictions_hist
+
+    @property
+    def bin_edges(self) -> np.ndarray:
+        return self._bin_edges
+
+    # TODO: b/366063413 - Replace this with a batch_weights_fn.
+    def _get_histograms_and_bin_edges(
+        self, labels: types.NumbersT, predictions: types.NumbersT
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        num_examples_hist, bin_edges = np.histogram(
+            np.concatenate((labels, predictions)),
+            bins=self.bins,
+            range=self.range,
+        )
+
+        labels_hist, _ = np.histogram(
+            labels, bins=bin_edges, weights=labels
+        )  # pyrefly: ignore[no-matching-overload]
+        predictions_hist, _ = np.histogram(  # pyrefly: ignore[no-matching-overload]
+            predictions, bins=bin_edges, weights=predictions
+        )
+
+        return num_examples_hist, labels_hist, predictions_hist, bin_edges
+
+    def _merge(
+        self,
+        num_examples_hist: np.ndarray,
+        labels_hist: np.ndarray,
+        predictions_hist: np.ndarray,
+        bin_edges: np.ndarray,
+    ) -> "CalibrationHistogram":
+        if not np.array_equal(bin_edges, self._bin_edges):
+            # Self histo and new histo have different bin edges.
+            raise ValueError(
+                "The bin edges of the two Histograms must be equal, but recieved"
+                f" self._bin_edges={self._bin_edges} and new_bin_edges={bin_edges}."
+            )
+
+        self._num_examples_hist = self._num_examples_hist + num_examples_hist
+        self._labels_hist = self._labels_hist + labels_hist
+        self._predictions_hist = self._predictions_hist + predictions_hist
+
+        return self
+
+    def add(
+        self, labels: types.NumbersT, predictions: types.NumbersT
+    ) -> "CalibrationHistogram":
+        num_examples_hist, labels_hist, predictions_hist, new_bin_edges = (
+            self._get_histograms_and_bin_edges(labels=labels, predictions=predictions)
+        )
+        return self._merge(
+            num_examples_hist, labels_hist, predictions_hist, new_bin_edges
+        )
+
+    def merge(self, other: "CalibrationHistogram") -> "CalibrationHistogram":
+        return self._merge(
+            other.num_examples_hist,
+            other.labels_hist,
+            other.predictions_hist,
+            other.bin_edges,
+        )
+
+    def result(self) -> CalibrationHistogramResult:
+        return CalibrationHistogramResult(
+            num_examples_hist=self._num_examples_hist.copy(),
+            labels_hist=self._labels_hist.copy(),
+            predictions_hist=self._predictions_hist.copy(),
+            bin_edges=self._bin_edges.copy(),
+        )
 
 
 @registry.register_signal(
@@ -163,85 +162,85 @@ class CalibrationHistogram(chainable.MergeableMetric):
     usage_category=telemetry.CATEGORY.METRIC,
 )
 class ClassificationAggFn(chainable.AggregateFn):
-  """Wrapper over the Classification AggFn classes.
+    """Wrapper over the Classification AggFn classes.
 
-  Examples:
-    >>> agg = ClassificationAggFn(metrics=['precision'])
-    >>> agg.create_state()
-  """
-
-  agg_fn: chainable.AggregateFn
-
-  def __init__(
-      self,
-      metrics: Sequence[_StrOrMetric] | _StrOrMetric,
-      *,
-      pos_label: bool | int | str | bytes = 1,
-      input_type: types.InputType = types.InputType.BINARY,
-      average: types.AverageType = types.AverageType.BINARY,
-      vocab: dict[str, int] | None = None,
-      dtype: type[Any] | None = None,
-      k_list: Sequence[int] | None = None,
-  ):
-    """Initializes the instance.
-
-    Args:
-      metrics: List of CFM metrics.
-      pos_label: The class to report if average='binary' and the data is binary.
-      input_type: one input type from types.InputType.
-      average: one average type from types.AverageType.
-      vocab: an external vocabulary that maps categorical value to integer class
-        id.
-      dtype: dtype of the confusion matrix and all computations.
-      k_list: k_list is only applicable for average_type != Samples and
-        multiclass/multioutput input types.
+    Examples:
+      >>> agg = ClassificationAggFn(metrics=['precision'])
+      >>> agg.create_state()
     """
-    if average == types.AverageType.SAMPLES:
-      if k_list:
-        raise ValueError('k_list is not supported for average=SAMPLES')
-      self.agg_fn = classification.SamplewiseConfusionMatrixAggFn(
-          vocab=vocab,
-          dtype=dtype,
-          metrics=metrics,
-          pos_label=pos_label,
-          input_type=input_type,
-      )
-    else:
-      if k_list:
-        self.agg_fn = classification.TopKConfusionMatrixAggFn(
-            vocab=vocab,
-            average=average,
-            dtype=dtype,
-            metrics=metrics,
-            pos_label=pos_label,
-            input_type=input_type,
-            k_list=k_list,
-        )
-      else:
-        self.agg_fn = classification.ConfusionMatrixAggFn(
-            vocab=vocab,
-            average=average,
-            dtype=dtype,
-            metrics=metrics,
-            pos_label=pos_label,
-            input_type=input_type,
-        )
 
-  def create_state(self) -> Any:
-    return self.agg_fn.create_state()
+    agg_fn: chainable.AggregateFn
 
-  def update_state(
-      self,
-      state: classification.ConfusionMatrixAggState | None,
-      *inputs: Any,
-  ):
-    return self.agg_fn.update_state(state, *inputs)
+    def __init__(
+        self,
+        metrics: Sequence[_StrOrMetric] | _StrOrMetric,
+        *,
+        pos_label: bool | int | str | bytes = 1,
+        input_type: types.InputType = types.InputType.BINARY,
+        average: types.AverageType = types.AverageType.BINARY,
+        vocab: dict[str, int] | None = None,
+        dtype: type[Any] | None = None,
+        k_list: Sequence[int] | None = None,
+    ):
+        """Initializes the instance.
 
-  def get_result(self, state):
-    return self.agg_fn.get_result(state)
+        Args:
+          metrics: List of CFM metrics.
+          pos_label: The class to report if average='binary' and the data is binary.
+          input_type: one input type from types.InputType.
+          average: one average type from types.AverageType.
+          vocab: an external vocabulary that maps categorical value to integer class
+            id.
+          dtype: dtype of the confusion matrix and all computations.
+          k_list: k_list is only applicable for average_type != Samples and
+            multiclass/multioutput input types.
+        """
+        if average == types.AverageType.SAMPLES:
+            if k_list:
+                raise ValueError("k_list is not supported for average=SAMPLES")
+            self.agg_fn = classification.SamplewiseConfusionMatrixAggFn(
+                vocab=vocab,
+                dtype=dtype,
+                metrics=metrics,
+                pos_label=pos_label,
+                input_type=input_type,
+            )
+        else:
+            if k_list:
+                self.agg_fn = classification.TopKConfusionMatrixAggFn(
+                    vocab=vocab,
+                    average=average,
+                    dtype=dtype,
+                    metrics=metrics,
+                    pos_label=pos_label,
+                    input_type=input_type,
+                    k_list=k_list,
+                )
+            else:
+                self.agg_fn = classification.ConfusionMatrixAggFn(
+                    vocab=vocab,
+                    average=average,
+                    dtype=dtype,
+                    metrics=metrics,
+                    pos_label=pos_label,
+                    input_type=input_type,
+                )
 
-  def merge_states(self, states):
-    return self.agg_fn.merge_states(states)
+    def create_state(self) -> Any:
+        return self.agg_fn.create_state()
+
+    def update_state(
+        self,
+        state: classification.ConfusionMatrixAggState | None,
+        *inputs: Any,
+    ):
+        return self.agg_fn.update_state(state, *inputs)
+
+    def get_result(self, state):
+        return self.agg_fn.get_result(state)
+
+    def merge_states(self, states):
+        return self.agg_fn.merge_states(states)
 
 
 @registry.register_signal(
@@ -260,46 +259,46 @@ def classification_metrics(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> dict[_StrOrMetric, float]:
-  """Compute multiple metrics together for better efficiency.
+    """Compute multiple metrics together for better efficiency.
 
-  Args:
-    metrics: List of CFM metrics
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      metrics: List of CFM metrics
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Dict containing the evaluation metric values.
+    Returns:
+      Dict containing the evaluation metric values.
 
-  Examples:
-    >>> classification_metrics(['precision'], y_true=[0, 1], y_pred=[0, 1])
-    {'precision': 1.0}
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> classification_metrics(['precision'], y_true=[0, 1], y_pred=[0, 1])
+      {'precision': 1.0}
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -316,45 +315,45 @@ def precision(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Precision classification metric.
+    """Compute Precision classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> precision([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.PRECISION,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> precision([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.PRECISION,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -371,45 +370,45 @@ def ppv(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute PPV classification metric.
+    """Compute PPV classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> ppv([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.PPV,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> ppv([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.PPV,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -426,45 +425,45 @@ def recall(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Recall classification metric.
+    """Compute Recall classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> recall([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.RECALL,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> recall([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.RECALL,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -481,45 +480,45 @@ def f1_score(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute F1 Score classification metric.
+    """Compute F1 Score classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> f1_score([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.F1_SCORE,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> f1_score([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.F1_SCORE,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -536,45 +535,45 @@ def accuracy(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Accuracy classification metric.
+    """Compute Accuracy classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> accuracy([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.ACCURACY,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> accuracy([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.ACCURACY,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -591,45 +590,45 @@ def binary_accuracy(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Binary Accuracy classification metric.
+    """Compute Binary Accuracy classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> binary_accuracy([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.BINARY_ACCURACY,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> binary_accuracy([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.BINARY_ACCURACY,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -646,45 +645,45 @@ def sensitivity(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Sensitivity classification metric.
+    """Compute Sensitivity classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> sensitivity([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.SENSITIVITY,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> sensitivity([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.SENSITIVITY,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -701,45 +700,45 @@ def tpr(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute TPR (True Positive rate/sensitivity) classification metric.
+    """Compute TPR (True Positive rate/sensitivity) classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> tpr([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.TPR,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> tpr([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.TPR,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -756,45 +755,45 @@ def specificity(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Specificity classification metric.
+    """Compute Specificity classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> specificity([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.SPECIFICITY,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> specificity([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.SPECIFICITY,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -811,45 +810,45 @@ def tnr(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute TNR (True negative rate) classification metric.
+    """Compute TNR (True negative rate) classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> tnr([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.TNR,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> tnr([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.TNR,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -866,45 +865,45 @@ def fall_out(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Fall-out classification metric.
+    """Compute Fall-out classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> fall_out([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.FALL_OUT,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> fall_out([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.FALL_OUT,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -921,45 +920,45 @@ def fpr(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute FPR (False Positive rate) classification metric.
+    """Compute FPR (False Positive rate) classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> fpr([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.FPR,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> fpr([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.FPR,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -976,45 +975,45 @@ def miss_rate(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Miss Rate classification metric.
+    """Compute Miss Rate classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> miss_rate([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.MISS_RATE,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> miss_rate([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.MISS_RATE,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1031,45 +1030,45 @@ def fnr(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute FNR (False Negative Rate) classification metric.
+    """Compute FNR (False Negative Rate) classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> fnr([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.FNR,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> fnr([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.FNR,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1086,45 +1085,45 @@ def negative_predictive_value(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Negative Predictive Value classification metric.
+    """Compute Negative Predictive Value classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> negative_predictive_value([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.NEGATIVE_PREDICTIVE_VALUE,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> negative_predictive_value([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.NEGATIVE_PREDICTIVE_VALUE,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1141,45 +1140,45 @@ def npv(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute alias of Negative Predictive Value classification metric.
+    """Compute alias of Negative Predictive Value classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> npv([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.NPV,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> npv([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.NPV,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1196,45 +1195,45 @@ def false_discovery_rate(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute False Discovery Rate classification metric.
+    """Compute False Discovery Rate classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> false_discovery_rate([0, 1], [0, 1])
-    (0.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.FALSE_DISCOVERY_RATE,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> false_discovery_rate([0, 1], [0, 1])
+      (0.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.FALSE_DISCOVERY_RATE,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1251,45 +1250,45 @@ def false_omission_rate(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute False Omission Rate classification metric.
+    """Compute False Omission Rate classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> false_omission_rate([0, 1], [0, 1])
-    (0.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.FALSE_OMISSION_RATE,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> false_omission_rate([0, 1], [0, 1])
+      (0.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.FALSE_OMISSION_RATE,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1306,45 +1305,45 @@ def threat_score(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Threat Score classification metric.
+    """Compute Threat Score classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> threat_score([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.THREAT_SCORE,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> threat_score([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.THREAT_SCORE,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1361,45 +1360,45 @@ def positive_likelihood_ratio(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Positive Likelihood Ratio classification metric.
+    """Compute Positive Likelihood Ratio classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> positive_likelihood_ratio([0, 1], [0, 1])
-    (inf,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.POSITIVE_LIKELIHOOD_RATIO,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> positive_likelihood_ratio([0, 1], [0, 1])
+      (inf,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.POSITIVE_LIKELIHOOD_RATIO,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1416,45 +1415,45 @@ def negative_likelihood_ratio(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Negative Likelihood Ratio classification metric.
+    """Compute Negative Likelihood Ratio classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> negative_likelihood_ratio([0, 1], [0, 1])
-    (0.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.NEGATIVE_LIKELIHOOD_RATIO,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> negative_likelihood_ratio([0, 1], [0, 1])
+      (0.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.NEGATIVE_LIKELIHOOD_RATIO,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1471,45 +1470,45 @@ def diagnostic_odds_ratio(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Diagnostic Odds Ratio classification metric.
+    """Compute Diagnostic Odds Ratio classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> diagnostic_odds_ratio([0, 1], [0, 1])
-    (inf,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.DIAGNOSTIC_ODDS_RATIO,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> diagnostic_odds_ratio([0, 1], [0, 1])
+      (inf,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.DIAGNOSTIC_ODDS_RATIO,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1526,45 +1525,45 @@ def positive_predictive_value(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Positive Predictive Value classification metric.
+    """Compute Positive Predictive Value classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> positive_predictive_value([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.POSITIVE_PREDICTIVE_VALUE,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> positive_predictive_value([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.POSITIVE_PREDICTIVE_VALUE,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1581,45 +1580,45 @@ def intersection_over_union(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Intersection over Union classification metric.
+    """Compute Intersection over Union classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> intersection_over_union([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.INTERSECTION_OVER_UNION,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> intersection_over_union([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.INTERSECTION_OVER_UNION,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1636,45 +1635,45 @@ def prevalence(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Prevalence classification metric.
+    """Compute Prevalence classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> prevalence([0, 1], [0, 1])
-    (0.5,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.PREVALENCE,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> prevalence([0, 1], [0, 1])
+      (0.5,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.PREVALENCE,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1691,45 +1690,45 @@ def prevalence_threshold(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Prevalence Threshold classification metric.
+    """Compute Prevalence Threshold classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> prevalence_threshold([0, 1], [0, 1])
-    (0.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.PREVALENCE_THRESHOLD,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> prevalence_threshold([0, 1], [0, 1])
+      (0.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.PREVALENCE_THRESHOLD,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1746,45 +1745,45 @@ def matthews_correlation_coefficient(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Matthews Correlation Coefficient classification metric.
+    """Compute Matthews Correlation Coefficient classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> matthews_correlation_coefficient([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.MATTHEWS_CORRELATION_COEFFICIENT,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> matthews_correlation_coefficient([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.MATTHEWS_CORRELATION_COEFFICIENT,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1801,45 +1800,45 @@ def informedness(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Informedness classification metric.
+    """Compute Informedness classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> informedness([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.INFORMEDNESS,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> informedness([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.INFORMEDNESS,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1856,45 +1855,45 @@ def markedness(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Markedness classification metric.
+    """Compute Markedness classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> markedness([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.MARKEDNESS,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> markedness([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.MARKEDNESS,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)
 
 
 @registry.register_signal(
@@ -1911,42 +1910,42 @@ def balanced_accuracy(
     dtype: type[Any] | None = None,
     k_list: Sequence[int] | None = None,
 ) -> tuple[float, ...]:
-  """Compute Balanced Accuracy classification metric.
+    """Compute Balanced Accuracy classification metric.
 
-  Args:
-    y_true: array of sample's true labels
-    y_pred: array of sample's label predictions
-    pos_label: The class to report if average='binary' and the data is binary.
-      By default it is 1. Please set in case this default is not a valid label.
-      If the data are multiclass or multilabel, this will be ignored.
-    input_type: one input type from types.InputType
-    average: one average  type from types.AverageType
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-    k_list: k_list is only applicable for average_type != Samples and
-      multiclass/multioutput input types. It is a list of topk each of which
-      slices y_pred by y_pred[:topk] assuming the predictions are sorted in
-      descending order. Default 'None' means consider all outputs in the
-      prediction.
+    Args:
+      y_true: array of sample's true labels
+      y_pred: array of sample's label predictions
+      pos_label: The class to report if average='binary' and the data is binary.
+        By default it is 1. Please set in case this default is not a valid label.
+        If the data are multiclass or multilabel, this will be ignored.
+      input_type: one input type from types.InputType
+      average: one average  type from types.AverageType
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+      k_list: k_list is only applicable for average_type != Samples and
+        multiclass/multioutput input types. It is a list of topk each of which
+        slices y_pred by y_pred[:topk] assuming the predictions are sorted in
+        descending order. Default 'None' means consider all outputs in the
+        prediction.
 
-  Returns:
-    Tuple with metric value(s)
+    Returns:
+      Tuple with metric value(s)
 
-  Examples:
-    >>> balanced_accuracy([0, 1], [0, 1])
-    (1.0,)
-  """
-  utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
-  return ClassificationAggFn(
-      metrics=classification.ConfusionMatrixMetric.BALANCED_ACCURACY,
-      pos_label=pos_label,
-      input_type=input_type,
-      average=average,
-      vocab=vocab,
-      dtype=dtype,
-      k_list=k_list,
-  )(y_true, y_pred)
+    Examples:
+      >>> balanced_accuracy([0, 1], [0, 1])
+      (1.0,)
+    """
+    utils.verify_input(y_true, y_pred, average, input_type, vocab, pos_label)
+    return ClassificationAggFn(
+        metrics=classification.ConfusionMatrixMetric.BALANCED_ACCURACY,
+        pos_label=pos_label,
+        input_type=input_type,
+        average=average,
+        vocab=vocab,
+        dtype=dtype,
+        k_list=k_list,
+    )(y_true, y_pred)

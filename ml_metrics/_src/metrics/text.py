@@ -16,11 +16,11 @@
 from collections.abc import Sequence
 
 import chainable
-from ml_metrics._src.aggregates import stats
-from ml_metrics._src.aggregates import text
+
+from ml_metrics._src.aggregates import stats, text
 from ml_metrics._src.signals import text as text_scores
-from ml_metrics.google.tools.signal_registry import registry
 from ml_metrics._src.tools.telemetry import telemetry
+from ml_metrics.google.tools.signal_registry import registry
 
 
 @registry.register_signal(
@@ -34,48 +34,48 @@ def topk_word_ngrams(
     use_first_ngram_only: bool = False,
     count_duplicate: bool = True,
 ) -> list[tuple[str, float]]:
-  """Top k word n-grams metrics.
+    """Top k word n-grams metrics.
 
-  Identify the top `k` frequent occurring word n-grams with a case-insensitive
-  approach. The text will first be cleaned by removing non-alphabetic characters
-  and spaces, and then converted to lowercase before computing the top k
-  n-grams. When multiple n-grams share the same frequency, alphabetical order
-  will be used as a tie-breaker. The result is a list of tuples containing the
-  n-gram pattern and its corresponding frequency. The list includes either `k`
-  or the number of distinct n-grams tuples, whichever is less.
+    Identify the top `k` frequent occurring word n-grams with a case-insensitive
+    approach. The text will first be cleaned by removing non-alphabetic characters
+    and spaces, and then converted to lowercase before computing the top k
+    n-grams. When multiple n-grams share the same frequency, alphabetical order
+    will be used as a tie-breaker. The result is a list of tuples containing the
+    n-gram pattern and its corresponding frequency. The list includes either `k`
+    or the number of distinct n-grams tuples, whichever is less.
 
-  Args:
-    texts: Sequence of texts.
-    k: Number of most frequent word n-grams.
-    n: Number of grams.
-    use_first_ngram_only: If `True`, only the first n words of each text will be
-      used to form the n-grams and `count_duplicate` will be ignored. Otherwise,
-      all words present in each text will be considered for generating the
-      n-grams. Default to `False`.
-    count_duplicate: If `True`, duplicate n-grams within the text are included
-      in the total count. Otherwise, the count of a unique N-gram will only
-      consider its first occurrence.
+    Args:
+      texts: Sequence of texts.
+      k: Number of most frequent word n-grams.
+      n: Number of grams.
+      use_first_ngram_only: If `True`, only the first n words of each text will be
+        used to form the n-grams and `count_duplicate` will be ignored. Otherwise,
+        all words present in each text will be considered for generating the
+        n-grams. Default to `False`.
+      count_duplicate: If `True`, duplicate n-grams within the text are included
+        in the total count. Otherwise, the count of a unique N-gram will only
+        consider its first occurrence.
 
-  Returns:
-    List of tuples of ngram and its frequency of appearance as a pair.
+    Returns:
+      List of tuples of ngram and its frequency of appearance as a pair.
 
-  Examples:
-    >>> texts = ['c c', 'b B b', 'd a a']
-    >>> topk_word_ngrams(texts, k=2, n=2, count_duplicate=True)
-    [('b b', 0.6666666666666666), ('a a', 0.3333333333333333)]
-  """
+    Examples:
+      >>> texts = ['c c', 'b B b', 'd a a']
+      >>> topk_word_ngrams(texts, k=2, n=2, count_duplicate=True)
+      [('b b', 0.6666666666666666), ('a a', 0.3333333333333333)]
+    """
 
-  if k <= 0 or n <= 0:
-    raise ValueError(
-        f'k and n must be positive integers but k={k} and n={n} was passed.'
-    )
+    if k <= 0 or n <= 0:
+        raise ValueError(
+            f"k and n must be positive integers but k={k} and n={n} was passed."
+        )
 
-  return text.TopKWordNGrams(
-      k=k,
-      n=n,
-      use_first_ngram_only=use_first_ngram_only,
-      count_duplicate=count_duplicate,
-  ).as_agg_fn()(texts)
+    return text.TopKWordNGrams(
+        k=k,
+        n=n,
+        use_first_ngram_only=use_first_ngram_only,
+        count_duplicate=count_duplicate,
+    ).as_agg_fn()(texts)
 
 
 @registry.register_signal(
@@ -85,36 +85,36 @@ def topk_word_ngrams(
 def pattern_frequency(
     texts: Sequence[str], patterns: Sequence[str], count_duplicate: bool = True
 ) -> list[tuple[str, float]]:
-  """Pattern frequency metric.
+    """Pattern frequency metric.
 
-  Identify the frequency of occurrence for each pattern found within the given
-  texts.
+    Identify the frequency of occurrence for each pattern found within the given
+    texts.
 
-  Args:
-    texts: Sequence of texts.
-    patterns: Sequence of text patterns.
-    count_duplicate: If `True`, duplicate pattern within the text are included
-      in the total count. Otherwise, the count of a pattern will only consider
-      its first occurrence. Default to `False`.
+    Args:
+      texts: Sequence of texts.
+      patterns: Sequence of text patterns.
+      count_duplicate: If `True`, duplicate pattern within the text are included
+        in the total count. Otherwise, the count of a pattern will only consider
+        its first occurrence. Default to `False`.
 
-  Returns:
-    List of tuples of pattern and its frequency of appearance as a pair.
+    Returns:
+      List of tuples of pattern and its frequency of appearance as a pair.
 
-  Examples:
-    >>> texts = ['ab ab xyx', 'xyxyx']
-    >>> pattern_frequency(texts, patterns=['ab', 'xyx'], count_duplicate=True)
-    [('xyx', 1.5), ('ab', 1.0)]
-  """
+    Examples:
+      >>> texts = ['ab ab xyx', 'xyxyx']
+      >>> pattern_frequency(texts, patterns=['ab', 'xyx'], count_duplicate=True)
+      [('xyx', 1.5), ('ab', 1.0)]
+    """
 
-  if not patterns:
-    raise ValueError('Patterns must not be empty.')
+    if not patterns:
+        raise ValueError("Patterns must not be empty.")
 
-  if len(set(patterns)) != len(patterns):
-    raise ValueError(f'Patterns must be unique: {patterns}')
+    if len(set(patterns)) != len(patterns):
+        raise ValueError(f"Patterns must be unique: {patterns}")
 
-  return text.PatternFrequency(
-      patterns=patterns, count_duplicate=count_duplicate
-  ).as_agg_fn()(texts)
+    return text.PatternFrequency(
+        patterns=patterns, count_duplicate=count_duplicate
+    ).as_agg_fn()(texts)
 
 
 @registry.register_signal(
@@ -124,30 +124,32 @@ def pattern_frequency(
 def avg_alphabetical_char_count(
     texts: Sequence[str],
 ) -> stats.MeanAndVariance:
-  """Average alphabetical character count metric.
+    """Average alphabetical character count metric.
 
-  Computes the mean and variance of the number of alphabetical characters
-  in a sequence of texts.
+    Computes the mean and variance of the number of alphabetical characters
+    in a sequence of texts.
 
-  Args:
-    texts: Sequence of texts.
+    Args:
+      texts: Sequence of texts.
 
-  Returns:
-    A `stats.MeanAndVariance` object containing the mean and variance of the
-    alphabetical character counts.
+    Returns:
+      A `stats.MeanAndVariance` object containing the mean and variance of the
+      alphabetical character counts.
 
-  Examples:
-    >>> result = avg_alphabetical_char_count(['ab', 'a b', '', 'ok?'])
-    >>> result.mean
-    1.5
-    >>> result.var
-    0.75
-  """
+    Examples:
+      >>> result = avg_alphabetical_char_count(['ab', 'a b', '', 'ok?'])
+      >>> result.mean
+      1.5
+      >>> result.var
+      0.75
+    """
 
-  if not list(texts):
-    raise ValueError('`texts` must not be empty.')
+    if not list(texts):
+        raise ValueError("`texts` must not be empty.")
 
-  batch_scorer_fn = chainable.iterate_fn(text_scores.alphabetical_char_count)
-  return stats.MeanAndVariance(batch_score_fn=batch_scorer_fn).as_agg_fn()(  # pyrefly: ignore[bad-argument-type]
-      texts
-  )
+    batch_scorer_fn = chainable.iterate_fn(text_scores.alphabetical_char_count)
+    return stats.MeanAndVariance(
+        batch_score_fn=batch_scorer_fn
+    ).as_agg_fn()(  # pyrefly: ignore[bad-argument-type]
+        texts
+    )

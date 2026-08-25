@@ -15,22 +15,20 @@
 
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
-from ml_metrics._src.aggregates.stats import Count
-from ml_metrics._src.aggregates.stats import Counter
-from ml_metrics._src.aggregates.stats import FixedSizeSample
-from ml_metrics._src.aggregates.stats import Histogram
-from ml_metrics._src.aggregates.stats import Mean
-from ml_metrics._src.aggregates.stats import MeanAndVariance
-from ml_metrics._src.aggregates.stats import MinMaxAndCount
-from ml_metrics._src.aggregates.stats import R2Tjur
-from ml_metrics._src.aggregates.stats import R2TjurRelative
-from ml_metrics._src.aggregates.stats import RRegression
-from ml_metrics._src.aggregates.stats import SymmetricPredictionDifference
-from ml_metrics._src.aggregates.stats import UnboundedSampler
-from ml_metrics._src.aggregates.stats import ValueAccumulator
-from ml_metrics._src.aggregates.stats import Var
-from ml_metrics._src.metrics.stats import count
-from ml_metrics._src.metrics.stats import mean
-from ml_metrics._src.metrics.stats import stddev
-from ml_metrics._src.metrics.stats import total
-from ml_metrics._src.metrics.stats import var
+from ml_metrics._src.aggregates.stats import (
+    Count,
+    Counter,
+    FixedSizeSample,
+    Histogram,
+    Mean,
+    MeanAndVariance,
+    MinMaxAndCount,
+    R2Tjur,
+    R2TjurRelative,
+    RRegression,
+    SymmetricPredictionDifference,
+    UnboundedSampler,
+    ValueAccumulator,
+    Var,
+)
+from ml_metrics._src.metrics.stats import count, mean, stddev, total, var

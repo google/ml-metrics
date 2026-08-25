@@ -6,5 +6,4 @@ Most project configs are in `pyproject.toml` -- prefer to modify
 
 import setuptools
 
-
 setuptools.setup()

@@ -15,10 +15,10 @@
 
 import io
 
-from ml_metrics.google.tools.signal_registry import registry
-from ml_metrics._src.tools.telemetry import telemetry
 from PIL import Image
 
+from ml_metrics._src.tools.telemetry import telemetry
+from ml_metrics.google.tools.signal_registry import registry
 
 MEGAPIXELS = 1024 * 1024
 
@@ -28,34 +28,34 @@ MEGAPIXELS = 1024 * 1024
     usage_category=telemetry.CATEGORY.SIGNAL,
 )
 def content_metadata(image_bytes: bytes) -> dict[str, int | float | str]:
-  """Extracts the content metadata of an image.
+    """Extracts the content metadata of an image.
 
-  Args:
-    image_bytes: The raw bytes of the image.
+    Args:
+      image_bytes: The raw bytes of the image.
 
-  Returns:
-    A dictionary containing the following metadata:
-      - 'mode': Color mode (e.g., 'RGB').
-      - 'format': Image format (e.g., 'JPEG').
-      - 'pixel_width': Width in pixels.
-      - 'pixel_height': Height in pixels.
-      - 'megapixel_resolution': Resolution in megapixels.
-      - 'aspect_ratio': Aspect ratio (width / height).
+    Returns:
+      A dictionary containing the following metadata:
+        - 'mode': Color mode (e.g., 'RGB').
+        - 'format': Image format (e.g., 'JPEG').
+        - 'pixel_width': Width in pixels.
+        - 'pixel_height': Height in pixels.
+        - 'megapixel_resolution': Resolution in megapixels.
+        - 'aspect_ratio': Aspect ratio (width / height).
 
-  Examples:
-    >>> image_data = b'...'  # Replace with actual image bytes
-    >>> content_metadata(image_data)
-    {'mode': 'RGB', 'format': 'JPEG', 'pixel_width': 100, 'pixel_height': 100,
-    'megapixel_resolution': 0.00001, 'aspect_ratio': 1.0}
-  """
+    Examples:
+      >>> image_data = b'...'  # Replace with actual image bytes
+      >>> content_metadata(image_data)
+      {'mode': 'RGB', 'format': 'JPEG', 'pixel_width': 100, 'pixel_height': 100,
+      'megapixel_resolution': 0.00001, 'aspect_ratio': 1.0}
+    """
 
-  img = Image.open(io.BytesIO(image_bytes))
-  width, height = img.size
-  return {  # pytype: disable=bad-return-type  # pillow-102-upgrade
-      'mode': img.mode,
-      'format': img.format,
-      'pixel_width': width,
-      'pixel_height': height,
-      'megapixel_resolution': width * height / MEGAPIXELS,
-      'aspect_ratio': width / height if height > 0 else 0.0,
-  }
+    img = Image.open(io.BytesIO(image_bytes))
+    width, height = img.size
+    return {  # pytype: disable=bad-return-type  # pillow-102-upgrade
+        "mode": img.mode,
+        "format": img.format,
+        "pixel_width": width,
+        "pixel_height": height,
+        "megapixel_resolution": width * height / MEGAPIXELS,
+        "aspect_ratio": width / height if height > 0 else 0.0,
+    }

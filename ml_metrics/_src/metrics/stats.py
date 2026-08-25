@@ -13,9 +13,7 @@
 # limitations under the License.
 """Individual statistics metrics."""
 
-from ml_metrics._src.aggregates import stats
-from ml_metrics._src.aggregates import types
-
+from ml_metrics._src.aggregates import stats, types
 
 _METRIC_PYDOC_POSTFIX = """
 
@@ -30,40 +28,40 @@ _METRIC_PYDOC_POSTFIX = """
 
 
 def var(batch: types.NumbersT) -> float:
-  """Computes the variance in a batch."""
-  return stats.MeanAndVariance().add(batch).var
+    """Computes the variance in a batch."""
+    return stats.MeanAndVariance().add(batch).var
 
 
 var.__doc__ += _METRIC_PYDOC_POSTFIX  # pyrefly: ignore[unsupported-operation]
 
 
 def stddev(batch: types.NumbersT) -> float:
-  """Computes the standard deviation in a batch."""
-  return stats.MeanAndVariance().add(batch).stddev
+    """Computes the standard deviation in a batch."""
+    return stats.MeanAndVariance().add(batch).stddev
 
 
 stddev.__doc__ += _METRIC_PYDOC_POSTFIX  # pyrefly: ignore[unsupported-operation]
 
 
 def mean(batch: types.NumbersT) -> float:
-  """Computes the mean in a batch."""
-  return stats.MeanAndVariance().add(batch).mean
+    """Computes the mean in a batch."""
+    return stats.MeanAndVariance().add(batch).mean
 
 
 mean.__doc__ += _METRIC_PYDOC_POSTFIX  # pyrefly: ignore[unsupported-operation]
 
 
 def count(batch: types.NumbersT) -> int:
-  """Computes the number of elements in a batch."""
-  return stats.MeanAndVariance().add(batch).count
+    """Computes the number of elements in a batch."""
+    return stats.MeanAndVariance().add(batch).count
 
 
 count.__doc__ += _METRIC_PYDOC_POSTFIX  # pyrefly: ignore[unsupported-operation]
 
 
 def total(batch: types.NumbersT) -> float:
-  """Computes the total sum of a batch."""
-  return stats.MeanAndVariance().add(batch).total
+    """Computes the total sum of a batch."""
+    return stats.MeanAndVariance().add(batch).total
 
 
 total.__doc__ += _METRIC_PYDOC_POSTFIX  # pyrefly: ignore[unsupported-operation]

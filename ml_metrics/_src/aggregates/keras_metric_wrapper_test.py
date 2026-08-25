@@ -15,66 +15,70 @@
 
 import importlib
 
-from ml_metrics._src.aggregates import keras_metric_wrapper
-
 from absl.testing import absltest
+
+from ml_metrics._src.aggregates import keras_metric_wrapper
 
 
 class MockKerasMetric:
 
-  def __init__(self):
-    self.reset_state()
+    def __init__(self):
+        self.reset_state()
 
-  def reset_state(self):
-    self._state = 0
+    def reset_state(self):
+        self._state = 0
 
-  def update_state(self, inputs):
-    self._state += sum(inputs)
+    def update_state(self, inputs):
+        self._state += sum(inputs)
 
-  def merge_state(self, states):
-    for state in states:
-      self._state += state
+    def merge_state(self, states):
+        for state in states:
+            self._state += state
 
-  def result(self):
-    return self._state
+    def result(self):
+        return self._state
 
 
 class KerasTest(absltest.TestCase):
 
-  def test_mock_keras_metric(self):
-    metric = keras_metric_wrapper.KerasAggregateFn(MockKerasMetric())  # pyrefly: ignore[bad-argument-type]
-    self.assertEqual(6, metric([1, 2, 3]))
+    def test_mock_keras_metric(self):
+        metric = keras_metric_wrapper.KerasAggregateFn(
+            MockKerasMetric()
+        )  # pyrefly: ignore[bad-argument-type]
+        self.assertEqual(6, metric([1, 2, 3]))
 
-  def test_keras_metric_wrapper_merge(self):
-    try:
-      tf = importlib.import_module("tensorflow")
-    except ImportError:
-      # Ignores the import error if tensorflow is not installed.
-      return
-    metric1 = keras_metric_wrapper.KerasAggregateFn(
-        tf.keras.metrics.Mean(name="mean")
-    )
-    metric2 = keras_metric_wrapper.KerasAggregateFn(
-        tf.keras.metrics.Mean(name="mean")
-    )
-    state1, state2 = metric1.create_state(), metric2.create_state()
-    merged_state = metric1.merge_states([
-        metric1.update_state(state1, [1, 2, 3]),
-        metric2.update_state(state2, [4, 5, 6]),
-    ])
-    self.assertEqual(3.5, metric1.get_result(merged_state))
+    def test_keras_metric_wrapper_merge(self):
+        try:
+            tf = importlib.import_module("tensorflow")
+        except ImportError:
+            # Ignores the import error if tensorflow is not installed.
+            return
+        metric1 = keras_metric_wrapper.KerasAggregateFn(
+            tf.keras.metrics.Mean(name="mean")
+        )
+        metric2 = keras_metric_wrapper.KerasAggregateFn(
+            tf.keras.metrics.Mean(name="mean")
+        )
+        state1, state2 = metric1.create_state(), metric2.create_state()
+        merged_state = metric1.merge_states(
+            [
+                metric1.update_state(state1, [1, 2, 3]),
+                metric2.update_state(state2, [4, 5, 6]),
+            ]
+        )
+        self.assertEqual(3.5, metric1.get_result(merged_state))
 
-  def test_keras_metric_wrapper(self):
-    try:
-      tf = importlib.import_module("tensorflow")
-    except ImportError:
-      # Ignores the import error if tensorflow is not installed.
-      return
-    metric = keras_metric_wrapper.KerasAggregateFn(
-        tf.keras.metrics.Mean(name="mean")
-    )
-    self.assertEqual(2, metric([1, 2, 3]))
+    def test_keras_metric_wrapper(self):
+        try:
+            tf = importlib.import_module("tensorflow")
+        except ImportError:
+            # Ignores the import error if tensorflow is not installed.
+            return
+        metric = keras_metric_wrapper.KerasAggregateFn(
+            tf.keras.metrics.Mean(name="mean")
+        )
+        self.assertEqual(2, metric([1, 2, 3]))
 
 
 if __name__ == "__main__":
-  absltest.main()
+    absltest.main()

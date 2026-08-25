@@ -12,61 +12,63 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Aggregates modules for all classification metrics."""
+
 from __future__ import annotations
 
 import collections
-from collections.abc import Iterable, Sequence
 import dataclasses
 import enum
 import itertools
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 import chainable
-from ml_metrics._src.aggregates import types
-from ml_metrics._src.aggregates import utils
-from ml_metrics._src.utils import math_utils
-from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
+
+from ml_metrics._src.aggregates import types, utils
+from ml_metrics._src.tools.telemetry import telemetry
+from ml_metrics._src.utils import math_utils
 
 AverageType = types.AverageType
 InputType = types.InputType
 
 
 class ConfusionMatrixMetric(enum.StrEnum):
-  """Confusion Matrix Metrics that can be composed from CM's intermediate state."""
+    """Confusion Matrix Metrics that can be composed from CM's intermediate
+    state."""
 
-  CONFUSION_MATRIX = 'confusion_matrix'
-  PRECISION = 'precision'
-  PPV = 'ppv'
-  RECALL = 'recall'
-  F1_SCORE = 'f1_score'
-  ACCURACY = 'accuracy'
-  BINARY_ACCURACY = 'binary_accuracy'
-  SENSITIVITY = 'sensitivity'
-  TPR = 'tpr'
-  SPECIFICITY = 'specificity'
-  TNR = 'tnr'
-  FALL_OUT = 'fall_out'
-  FPR = 'fpr'
-  MISS_RATE = 'miss_rate'
-  FNR = 'fnr'
-  NEGATIVE_PREDICTIVE_VALUE = 'negative_predictive_value'
-  NPV = 'npv'
-  FALSE_DISCOVERY_RATE = 'false_discovery_rate'
-  FALSE_OMISSION_RATE = 'false_omission_rate'
-  THREAT_SCORE = 'threat_score'
-  POSITIVE_LIKELIHOOD_RATIO = 'positive_likelihood_ratio'
-  NEGATIVE_LIKELIHOOD_RATIO = 'negative_likelihood_ratio'
-  DIAGNOSTIC_ODDS_RATIO = 'diagnostic_odds_ratio'
-  POSITIVE_PREDICTIVE_VALUE = 'positive_predictive_value'
-  INTERSECTION_OVER_UNION = 'intersection_over_union'
-  PREVALENCE = 'prevalence'
-  PREVALENCE_THRESHOLD = 'prevalence_threshold'
-  MATTHEWS_CORRELATION_COEFFICIENT = 'matthews_correlation_coefficient'
-  INFORMEDNESS = 'informedness'
-  MARKEDNESS = 'markedness'
-  BALANCED_ACCURACY = 'balanced_accuracy'
-  MEAN_AVERAGE_PRECISION = 'mean_average_precision'
+    CONFUSION_MATRIX = "confusion_matrix"
+    PRECISION = "precision"
+    PPV = "ppv"
+    RECALL = "recall"
+    F1_SCORE = "f1_score"
+    ACCURACY = "accuracy"
+    BINARY_ACCURACY = "binary_accuracy"
+    SENSITIVITY = "sensitivity"
+    TPR = "tpr"
+    SPECIFICITY = "specificity"
+    TNR = "tnr"
+    FALL_OUT = "fall_out"
+    FPR = "fpr"
+    MISS_RATE = "miss_rate"
+    FNR = "fnr"
+    NEGATIVE_PREDICTIVE_VALUE = "negative_predictive_value"
+    NPV = "npv"
+    FALSE_DISCOVERY_RATE = "false_discovery_rate"
+    FALSE_OMISSION_RATE = "false_omission_rate"
+    THREAT_SCORE = "threat_score"
+    POSITIVE_LIKELIHOOD_RATIO = "positive_likelihood_ratio"
+    NEGATIVE_LIKELIHOOD_RATIO = "negative_likelihood_ratio"
+    DIAGNOSTIC_ODDS_RATIO = "diagnostic_odds_ratio"
+    POSITIVE_PREDICTIVE_VALUE = "positive_predictive_value"
+    INTERSECTION_OVER_UNION = "intersection_over_union"
+    PREVALENCE = "prevalence"
+    PREVALENCE_THRESHOLD = "prevalence_threshold"
+    MATTHEWS_CORRELATION_COEFFICIENT = "matthews_correlation_coefficient"
+    INFORMEDNESS = "informedness"
+    MARKEDNESS = "markedness"
+    BALANCED_ACCURACY = "balanced_accuracy"
+    MEAN_AVERAGE_PRECISION = "mean_average_precision"
 
 
 _CFMMetric = ConfusionMatrixMetric | str
@@ -75,353 +77,352 @@ _CFMMetric = ConfusionMatrixMetric | str
 def _normalize_metrics(
     metrics: Iterable[_CFMMetric] | _CFMMetric,
 ) -> Sequence[ConfusionMatrixMetric]:
-  """Normalizes the metrics to ConfusionMatrixMetric."""
-  if isinstance(metrics, (str, ConfusionMatrixMetric)):
-    metrics = (metrics,)
-  return [ConfusionMatrixMetric(metric) for metric in metrics]
+    """Normalizes the metrics to ConfusionMatrixMetric."""
+    if isinstance(metrics, (str, ConfusionMatrixMetric)):
+        metrics = (metrics,)
+    return [ConfusionMatrixMetric(metric) for metric in metrics]
 
 
 class _ConfusionMatrix:
-  """Confusion Matrix accumulator with kwargs used to compute it.
+    """Confusion Matrix accumulator with kwargs used to compute it.
 
-  Confusion matrix for classification and retrieval tasks.
-  See https://en.wikipedia.org/wiki/Confusion_matrix for more info.
+    Confusion matrix for classification and retrieval tasks.
+    See https://en.wikipedia.org/wiki/Confusion_matrix for more info.
 
-  Attributes:
-    tp: True positives count.
-    tn: True negatives count.
-    fp: False positives count.
-    fn: False negative count.
-    average: The average type of which this confusion matrix is computed.
-    dtype: data type of the instance numpy array. None by default, dtype is
-      deduced by numpy at construction.
-  """
+    Attributes:
+      tp: True positives count.
+      tn: True negatives count.
+      fp: False positives count.
+      fn: False negative count.
+      average: The average type of which this confusion matrix is computed.
+      dtype: data type of the instance numpy array. None by default, dtype is
+        deduced by numpy at construction.
+    """
 
-  def __init__(
-      self,
-      tp: types.NumbersT,
-      tn: types.NumbersT,
-      fp: types.NumbersT,
-      fn: types.NumbersT,
-      *,
-      dtype: type[Any] | None = None,
-  ):
-    self.tp = np.asarray(tp, dtype=dtype)
-    self.tn = np.asarray(tn, dtype=dtype)
-    self.fp = np.asarray(fp, dtype=dtype)
-    self.fn = np.asarray(fn, dtype=dtype)
-    self.dtype = dtype
+    def __init__(
+        self,
+        tp: types.NumbersT,
+        tn: types.NumbersT,
+        fp: types.NumbersT,
+        fn: types.NumbersT,
+        *,
+        dtype: type[Any] | None = None,
+    ):
+        self.tp = np.asarray(tp, dtype=dtype)
+        self.tn = np.asarray(tn, dtype=dtype)
+        self.fp = np.asarray(fp, dtype=dtype)
+        self.fn = np.asarray(fn, dtype=dtype)
+        self.dtype = dtype
 
-  @property
-  def t(self):
-    """Labeled True count."""
-    return self.tp + self.fn
+    @property
+    def t(self):
+        """Labeled True count."""
+        return self.tp + self.fn
 
-  @property
-  def p(self):
-    """Predicted True count."""
-    return self.tp + self.fp
+    @property
+    def p(self):
+        """Predicted True count."""
+        return self.tp + self.fp
 
-  def __iadd__(self, other):
-    self.tp += other.tp
-    self.tn += other.tn
-    self.fp += other.fp
-    self.fn += other.fn
-    return self
+    def __iadd__(self, other):
+        self.tp += other.tp
+        self.tn += other.tn
+        self.fp += other.fp
+        self.fn += other.fn
+        return self
 
-  def __add__(self, other):
-    tp = self.tp + other.tp
-    tn = self.tn + other.tn
-    fp = self.fp + other.fp
-    fn = self.fn + other.fn
-    return _ConfusionMatrix(tp, tn, fp, fn)
+    def __add__(self, other):
+        tp = self.tp + other.tp
+        tn = self.tn + other.tn
+        fp = self.fp + other.fp
+        fn = self.fn + other.fn
+        return _ConfusionMatrix(tp, tn, fp, fn)
 
-  def __eq__(self, other):
-    """Numerically equals."""
-    return (
-        np.allclose(self.tp, other.tp)
-        and np.allclose(self.tn, other.tn)
-        and np.allclose(self.fp, other.fp)
-        and np.allclose(self.fn, other.fn)
-    )
+    def __eq__(self, other):
+        """Numerically equals."""
+        return (
+            np.allclose(self.tp, other.tp)
+            and np.allclose(self.tn, other.tn)
+            and np.allclose(self.fp, other.fp)
+            and np.allclose(self.fn, other.fn)
+        )
 
-  def __repr__(self):
-    return f'tp={self.tp}, tn={self.tn}, fp={self.fp}, fn={self.fn}'
+    def __repr__(self):
+        return f"tp={self.tp}, tn={self.tn}, fp={self.fp}, fn={self.fn}"
 
-  def derive_metric(
-      self, metric: ConfusionMatrixMetric, average=None
-  ) -> types.NumbersT:
-    """Helper to call the right metric function given a Metric Enum."""
-    match metric:
-      case ConfusionMatrixMetric.CONFUSION_MATRIX:
-        return self  # pyrefly: ignore[bad-return]
-      case ConfusionMatrixMetric.PRECISION:
-        result = _precision(self)
-      case ConfusionMatrixMetric.PPV:
-        result = _ppv(self)
-      case ConfusionMatrixMetric.RECALL:
-        result = _recall(self)
-      case ConfusionMatrixMetric.F1_SCORE:
-        result = _f1(self)
-      case ConfusionMatrixMetric.ACCURACY:
-        result = _accuracy(self)
-      case ConfusionMatrixMetric.BINARY_ACCURACY:
-        result = _binary_accuracy(self)
-      case ConfusionMatrixMetric.SENSITIVITY:
-        result = _sensitivity(self)
-      case ConfusionMatrixMetric.TPR:
-        result = _tpr(self)
-      case ConfusionMatrixMetric.SPECIFICITY:
-        result = _specificity(self)
-      case ConfusionMatrixMetric.TNR:
-        result = _tnr(self)
-      case ConfusionMatrixMetric.FALL_OUT:
-        result = _fall_out(self)
-      case ConfusionMatrixMetric.FPR:
-        result = _fpr(self)
-      case ConfusionMatrixMetric.MISS_RATE:
-        result = _miss_rate(self)
-      case ConfusionMatrixMetric.FNR:
-        result = _fnr(self)
-      case ConfusionMatrixMetric.NEGATIVE_PREDICTIVE_VALUE:
-        result = _negative_prediction_value(self)
-      case ConfusionMatrixMetric.NPV:
-        result = _npv(self)
-      case ConfusionMatrixMetric.FALSE_DISCOVERY_RATE:
-        result = _false_discovery_rate(self)
-      case ConfusionMatrixMetric.FALSE_OMISSION_RATE:
-        result = _false_omission_rate(self)
-      case ConfusionMatrixMetric.THREAT_SCORE:
-        result = _threat_score(self)
-      case ConfusionMatrixMetric.POSITIVE_LIKELIHOOD_RATIO:
-        result = _positive_likelihood_ratio(self)
-      case ConfusionMatrixMetric.NEGATIVE_LIKELIHOOD_RATIO:
-        result = _negative_likelihood_ratio(self)
-      case ConfusionMatrixMetric.DIAGNOSTIC_ODDS_RATIO:
-        result = _diagnostic_odds_ratio(self)
-      case ConfusionMatrixMetric.POSITIVE_PREDICTIVE_VALUE:
-        result = _positive_predictive_value(self)
-      case ConfusionMatrixMetric.INTERSECTION_OVER_UNION:
-        result = _intersection_over_union(self)
-      case ConfusionMatrixMetric.PREVALENCE:
-        result = _prevalence(self)
-      case ConfusionMatrixMetric.PREVALENCE_THRESHOLD:
-        result = _prevalence_threshold(self)
-      case ConfusionMatrixMetric.MATTHEWS_CORRELATION_COEFFICIENT:
-        result = _matthews_correlation_coefficient(self)
-      case ConfusionMatrixMetric.INFORMEDNESS:
-        result = _informedness(self)
-      case ConfusionMatrixMetric.MARKEDNESS:
-        result = _markedness(self)
-      case ConfusionMatrixMetric.BALANCED_ACCURACY:
-        result = _balanced_accuracy(self)
-      case _:
-        raise NotImplementedError(f'"{metric}" metric is not supported.')
-    assert (
-        average != AverageType.SAMPLES
-    ), 'Unexpected samplewise average for a derived metric.'
-    if average is None or average in ('micro', 'binary'):
-      return result
-    elif average == 'macro':
-      return np.mean(result, axis=0)  # pyrefly: ignore[no-matching-overload]
-    else:
-      raise NotImplementedError(f'"{average}" average is not supported.')
+    def derive_metric(
+        self, metric: ConfusionMatrixMetric, average=None
+    ) -> types.NumbersT:
+        """Helper to call the right metric function given a Metric Enum."""
+        match metric:
+            case ConfusionMatrixMetric.CONFUSION_MATRIX:
+                return self  # pyrefly: ignore[bad-return]
+            case ConfusionMatrixMetric.PRECISION:
+                result = _precision(self)
+            case ConfusionMatrixMetric.PPV:
+                result = _ppv(self)
+            case ConfusionMatrixMetric.RECALL:
+                result = _recall(self)
+            case ConfusionMatrixMetric.F1_SCORE:
+                result = _f1(self)
+            case ConfusionMatrixMetric.ACCURACY:
+                result = _accuracy(self)
+            case ConfusionMatrixMetric.BINARY_ACCURACY:
+                result = _binary_accuracy(self)
+            case ConfusionMatrixMetric.SENSITIVITY:
+                result = _sensitivity(self)
+            case ConfusionMatrixMetric.TPR:
+                result = _tpr(self)
+            case ConfusionMatrixMetric.SPECIFICITY:
+                result = _specificity(self)
+            case ConfusionMatrixMetric.TNR:
+                result = _tnr(self)
+            case ConfusionMatrixMetric.FALL_OUT:
+                result = _fall_out(self)
+            case ConfusionMatrixMetric.FPR:
+                result = _fpr(self)
+            case ConfusionMatrixMetric.MISS_RATE:
+                result = _miss_rate(self)
+            case ConfusionMatrixMetric.FNR:
+                result = _fnr(self)
+            case ConfusionMatrixMetric.NEGATIVE_PREDICTIVE_VALUE:
+                result = _negative_prediction_value(self)
+            case ConfusionMatrixMetric.NPV:
+                result = _npv(self)
+            case ConfusionMatrixMetric.FALSE_DISCOVERY_RATE:
+                result = _false_discovery_rate(self)
+            case ConfusionMatrixMetric.FALSE_OMISSION_RATE:
+                result = _false_omission_rate(self)
+            case ConfusionMatrixMetric.THREAT_SCORE:
+                result = _threat_score(self)
+            case ConfusionMatrixMetric.POSITIVE_LIKELIHOOD_RATIO:
+                result = _positive_likelihood_ratio(self)
+            case ConfusionMatrixMetric.NEGATIVE_LIKELIHOOD_RATIO:
+                result = _negative_likelihood_ratio(self)
+            case ConfusionMatrixMetric.DIAGNOSTIC_ODDS_RATIO:
+                result = _diagnostic_odds_ratio(self)
+            case ConfusionMatrixMetric.POSITIVE_PREDICTIVE_VALUE:
+                result = _positive_predictive_value(self)
+            case ConfusionMatrixMetric.INTERSECTION_OVER_UNION:
+                result = _intersection_over_union(self)
+            case ConfusionMatrixMetric.PREVALENCE:
+                result = _prevalence(self)
+            case ConfusionMatrixMetric.PREVALENCE_THRESHOLD:
+                result = _prevalence_threshold(self)
+            case ConfusionMatrixMetric.MATTHEWS_CORRELATION_COEFFICIENT:
+                result = _matthews_correlation_coefficient(self)
+            case ConfusionMatrixMetric.INFORMEDNESS:
+                result = _informedness(self)
+            case ConfusionMatrixMetric.MARKEDNESS:
+                result = _markedness(self)
+            case ConfusionMatrixMetric.BALANCED_ACCURACY:
+                result = _balanced_accuracy(self)
+            case _:
+                raise NotImplementedError(f'"{metric}" metric is not supported.')
+        assert (
+            average != AverageType.SAMPLES
+        ), "Unexpected samplewise average for a derived metric."
+        if average is None or average in ("micro", "binary"):
+            return result
+        elif average == "macro":
+            return np.mean(result, axis=0)  # pyrefly: ignore[no-matching-overload]
+        else:
+            raise NotImplementedError(f'"{average}" average is not supported.')
 
 
 class _TopKConfusionMatrix(_ConfusionMatrix):
-  """Confusion Matrix accumulator with kwargs used to compute it.
+    """Confusion Matrix accumulator with kwargs used to compute it.
 
-  Confusion matrix for classification and retrieval tasks.
-  See https://en.wikipedia.org/wiki/Confusion_matrix for more info.
+    Confusion matrix for classification and retrieval tasks.
+    See https://en.wikipedia.org/wiki/Confusion_matrix for more info.
 
-  Attributes:
-    k: a sequence of topk, sequentially corresponds to the actual confusion
-      matrix counts (tp, tn, fp, fn).
-    tp: True positives count.
-    tn: True negatives count.
-    fp: False positives count.
-    fn: False negative count.
-    dtype: data type of the instance numpy array. None by default, dtype is
-      deduced by numpy at construction.
-  """
+    Attributes:
+      k: a sequence of topk, sequentially corresponds to the actual confusion
+        matrix counts (tp, tn, fp, fn).
+      tp: True positives count.
+      tn: True negatives count.
+      fp: False positives count.
+      fn: False negative count.
+      dtype: data type of the instance numpy array. None by default, dtype is
+        deduced by numpy at construction.
+    """
 
-  def __init__(
-      self,
-      k: types.NumbersT,
-      tp: types.NumbersT,
-      tn: types.NumbersT,
-      fp: types.NumbersT,
-      fn: types.NumbersT,
-      *,
-      dtype: type[Any] | None = None,
-  ):
-    self.k = np.asarray(k, dtype=dtype)
-    super().__init__(tp, tn, fp, fn, dtype=dtype)
+    def __init__(
+        self,
+        k: types.NumbersT,
+        tp: types.NumbersT,
+        tn: types.NumbersT,
+        fp: types.NumbersT,
+        fn: types.NumbersT,
+        *,
+        dtype: type[Any] | None = None,
+    ):
+        self.k = np.asarray(k, dtype=dtype)
+        super().__init__(tp, tn, fp, fn, dtype=dtype)
 
-  def __eq__(self, other):
-    """Numerically equals."""
-    return np.allclose(self.k, other.k) and super().__eq__(other)
+    def __eq__(self, other):
+        """Numerically equals."""
+        return np.allclose(self.k, other.k) and super().__eq__(other)
 
-  def __str__(self):
-    return f'k={self.k}, tp={self.tp}, tn={self.tn}, fp={self.fp}, fn={self.fn}'
+    def __str__(self):
+        return f"k={self.k}, tp={self.tp}, tn={self.tn}, fp={self.fp}, fn={self.fn}"
 
 
 def _precision(cm: _ConfusionMatrix):
-  return math_utils.safe_divide(cm.tp, cm.p)
+    return math_utils.safe_divide(cm.tp, cm.p)
 
 
 def _ppv(cm: _ConfusionMatrix):
-  """Alias for Precision."""
-  return _precision(cm)
+    """Alias for Precision."""
+    return _precision(cm)
 
 
 def _recall(cm: _ConfusionMatrix):
-  return math_utils.safe_divide(cm.tp, cm.t)
+    return math_utils.safe_divide(cm.tp, cm.t)
 
 
 def _f1(cm: _ConfusionMatrix):
-  precision = _precision(cm)
-  recall = _recall(cm)
-  return math_utils.safe_divide(2 * precision * recall, precision + recall)
+    precision = _precision(cm)
+    recall = _recall(cm)
+    return math_utils.safe_divide(2 * precision * recall, precision + recall)
 
 
 def _accuracy(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Accuracy, only meaningful for samplewise ConfusionMatrixAtK."""
-  return (cm.tp > 0).astype(int)
+    """Accuracy, only meaningful for samplewise ConfusionMatrixAtK."""
+    return (cm.tp > 0).astype(int)
 
 
 def _binary_accuracy(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Binary accuracy."""
-  return math_utils.safe_divide(cm.tp + cm.tn, cm.tp + cm.fp + cm.tn + cm.fn)
+    """Binary accuracy."""
+    return math_utils.safe_divide(cm.tp + cm.tn, cm.tp + cm.fp + cm.tn + cm.fn)
 
 
 def _sensitivity(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Sensitivity."""
-  return _recall(cm)
+    """Sensitivity."""
+    return _recall(cm)
 
 
 def _tpr(cm: _ConfusionMatrix) -> types.NumbersT:
-  """True positive rate."""
-  return _recall(cm)
+    """True positive rate."""
+    return _recall(cm)
 
 
 def _specificity(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Specificity or Selectivity."""
-  return math_utils.safe_divide(cm.tn, (cm.tn + cm.fp))
+    """Specificity or Selectivity."""
+    return math_utils.safe_divide(cm.tn, (cm.tn + cm.fp))
 
 
 def _tnr(cm: _ConfusionMatrix) -> types.NumbersT:
-  """True Negative rate."""
-  return _specificity(cm)
+    """True Negative rate."""
+    return _specificity(cm)
 
 
 def _fall_out(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Fall out rate."""
-  return math_utils.safe_divide(cm.fp, (cm.fp + cm.tn))
+    """Fall out rate."""
+    return math_utils.safe_divide(cm.fp, (cm.fp + cm.tn))
 
 
 def _fpr(cm: _ConfusionMatrix) -> types.NumbersT:
-  """False positive rate."""
-  return _fall_out(cm)
+    """False positive rate."""
+    return _fall_out(cm)
 
 
 def _miss_rate(cm: _ConfusionMatrix) -> types.NumbersT:
-  """MissRate."""
-  return math_utils.safe_divide(cm.fn, (cm.fn + cm.tp))
+    """MissRate."""
+    return math_utils.safe_divide(cm.fn, (cm.fn + cm.tp))
 
 
 def _fnr(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Alias for MissRate."""
-  return _miss_rate(cm)
+    """Alias for MissRate."""
+    return _miss_rate(cm)
 
 
 def _negative_prediction_value(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Negative predictive value (NPV)."""
-  return math_utils.safe_divide(cm.tn, (cm.tn + cm.fn))
+    """Negative predictive value (NPV)."""
+    return math_utils.safe_divide(cm.tn, (cm.tn + cm.fn))
 
 
 def _npv(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Alias for Negative predictive value."""
-  return _negative_prediction_value(cm)
+    """Alias for Negative predictive value."""
+    return _negative_prediction_value(cm)
 
 
 def _false_discovery_rate(cm: _ConfusionMatrix) -> types.NumbersT:
-  """False discovery rate (FDR)."""
-  return math_utils.safe_divide(cm.fp, (cm.p))
+    """False discovery rate (FDR)."""
+    return math_utils.safe_divide(cm.fp, (cm.p))
 
 
 def _false_omission_rate(cm: _ConfusionMatrix) -> types.NumbersT:
-  """False discovery rate (FDR)."""
-  return math_utils.safe_divide(cm.fn, (cm.fn + cm.tn))
+    """False discovery rate (FDR)."""
+    return math_utils.safe_divide(cm.fn, (cm.fn + cm.tn))
 
 
 def _threat_score(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Threat score or critical success index (TS or CSI)."""
-  return math_utils.safe_divide(cm.tp, (cm.t + cm.fp))
+    """Threat score or critical success index (TS or CSI)."""
+    return math_utils.safe_divide(cm.tp, (cm.t + cm.fp))
 
 
 def _positive_likelihood_ratio(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Postive Likelihood ratio."""
-  return math_utils.safe_divide(_tpr(cm), _fpr(cm))
+    """Postive Likelihood ratio."""
+    return math_utils.safe_divide(_tpr(cm), _fpr(cm))
 
 
 def _negative_likelihood_ratio(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Negative Likelihodd ratio."""
-  return math_utils.safe_divide(_fnr(cm), _tnr(cm))
+    """Negative Likelihodd ratio."""
+    return math_utils.safe_divide(_fnr(cm), _tnr(cm))
 
 
 def _diagnostic_odds_ratio(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Diagnostic Odds ratio (tp*tn/fp*fn)."""
-  return math_utils.safe_divide(
-      _positive_likelihood_ratio(cm), _negative_likelihood_ratio(cm)
-  )
+    """Diagnostic Odds ratio (tp*tn/fp*fn)."""
+    return math_utils.safe_divide(
+        _positive_likelihood_ratio(cm), _negative_likelihood_ratio(cm)
+    )
 
 
 def _positive_predictive_value(cm: _ConfusionMatrix) -> types.NumbersT:
-  return math_utils.safe_divide(cm.tp, cm.p)
+    return math_utils.safe_divide(cm.tp, cm.p)
 
 
 def _intersection_over_union(cm: _ConfusionMatrix) -> types.NumbersT:
-  return math_utils.safe_divide(cm.tp, (cm.t + cm.fp))
+    return math_utils.safe_divide(cm.tp, (cm.t + cm.fp))
 
 
 def _prevalence(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Prevalence."""
-  return math_utils.safe_divide(
-      (cm.tp + cm.fn), (cm.tp + cm.tn + cm.fn + cm.fp)
-  )
+    """Prevalence."""
+    return math_utils.safe_divide((cm.tp + cm.fn), (cm.tp + cm.tn + cm.fn + cm.fp))
 
 
 def _prevalence_threshold(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Prevalence threshold (PT)."""
-  tnr = _tnr(cm)
-  tpr = _tpr(cm)
-  return math_utils.safe_divide(
-      (math_utils.pos_sqrt(tpr * (1 - tnr)) + tnr - 1), (tpr + tnr - 1)  # pyrefly: ignore[unsupported-operation]
-  )
+    """Prevalence threshold (PT)."""
+    tnr = _tnr(cm)
+    tpr = _tpr(cm)
+    return math_utils.safe_divide(
+        (math_utils.pos_sqrt(tpr * (1 - tnr)) + tnr - 1),
+        (tpr + tnr - 1),  # pyrefly: ignore[unsupported-operation]
+    )
 
 
 def _matthews_correlation_coefficient(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Matthews corrrelation coefficient (MCC)."""
-  numerator = cm.tp * cm.tn - cm.fp * cm.fn
-  denominator = math_utils.pos_sqrt(
-      (cm.tp + cm.fp) * (cm.tp + cm.fn) * (cm.tn + cm.fp) * (cm.tn + cm.fn)
-  )
-  return math_utils.safe_divide(numerator, denominator)
+    """Matthews corrrelation coefficient (MCC)."""
+    numerator = cm.tp * cm.tn - cm.fp * cm.fn
+    denominator = math_utils.pos_sqrt(
+        (cm.tp + cm.fp) * (cm.tp + cm.fn) * (cm.tn + cm.fp) * (cm.tn + cm.fn)
+    )
+    return math_utils.safe_divide(numerator, denominator)
 
 
 def _informedness(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Informedness or bookmaker informedness (BM)."""
-  return _tpr(cm) + _tnr(cm) - 1  # pyrefly: ignore[unsupported-operation]
+    """Informedness or bookmaker informedness (BM)."""
+    return _tpr(cm) + _tnr(cm) - 1  # pyrefly: ignore[unsupported-operation]
 
 
 def _markedness(cm: _ConfusionMatrix) -> types.NumbersT:
-  """Markedness (MK) or deltaP."""
-  return _ppv(cm) + _npv(cm) - 1
+    """Markedness (MK) or deltaP."""
+    return _ppv(cm) + _npv(cm) - 1
 
 
 def _balanced_accuracy(cm: _ConfusionMatrix) -> types.NumbersT:
-  return (_tpr(cm) + _tnr(cm)) / 2  # pyrefly: ignore[unsupported-operation]
+    return (_tpr(cm) + _tnr(cm)) / 2  # pyrefly: ignore[unsupported-operation]
 
 
 def _indicator_confusion_matrix(
@@ -432,91 +433,92 @@ def _indicator_confusion_matrix(
     multiclass: bool = False,
     average: AverageType = AverageType.MICRO,
 ) -> _ConfusionMatrix:
-  """Calculates confusion matix.
+    """Calculates confusion matix.
 
-  Args:
-    y_true: ground truth classification labels. This has to be encoded in one of
-      the `input_type`.
-    y_pred: classification preditions. This has to be encoded in one of the
-      `input_type`.
-    pos_label: label to be recognized as positive class, only relevant when
-      input type is "binary".
-    multiclass: If True, input is encoded as 2D array-like of "multi-hot"
-      encoding in a shape of Batch X NumClass.
-    average: average type of the confusion matrix.
+    Args:
+      y_true: ground truth classification labels. This has to be encoded in one of
+        the `input_type`.
+      y_pred: classification preditions. This has to be encoded in one of the
+        `input_type`.
+      pos_label: label to be recognized as positive class, only relevant when
+        input type is "binary".
+      multiclass: If True, input is encoded as 2D array-like of "multi-hot"
+        encoding in a shape of Batch X NumClass.
+      average: average type of the confusion matrix.
 
-  Returns:
-    Confusion matrix.
-  """
-  if average in (AverageType.MICRO, AverageType.BINARY):
-    axis = None
-  elif average is None or average == AverageType.MACRO:
-    axis = 0
-  elif average == AverageType.SAMPLES:
-    axis = 1
-  else:
-    raise NotImplementedError(f'"{average}" average is not supported.')
+    Returns:
+      Confusion matrix.
+    """
+    if average in (AverageType.MICRO, AverageType.BINARY):
+        axis = None
+    elif average is None or average == AverageType.MACRO:
+        axis = 0
+    elif average == AverageType.SAMPLES:
+        axis = 1
+    else:
+        raise NotImplementedError(f'"{average}" average is not supported.')
 
-  y_true, y_pred = np.asarray(y_true), np.asarray(y_pred)
-  if multiclass and (y_true.ndim != 2 or y_pred.ndim != 2):
-    raise ValueError(
-        'Multiclass indicator input needs to be 2D array, actual dimensions:'
-        f' y_true: {y_true.ndim}; y_pred: {y_pred.ndim}'
-    )
+    y_true, y_pred = np.asarray(y_true), np.asarray(y_pred)
+    if multiclass and (y_true.ndim != 2 or y_pred.ndim != 2):
+        raise ValueError(
+            "Multiclass indicator input needs to be 2D array, actual dimensions:"
+            f" y_true: {y_true.ndim}; y_pred: {y_pred.ndim}"
+        )
 
-  true = y_true == pos_label
-  positive = y_pred == pos_label
-  # Forces the input to binary if average type is binary.
-  if multiclass and average == AverageType.BINARY:
-    if true.shape[1] > 2:
-      raise ValueError(
-          'Non-binary multiclass indicator input is not supported for `binary`'
-          f' average. #classes is {true.shape[1]}'
-      )
-    true = true[:, 0]
-    positive = positive[:, 0]
-  # Reshapes to a multi-class format to Batch X Classes
-  elif not multiclass and average != AverageType.BINARY:
-    true = np.vstack((true, ~true)).T
-    positive = np.vstack((positive, ~positive)).T
-  negative = ~positive
-  tp = positive & true
-  fn = negative & true
+    true = y_true == pos_label
+    positive = y_pred == pos_label
+    # Forces the input to binary if average type is binary.
+    if multiclass and average == AverageType.BINARY:
+        if true.shape[1] > 2:
+            raise ValueError(
+                "Non-binary multiclass indicator input is not supported for `binary`"
+                f" average. #classes is {true.shape[1]}"
+            )
+        true = true[:, 0]
+        positive = positive[:, 0]
+    # Reshapes to a multi-class format to Batch X Classes
+    elif not multiclass and average != AverageType.BINARY:
+        true = np.vstack((true, ~true)).T
+        positive = np.vstack((positive, ~positive)).T
+    negative = ~positive
+    tp = positive & true
+    fn = negative & true
 
-  positive_cnt = positive.sum(axis=axis)
-  tp_cnt = tp.sum(axis=axis)
-  fp_cnt = positive_cnt - tp_cnt
-  fn_cnt = fn.sum(axis=axis)
-  negative_cnt = negative.sum(axis=axis)
-  tn_cnt = negative_cnt - fn_cnt
-  return _ConfusionMatrix(tp_cnt, tn_cnt, fp_cnt, fn_cnt)
+    positive_cnt = positive.sum(axis=axis)
+    tp_cnt = tp.sum(axis=axis)
+    fp_cnt = positive_cnt - tp_cnt
+    fn_cnt = fn.sum(axis=axis)
+    negative_cnt = negative.sum(axis=axis)
+    tn_cnt = negative_cnt - fn_cnt
+    return _ConfusionMatrix(tp_cnt, tn_cnt, fp_cnt, fn_cnt)
 
 
 def get_vocab(rows: Iterable[Any], multioutput: bool) -> dict[str, int]:
-  """Constructs a vocabulary that maps hashables to an integer."""
-  rows = itertools.chain.from_iterable(rows) if multioutput else rows
-  it_rows = chainable.iter_with_latest(rows)
-  try:
-    return {k: i for i, k in enumerate(set(it_rows))}
-  except TypeError as e:
-    latest = it_rows.latest()
-    raise TypeError(
-        f'Unhashable elements in the input, got a {type(latest)}: {latest}'
-    ) from e
+    """Constructs a vocabulary that maps hashables to an integer."""
+    rows = itertools.chain.from_iterable(rows) if multioutput else rows
+    it_rows = chainable.iter_with_latest(rows)
+    try:
+        return {k: i for i, k in enumerate(set(it_rows))}
+    except TypeError as e:
+        latest = it_rows.latest()
+        raise TypeError(
+            f"Unhashable elements in the input, got a {type(latest)}: {latest}"
+        ) from e
 
 
 def _apply_vocab(rows: Sequence[Any], vocab: dict[str, int], multioutput: bool):
-  """Given a vocabulary, converts a multioutput input to a indicator output."""
-  result = np.empty((len(rows), len(vocab)), dtype=np.bool_)
-  result.fill(False)
-  if multioutput:
-    for i, row in enumerate(rows):
-      for elem in row:
-        result[i][vocab[elem]] = True
-  else:
-    for i, elem in enumerate(rows):
-      result[i][vocab[elem]] = True
-  return result
+    """Given a vocabulary, converts a multioutput input to a indicator
+    output."""
+    result = np.empty((len(rows), len(vocab)), dtype=np.bool_)
+    result.fill(False)
+    if multioutput:
+        for i, row in enumerate(rows):
+            for elem in row:
+                result[i][vocab[elem]] = True
+    else:
+        for i, elem in enumerate(rows):
+            result[i][vocab[elem]] = True
+    return result
 
 
 def _multiclass_confusion_matrix(
@@ -527,32 +529,38 @@ def _multiclass_confusion_matrix(
     multioutput: bool = False,
     average: AverageType = AverageType.MICRO,
 ) -> _ConfusionMatrix:
-  """Calculates a confusion matrix for multiclass(-multioutput) input.
+    """Calculates a confusion matrix for multiclass(-multioutput) input.
 
-  Args:
-    y_true: ground truth classification labels. This has to be encoded in one of
-      the `multiclass` or `multiclass-output`.
-    y_pred: classification preditions. This has to be encoded in one of the
-      `multiclass` or `multiclass-output`.
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. If not provided, one is deduced within this input.
-    multioutput: encoding types of the y_true and y_pred, if True, the input is
-      a nested list of class identifiers.
-    average: average type of the confusion matrix.
+    Args:
+      y_true: ground truth classification labels. This has to be encoded in one of
+        the `multiclass` or `multiclass-output`.
+      y_pred: classification preditions. This has to be encoded in one of the
+        `multiclass` or `multiclass-output`.
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. If not provided, one is deduced within this input.
+      multioutput: encoding types of the y_true and y_pred, if True, the input is
+        a nested list of class identifiers.
+      average: average type of the confusion matrix.
 
-  Returns:
-    Confusion matrices with k in k_list.
-  """
-  vocab = vocab or get_vocab(itertools.chain(y_true, y_pred), multioutput)  # pyrefly: ignore[bad-argument-type]
-  y_true_dense = _apply_vocab(y_true, vocab, multioutput)  # pyrefly: ignore[bad-argument-type]
-  y_pred_dense = _apply_vocab(y_pred, vocab, multioutput)  # pyrefly: ignore[bad-argument-type]
-  return _indicator_confusion_matrix(
-      y_true_dense,
-      y_pred_dense,
-      average=average,
-      multiclass=True,
-      pos_label=True,
-  )
+    Returns:
+      Confusion matrices with k in k_list.
+    """
+    vocab = vocab or get_vocab(
+        itertools.chain(y_true, y_pred), multioutput
+    )  # pyrefly: ignore[bad-argument-type]
+    y_true_dense = _apply_vocab(
+        y_true, vocab, multioutput
+    )  # pyrefly: ignore[bad-argument-type]
+    y_pred_dense = _apply_vocab(
+        y_pred, vocab, multioutput
+    )  # pyrefly: ignore[bad-argument-type]
+    return _indicator_confusion_matrix(
+        y_true_dense,
+        y_pred_dense,
+        average=average,
+        multiclass=True,
+        pos_label=True,
+    )
 
 
 ConfusionMatrixAggState = _ConfusionMatrix
@@ -561,108 +569,106 @@ ConfusionMatrixAggState = _ConfusionMatrix
 @telemetry.class_monitor(category=telemetry.CATEGORY.METRIC)
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class ConfusionMatrixAggFn(chainable.AggregateFn):
-  """ConfusionMatrix aggregate.
+    """ConfusionMatrix aggregate.
 
-  Attributes:
-    pos_label: the value considered as positive, default to 1.
-    input_type: input encoding type, must be one of `InputType`.
-    average: average type, must be one of `AverageType`.
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-  """
+    Attributes:
+      pos_label: the value considered as positive, default to 1.
+      input_type: input encoding type, must be one of `InputType`.
+      average: average type, must be one of `AverageType`.
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+    """
 
-  metrics: Sequence[_CFMMetric] | _CFMMetric = (
-      ConfusionMatrixMetric.CONFUSION_MATRIX
-  )
-  pos_label: bool | int | str | bytes = 1
-  input_type: InputType | str = InputType.BINARY
-  _input_type: InputType = dataclasses.field(init=False)
-  # TODO(b/311208939): implements average = None.
-  average: AverageType | str = AverageType.BINARY
-  _average: AverageType = dataclasses.field(init=False)
-  vocab: dict[str, int] | None = None
-  _metrics: Sequence[ConfusionMatrixMetric] = dataclasses.field(init=False)
-  dtype: type[Any] | None = None
+    metrics: Sequence[_CFMMetric] | _CFMMetric = ConfusionMatrixMetric.CONFUSION_MATRIX
+    pos_label: bool | int | str | bytes = 1
+    input_type: InputType | str = InputType.BINARY
+    _input_type: InputType = dataclasses.field(init=False)
+    # TODO(b/311208939): implements average = None.
+    average: AverageType | str = AverageType.BINARY
+    _average: AverageType = dataclasses.field(init=False)
+    vocab: dict[str, int] | None = None
+    _metrics: Sequence[ConfusionMatrixMetric] = dataclasses.field(init=False)
+    dtype: type[Any] | None = None
 
-  def __post_init__(self):
-    if self.average == AverageType.SAMPLES:
-      raise ValueError(
-          '"samples" average is unsupported, use the Samplewise version.'
-      )
-    object.__setattr__(self, '_input_type', InputType(self.input_type))
-    object.__setattr__(self, '_average', AverageType(self.average))
-    object.__setattr__(self, '_metrics', _normalize_metrics(self.metrics))
-    if self._input_type not in (
-        InputType.MULTICLASS,
-        InputType.MULTICLASS_MULTIOUTPUT,
-        InputType.MULTICLASS_INDICATOR,
-        InputType.BINARY,
-    ):
-      raise NotImplementedError(
-          f'"{self._input_type}" input is not supported for Confusion Matrix.'
-      )
-    if self._average == AverageType.WEIGHTED:
-      raise NotImplementedError(f'"{self._average}" average is not supported.')
+    def __post_init__(self):
+        if self.average == AverageType.SAMPLES:
+            raise ValueError(
+                '"samples" average is unsupported, use the Samplewise version.'
+            )
+        object.__setattr__(self, "_input_type", InputType(self.input_type))
+        object.__setattr__(self, "_average", AverageType(self.average))
+        object.__setattr__(self, "_metrics", _normalize_metrics(self.metrics))
+        if self._input_type not in (
+            InputType.MULTICLASS,
+            InputType.MULTICLASS_MULTIOUTPUT,
+            InputType.MULTICLASS_INDICATOR,
+            InputType.BINARY,
+        ):
+            raise NotImplementedError(
+                f'"{self._input_type}" input is not supported for Confusion Matrix.'
+            )
+        if self._average == AverageType.WEIGHTED:
+            raise NotImplementedError(f'"{self._average}" average is not supported.')
 
-  def _calculate_confusion_matrix(
-      self,
-      y_true: types.NumbersT,
-      y_pred: types.NumbersT,
-  ) -> _ConfusionMatrix:
-    if self._input_type in (InputType.MULTICLASS_INDICATOR, InputType.BINARY):
-      return _indicator_confusion_matrix(
-          y_true,
-          y_pred,
-          pos_label=self.pos_label,
-          multiclass=(self._input_type == InputType.MULTICLASS_INDICATOR),
-          average=self._average,
-      )
-    elif self._input_type in (
-        InputType.MULTICLASS,
-        InputType.MULTICLASS_MULTIOUTPUT,
-    ):
-      return _multiclass_confusion_matrix(
-          y_true,
-          y_pred,
-          vocab=self.vocab,
-          multioutput=(self._input_type == InputType.MULTICLASS_MULTIOUTPUT),
-          average=self._average,
-      )
-    else:
-      raise NotImplementedError(f'"{self._input_type}" input is not supported.')
+    def _calculate_confusion_matrix(
+        self,
+        y_true: types.NumbersT,
+        y_pred: types.NumbersT,
+    ) -> _ConfusionMatrix:
+        if self._input_type in (InputType.MULTICLASS_INDICATOR, InputType.BINARY):
+            return _indicator_confusion_matrix(
+                y_true,
+                y_pred,
+                pos_label=self.pos_label,
+                multiclass=(self._input_type == InputType.MULTICLASS_INDICATOR),
+                average=self._average,
+            )
+        elif self._input_type in (
+            InputType.MULTICLASS,
+            InputType.MULTICLASS_MULTIOUTPUT,
+        ):
+            return _multiclass_confusion_matrix(
+                y_true,
+                y_pred,
+                vocab=self.vocab,
+                multioutput=(self._input_type == InputType.MULTICLASS_MULTIOUTPUT),
+                average=self._average,
+            )
+        else:
+            raise NotImplementedError(f'"{self._input_type}" input is not supported.')
 
-  def update_state(
-      self, state: ConfusionMatrixAggState | None, *inputs: Any
-  ) -> ConfusionMatrixAggState:
-    cm = self._calculate_confusion_matrix(*inputs)
-    return (cm + state) if state else cm
+    def update_state(
+        self, state: ConfusionMatrixAggState | None, *inputs: Any
+    ) -> ConfusionMatrixAggState:
+        cm = self._calculate_confusion_matrix(*inputs)
+        return (cm + state) if state else cm
 
-  def merge_states(
-      self, states: list[ConfusionMatrixAggState]
-  ) -> ConfusionMatrixAggState:
-    if (
-        self._average in (AverageType.WEIGHTED, AverageType.MACRO)
-        and self.vocab is None
-    ):
-      raise ValueError(f'Global vocab is needed for "{self._average}" average.')
-    iter_acc = iter(states)
-    result = next(iter_acc)
-    for accumulator in iter_acc:
-      result += accumulator
-    return result
+    def merge_states(
+        self, states: list[ConfusionMatrixAggState]
+    ) -> ConfusionMatrixAggState:
+        if (
+            self._average in (AverageType.WEIGHTED, AverageType.MACRO)
+            and self.vocab is None
+        ):
+            raise ValueError(f'Global vocab is needed for "{self._average}" average.')
+        iter_acc = iter(states)
+        result = next(iter_acc)
+        for accumulator in iter_acc:
+            result += accumulator
+        return result
 
-  def get_result(self, state: ConfusionMatrixAggState) -> Any:
-    result = {
-        metric: state.derive_metric(metric, average=self._average)
-        for metric in self._metrics
-    }
-    if isinstance(self.metrics, (str, ConfusionMatrixMetric)):
-      return result[self.metrics]  # pyrefly: ignore[bad-index]
-    return result
+    def get_result(self, state: ConfusionMatrixAggState) -> Any:
+        result = {
+            metric: state.derive_metric(metric, average=self._average)
+            for metric in self._metrics
+        }
+        if isinstance(self.metrics, (str, ConfusionMatrixMetric)):
+            return result[self.metrics]  # pyrefly: ignore[bad-index]
+        return result
 
 
 def _apply_vocab_at_k(
@@ -671,20 +677,23 @@ def _apply_vocab_at_k(
     multioutput: bool,
     k_list: Sequence[int],
 ):
-  """Encodes a multiclass(-multioutput) input in multiclass-indicator format."""
-  result = np.full((len(rows), len(vocab)), False, dtype=np.bool_)  # pyrefly: ignore[bad-argument-type]
-  k_list = set(k_list)  # pyrefly: ignore[bad-assignment]
-  for j in range(max(k_list)):
-    if multioutput:
-      for i, row in enumerate(rows):  # pyrefly: ignore[bad-argument-type]
-        if j < len(row):
-          result[i][vocab[row[j]]] = True
-    else:
-      if j == 0:
-        for i, elem in enumerate(rows):  # pyrefly: ignore[bad-argument-type]
-          result[i][vocab[elem]] = True
-    if j + 1 in k_list:
-      yield j + 1, result
+    """Encodes a multiclass(-multioutput) input in multiclass-indicator
+    format."""
+    result = np.full(
+        (len(rows), len(vocab)), False, dtype=np.bool_
+    )  # pyrefly: ignore[bad-argument-type]
+    k_list = set(k_list)  # pyrefly: ignore[bad-assignment]
+    for j in range(max(k_list)):
+        if multioutput:
+            for i, row in enumerate(rows):  # pyrefly: ignore[bad-argument-type]
+                if j < len(row):
+                    result[i][vocab[row[j]]] = True
+        else:
+            if j == 0:
+                for i, elem in enumerate(rows):  # pyrefly: ignore[bad-argument-type]
+                    result[i][vocab[elem]] = True
+        if j + 1 in k_list:
+            yield j + 1, result
 
 
 def _topk_confusion_matrix(
@@ -696,82 +705,86 @@ def _topk_confusion_matrix(
     average: AverageType,
     vocab: dict[str, int] | None,
 ) -> _TopKConfusionMatrix:
-  """Calculates a confusion matrix for multiclass(-multioutput) input.
+    """Calculates a confusion matrix for multiclass(-multioutput) input.
 
-  Args:
-    y_true: ground truth classification labels. This has to be encoded in one of
-      the `multiclass` or `multiclass-output`.
-    y_pred: classification predictions. This has to be encoded in one of the
-      `multiclass` or `multiclass-output`.
-    k_list: a list of topk each of which slices y_pred by y_pred[:topk] assuming
-      the predictions are sorted in descending order.
-    multioutput: encoding types of the y_true and y_pred, if True, the input is
-      a nested list of class identifiers.
-    average: average type of the confusion matrix.
-    vocab: an external vocabulary, if not provided, one is deduced within this
-      input.
+    Args:
+      y_true: ground truth classification labels. This has to be encoded in one of
+        the `multiclass` or `multiclass-output`.
+      y_pred: classification predictions. This has to be encoded in one of the
+        `multiclass` or `multiclass-output`.
+      k_list: a list of topk each of which slices y_pred by y_pred[:topk] assuming
+        the predictions are sorted in descending order.
+      multioutput: encoding types of the y_true and y_pred, if True, the input is
+        a nested list of class identifiers.
+      average: average type of the confusion matrix.
+      vocab: an external vocabulary, if not provided, one is deduced within this
+        input.
 
-  Returns:
-    Confusion matrices with k in k_list.
-  """
-  vocab = vocab or get_vocab(itertools.chain(y_true, y_pred), multioutput)  # pyrefly: ignore[bad-argument-type]
-  y_true_dense = _apply_vocab(y_true, vocab, multioutput)  # pyrefly: ignore[bad-argument-type]
-  cms = []
-  for k, y_pred_dense in _apply_vocab_at_k(y_pred, vocab, multioutput, k_list):
-    cm = _indicator_confusion_matrix(
-        y_true_dense,
-        y_pred_dense,
-        average=average,
-        multiclass=True,
-        pos_label=True,
-    )
-    cms.append((k, cm.tp, cm.tn, cm.fp, cm.fn))
-  return _TopKConfusionMatrix(*tuple(zip(*cms)))
+    Returns:
+      Confusion matrices with k in k_list.
+    """
+    vocab = vocab or get_vocab(
+        itertools.chain(y_true, y_pred), multioutput
+    )  # pyrefly: ignore[bad-argument-type]
+    y_true_dense = _apply_vocab(
+        y_true, vocab, multioutput
+    )  # pyrefly: ignore[bad-argument-type]
+    cms = []
+    for k, y_pred_dense in _apply_vocab_at_k(y_pred, vocab, multioutput, k_list):
+        cm = _indicator_confusion_matrix(
+            y_true_dense,
+            y_pred_dense,
+            average=average,
+            multiclass=True,
+            pos_label=True,
+        )
+        cms.append((k, cm.tp, cm.tn, cm.fp, cm.fn))
+    return _TopKConfusionMatrix(*tuple(zip(*cms)))
 
 
 @telemetry.class_monitor(category=telemetry.CATEGORY.METRIC)
 @dataclasses.dataclass(kw_only=True, frozen=True)
 class TopKConfusionMatrixAggFn(ConfusionMatrixAggFn):
-  """ConfusionMatrixAtK aggregate.
+    """ConfusionMatrixAtK aggregate.
 
-  Attributes:
-    pos_label: the value considered as positive, default to 1.
-    input_type: input encoding type, must be either  `multiclass` or
-      `multiclass-multioutput`.
-    average: average type, must be one of the types under `AverageType`.
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    k_list: a list of topk each of which slices y_pred by y_pred[:topk] assuming
-      the predictions are sorted in descending order.
-  """
+    Attributes:
+      pos_label: the value considered as positive, default to 1.
+      input_type: input encoding type, must be either  `multiclass` or
+        `multiclass-multioutput`.
+      average: average type, must be one of the types under `AverageType`.
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      k_list: a list of topk each of which slices y_pred by y_pred[:topk] assuming
+        the predictions are sorted in descending order.
+    """
 
-  k_list: Sequence[int] = ()
+    k_list: Sequence[int] = ()
 
-  def __post_init__(self):
-    super().__post_init__()
-    if self.input_type not in (
-        InputType.MULTICLASS,
-        InputType.MULTICLASS_MULTIOUTPUT,
-    ):
-      raise ValueError(
-          f'"{self.input_type}" input is not supported for TopK Confusion'
-          ' Matrix.'
-      )
+    def __post_init__(self):
+        super().__post_init__()
+        if self.input_type not in (
+            InputType.MULTICLASS,
+            InputType.MULTICLASS_MULTIOUTPUT,
+        ):
+            raise ValueError(
+                f'"{self.input_type}" input is not supported for TopK Confusion'
+                " Matrix."
+            )
 
-  def _calculate_confusion_matrix(
-      self, y_true: types.NumbersT, y_pred: types.NumbersT
-  ) -> _TopKConfusionMatrix:
-    result = _topk_confusion_matrix(
-        y_true,
-        y_pred,
-        k_list=self.k_list,
-        vocab=self.vocab,
-        multioutput=(self._input_type == InputType.MULTICLASS_MULTIOUTPUT),
-        average=AverageType(self._average),
-    )
-    return result
+    def _calculate_confusion_matrix(
+        self, y_true: types.NumbersT, y_pred: types.NumbersT
+    ) -> _TopKConfusionMatrix:
+        result = _topk_confusion_matrix(
+            y_true,
+            y_pred,
+            k_list=self.k_list,
+            vocab=self.vocab,
+            multioutput=(self._input_type == InputType.MULTICLASS_MULTIOUTPUT),
+            average=AverageType(self._average),
+        )
+        return result
 
 
 SamplewiseConfusionMatrixAggState = dict[str, utils.MeanState]
@@ -780,120 +793,122 @@ SamplewiseConfusionMatrixAggState = dict[str, utils.MeanState]
 @telemetry.class_monitor(category=telemetry.CATEGORY.METRIC)
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class SamplewiseClassification(chainable.MergeableMetric, chainable.HasAsAggFn):
-  """SamplewiseClassification metric.
+    """SamplewiseClassification metric.
 
-  Attributes:
-    pos_label: the value considered as positive, default to 1.
-    input_type: input encoding type, must be one of `InputType`.
-    average: fixed as `samples` average.
-    vocab: an external vocabulary that maps categorical value to integer class
-      id. This is required if computed distributed (when merge_accumulators is
-      called) and the average is macro where the class id mapping needs to be
-      stable.
-    dtype: dtype of the confusion matrix and all computations. Default to None
-      as it is inferred.
-  """
+    Attributes:
+      pos_label: the value considered as positive, default to 1.
+      input_type: input encoding type, must be one of `InputType`.
+      average: fixed as `samples` average.
+      vocab: an external vocabulary that maps categorical value to integer class
+        id. This is required if computed distributed (when merge_accumulators is
+        called) and the average is macro where the class id mapping needs to be
+        stable.
+      dtype: dtype of the confusion matrix and all computations. Default to None
+        as it is inferred.
+    """
 
-  metrics: Sequence[_CFMMetric] | _CFMMetric
-  pos_label: bool | int | str | bytes = 1
-  input_type: InputType = InputType.BINARY
-  average: AverageType = dataclasses.field(
-      default=AverageType.SAMPLES, init=False
-  )
-  vocab: dict[str, int] | None = None
-  dtype: type[Any] | None = None
-  _metrics: Sequence[ConfusionMatrixMetric] = dataclasses.field(init=False)
-  _state: dict[str, utils.MeanState] = dataclasses.field(
-      default_factory=lambda: collections.defaultdict(utils.MeanState),
-      init=False,
-  )
-
-  def __post_init__(self):
-    if self.input_type == InputType.BINARY:
-      raise ValueError(
-          'Samples average is not available for Binary classification.'
-      )
-    if self.average != AverageType.SAMPLES:
-      raise ValueError(
-          'Samplewise Confusion Matrix aggreation only accepts Samples Average'
-          f' type, got {self.average} from {self}.'
-      )
-    object.__setattr__(self, '_metrics', _normalize_metrics(self.metrics))
-
-  def as_agg_fn(self) -> chainable.AggregateFn:
-    return chainable.as_agg_fn(
-        self.__class__,
-        metrics=self.metrics,
-        pos_label=self.pos_label,
-        input_type=self.input_type,
-        vocab=self.vocab,
-        dtype=self.dtype,
+    metrics: Sequence[_CFMMetric] | _CFMMetric
+    pos_label: bool | int | str | bytes = 1
+    input_type: InputType = InputType.BINARY
+    average: AverageType = dataclasses.field(default=AverageType.SAMPLES, init=False)
+    vocab: dict[str, int] | None = None
+    dtype: type[Any] | None = None
+    _metrics: Sequence[ConfusionMatrixMetric] = dataclasses.field(init=False)
+    _state: dict[str, utils.MeanState] = dataclasses.field(
+        default_factory=lambda: collections.defaultdict(utils.MeanState),
+        init=False,
     )
 
-  def _metric_states(self, cm: _ConfusionMatrix) -> dict[str, utils.MeanState]:
-    result = {}
-    for metric in self._metrics:
-      if (score := cm.derive_metric(metric)) is not None:
-        result[metric] = utils.MeanState(np.sum(score), len(score))  # pyrefly: ignore[bad-argument-type, no-matching-overload]
-    return result
+    def __post_init__(self):
+        if self.input_type == InputType.BINARY:
+            raise ValueError(
+                "Samples average is not available for Binary classification."
+            )
+        if self.average != AverageType.SAMPLES:
+            raise ValueError(
+                "Samplewise Confusion Matrix aggreation only accepts Samples Average"
+                f" type, got {self.average} from {self}."
+            )
+        object.__setattr__(self, "_metrics", _normalize_metrics(self.metrics))
 
-  def _calculate_confusion_matrix(
-      self,
-      y_true: types.NumbersT,
-      y_pred: types.NumbersT,
-  ) -> _ConfusionMatrix:
-    if self.input_type == InputType.MULTICLASS_INDICATOR:
-      return _indicator_confusion_matrix(
-          y_true,
-          y_pred,
-          pos_label=self.pos_label,
-          multiclass=True,
-          average=self.average,
-      )
-    elif self.input_type in (
-        InputType.MULTICLASS,
-        InputType.MULTICLASS_MULTIOUTPUT,
-    ):
-      return _multiclass_confusion_matrix(
-          y_true,
-          y_pred,
-          vocab=self.vocab,
-          multioutput=(self.input_type == InputType.MULTICLASS_MULTIOUTPUT),
-          average=self.average,
-      )
-    else:
-      raise NotImplementedError(f'"{self.input_type}" input is not supported.')
+    def as_agg_fn(self) -> chainable.AggregateFn:
+        return chainable.as_agg_fn(
+            self.__class__,
+            metrics=self.metrics,
+            pos_label=self.pos_label,
+            input_type=self.input_type,
+            vocab=self.vocab,
+            dtype=self.dtype,
+        )
 
-  def add(
-      self,
-      y_true: types.NumbersT,
-      y_pred: types.NumbersT,
-  ) -> dict[str, types.NumbersT]:
-    """Batch updates the states of the aggregate."""
-    cm = self._calculate_confusion_matrix(y_true, y_pred)
-    result = {}
-    for metric in self._metrics:
-      if (score := cm.derive_metric(metric)) is not None:
-        result[metric] = score
-        self._state[metric].add(score)
-    return result
+    def _metric_states(self, cm: _ConfusionMatrix) -> dict[str, utils.MeanState]:
+        result = {}
+        for metric in self._metrics:
+            if (score := cm.derive_metric(metric)) is not None:
+                result[metric] = utils.MeanState(
+                    np.sum(score), len(score)
+                )  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+        return result
 
-  @property
-  def state(self):
-    return self._state
+    def _calculate_confusion_matrix(
+        self,
+        y_true: types.NumbersT,
+        y_pred: types.NumbersT,
+    ) -> _ConfusionMatrix:
+        if self.input_type == InputType.MULTICLASS_INDICATOR:
+            return _indicator_confusion_matrix(
+                y_true,
+                y_pred,
+                pos_label=self.pos_label,
+                multiclass=True,
+                average=self.average,
+            )
+        elif self.input_type in (
+            InputType.MULTICLASS,
+            InputType.MULTICLASS_MULTIOUTPUT,
+        ):
+            return _multiclass_confusion_matrix(
+                y_true,
+                y_pred,
+                vocab=self.vocab,
+                multioutput=(self.input_type == InputType.MULTICLASS_MULTIOUTPUT),
+                average=self.average,
+            )
+        else:
+            raise NotImplementedError(f'"{self.input_type}" input is not supported.')
 
-  def merge(self, other: SamplewiseClassification):
-    for key, value in other.state.items():
-      self._state[key].merge(value)
+    def add(
+        self,
+        y_true: types.NumbersT,
+        y_pred: types.NumbersT,
+    ) -> dict[str, types.NumbersT]:
+        """Batch updates the states of the aggregate."""
+        cm = self._calculate_confusion_matrix(y_true, y_pred)
+        result = {}
+        for metric in self._metrics:
+            if (score := cm.derive_metric(metric)) is not None:
+                result[metric] = score
+                self._state[metric].add(score)
+        return result
 
-  def result(self):
-    """Extracts the outputs from the aggregate states."""
-    result = {metric: self._state[metric].result() for metric in self._metrics}
-    if isinstance(self.metrics, (str, ConfusionMatrixMetric)):
-      return result[self.metrics]  # pyrefly: ignore[bad-index]
-    return result
+    @property
+    def state(self):
+        return self._state
+
+    def merge(self, other: SamplewiseClassification):
+        for key, value in other.state.items():
+            self._state[key].merge(value)
+
+    def result(self):
+        """Extracts the outputs from the aggregate states."""
+        result = {metric: self._state[metric].result() for metric in self._metrics}
+        if isinstance(self.metrics, (str, ConfusionMatrixMetric)):
+            return result[self.metrics]  # pyrefly: ignore[bad-index]
+        return result
 
 
-def SamplewiseConfusionMatrixAggFn(**kwargs) -> chainable.AggregateFn:  # pylint: disable=invalid-name
-  """Convenient alias as a AggregateFn constructor."""
-  return SamplewiseClassification(**kwargs).as_agg_fn()
+def SamplewiseConfusionMatrixAggFn(
+    **kwargs,
+) -> chainable.AggregateFn:  # pylint: disable=invalid-name
+    """Convenient alias as a AggregateFn constructor."""
+    return SamplewiseClassification(**kwargs).as_agg_fn()

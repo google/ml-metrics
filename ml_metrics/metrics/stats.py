@@ -15,15 +15,17 @@
 
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
-from ml_metrics._src.aggregates.stats import Counter
-from ml_metrics._src.aggregates.stats import FixedSizeSample
-from ml_metrics._src.aggregates.stats import Histogram
-from ml_metrics._src.aggregates.stats import Mean
-from ml_metrics._src.aggregates.stats import MeanAndVariance
-from ml_metrics._src.aggregates.stats import MinMaxAndCount
-from ml_metrics._src.aggregates.stats import R2Tjur
-from ml_metrics._src.aggregates.stats import R2TjurRelative
-from ml_metrics._src.aggregates.stats import RRegression
-from ml_metrics._src.aggregates.stats import SymmetricPredictionDifference
-from ml_metrics._src.aggregates.stats import UnboundedSampler
-from ml_metrics._src.aggregates.stats import Var
+from ml_metrics._src.aggregates.stats import (
+    Counter,
+    FixedSizeSample,
+    Histogram,
+    Mean,
+    MeanAndVariance,
+    MinMaxAndCount,
+    R2Tjur,
+    R2TjurRelative,
+    RRegression,
+    SymmetricPredictionDifference,
+    UnboundedSampler,
+    Var,
+)
