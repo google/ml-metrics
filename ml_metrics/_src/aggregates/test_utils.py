@@ -12,43 +12,44 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """test_utils."""
+
 import chainable
 
 
 class _SumMetric(chainable.CallableMetric, chainable.HasAsAggFn):
-  """Mock Metric for test."""
+    """Mock Metric for test."""
 
-  def __init__(self, state=0):
-    self._state = state
+    def __init__(self, state=0):
+        self._state = state
 
-  def as_agg_fn(self):
-    return chainable.as_agg_fn(self.__class__)
+    def as_agg_fn(self):
+        return chainable.as_agg_fn(self.__class__)
 
-  @property
-  def state(self):
-    return self._state
+    @property
+    def state(self):
+        return self._state
 
-  def new(self, x):
-    return _SumMetric(state=sum(x))
+    def new(self, x):
+        return _SumMetric(state=sum(x))
 
-  def merge(self, other):
-    self._state += other.state
+    def merge(self, other):
+        self._state += other.state
 
-  def result(self):
-    return self._state
+    def result(self):
+        return self._state
 
 
 class _SumAggFn:
-  """Mock CombineFn for test."""
+    """Mock CombineFn for test."""
 
-  def create_state(self):
-    return 0
+    def create_state(self):
+        return 0
 
-  def update_state(self, state, x):
-    return state + sum(x)
+    def update_state(self, state, x):
+        return state + sum(x)
 
-  def merge_states(self, states):
-    return sum(states)
+    def merge_states(self, states):
+        return sum(states)
 
-  def get_result(self, state):
-    return state
+    def get_result(self, state):
+        return state

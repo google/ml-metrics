@@ -16,9 +16,13 @@
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
 from ml_metrics._src.signals.cg_score import complexity_gap_score
-from ml_metrics._src.signals.cross_entropy import binary_cross_entropy
-from ml_metrics._src.signals.cross_entropy import categorical_cross_entropy
-from ml_metrics._src.signals.flip_masks import binary_flip_mask
-from ml_metrics._src.signals.flip_masks import neg_to_pos_flip_mask
-from ml_metrics._src.signals.flip_masks import pos_to_neg_flip_mask
+from ml_metrics._src.signals.cross_entropy import (
+    binary_cross_entropy,
+    categorical_cross_entropy,
+)
+from ml_metrics._src.signals.flip_masks import (
+    binary_flip_mask,
+    neg_to_pos_flip_mask,
+    pos_to_neg_flip_mask,
+)
 from ml_metrics._src.signals.topk_accuracy import topk_accurate

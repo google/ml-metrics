@@ -14,9 +14,10 @@
 """Pipeline interfaces."""
 
 from absl import logging
+
 from ml_metrics.chainable import *  # pylint: disable=wildcard-import
 
 logging.warning(
-    'chainable: %s',
-    'ml_metrics.pipeline is deprecated, uses ml_metrics.chainable instead.',
+    "chainable: %s",
+    "ml_metrics.pipeline is deprecated, uses ml_metrics.chainable instead.",
 )

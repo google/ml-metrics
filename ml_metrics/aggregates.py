@@ -15,10 +15,10 @@
 
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
-from chainable import Aggregatable
-from chainable import as_agg_fn
-from chainable import CallableMetric
-from ml_metrics._src.aggregates.keras_metric_wrapper import is_keras_metric
-from ml_metrics._src.aggregates.keras_metric_wrapper import KerasAggregateFn
-from ml_metrics._src.aggregates.types import AverageType
-from ml_metrics._src.aggregates.types import InputType
+from chainable import Aggregatable, CallableMetric, as_agg_fn
+
+from ml_metrics._src.aggregates.keras_metric_wrapper import (
+    KerasAggregateFn,
+    is_keras_metric,
+)
+from ml_metrics._src.aggregates.types import AverageType, InputType

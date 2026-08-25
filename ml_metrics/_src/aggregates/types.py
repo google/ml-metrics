@@ -14,6 +14,7 @@
 """Common types for the aggregates."""
 
 import enum
+
 from numpy import typing as npt
 
 NumbersT = npt.ArrayLike
@@ -21,41 +22,41 @@ DefaultDType = float
 
 
 class InputType(enum.StrEnum):  # pylint: disable=invalid-enum-extension
-  """Label prediction encoding types."""
+    """Label prediction encoding types."""
 
-  # 1D array per batch, e.g., [0,1,0,1,0], [-1, 1, -1], or ['Y', 'N']
-  BINARY = 'binary'
-  # 1D array of floats typically is the probability for the binary
-  # classification problem, e.g., [0.2, 0.3, 0.9]
-  CONTINUOUS = 'continuous'
-  # 2D array of the floats for the multilabel/multiclass classification problem.
-  # Dimension: BatchSize x # Class
-  # e.g., [[0.2, 0.8, 0.9], [0.1, 0.2, 0.7]].
-  CONTINUOUS_MULTIOUTPUT = 'continuous-multioutput'
-  # 1D array of class identifiers, e.g, ['a', 'b'] or [1, 29, 12].
-  MULTICLASS = 'multiclass'
-  # 2D lists of multiclass encodings of the classes, e.g., [[1,2,0], [3,2,0]]
-  # The list can be ragged, e.g, [ ['a', 'b'], ['c'] ]
-  MULTICLASS_MULTIOUTPUT = 'multiclass-multioutput'
-  # 2D array of one-hot encoding of the classes, e.g., [[0,1,0], [0,0,1]]
-  # This is a special case for "multilabel-indicator" except that only one
-  # class is set to positive per example.
-  MULTICLASS_INDICATOR = 'multiclass-indicator'
+    # 1D array per batch, e.g., [0,1,0,1,0], [-1, 1, -1], or ['Y', 'N']
+    BINARY = "binary"
+    # 1D array of floats typically is the probability for the binary
+    # classification problem, e.g., [0.2, 0.3, 0.9]
+    CONTINUOUS = "continuous"
+    # 2D array of the floats for the multilabel/multiclass classification problem.
+    # Dimension: BatchSize x # Class
+    # e.g., [[0.2, 0.8, 0.9], [0.1, 0.2, 0.7]].
+    CONTINUOUS_MULTIOUTPUT = "continuous-multioutput"
+    # 1D array of class identifiers, e.g, ['a', 'b'] or [1, 29, 12].
+    MULTICLASS = "multiclass"
+    # 2D lists of multiclass encodings of the classes, e.g., [[1,2,0], [3,2,0]]
+    # The list can be ragged, e.g, [ ['a', 'b'], ['c'] ]
+    MULTICLASS_MULTIOUTPUT = "multiclass-multioutput"
+    # 2D array of one-hot encoding of the classes, e.g., [[0,1,0], [0,0,1]]
+    # This is a special case for "multilabel-indicator" except that only one
+    # class is set to positive per example.
+    MULTICLASS_INDICATOR = "multiclass-indicator"
 
 
 class AverageType(enum.StrEnum):  # pylint: disable=invalid-enum-extension
-  """Average type of the confusion matrix."""
+    """Average type of the confusion matrix."""
 
-  # Treats each class as one example and calculates the metrics on the total
-  # aggregates of the result.
-  MICRO = 'micro'
-  # Macro calculates metrics for each class first, then average them across
-  # classes.
-  MACRO = 'macro'
-  # Macro average with explicit weights per class.
-  WEIGHTED = 'weighted'
-  # Samples average calculates the metrics per example, and average them across
-  # all examples.
-  SAMPLES = 'samples'
-  # Average for the positive label only.
-  BINARY = 'binary'
+    # Treats each class as one example and calculates the metrics on the total
+    # aggregates of the result.
+    MICRO = "micro"
+    # Macro calculates metrics for each class first, then average them across
+    # classes.
+    MACRO = "macro"
+    # Macro average with explicit weights per class.
+    WEIGHTED = "weighted"
+    # Samples average calculates the metrics per example, and average them across
+    # all examples.
+    SAMPLES = "samples"
+    # Average for the positive label only.
+    BINARY = "binary"

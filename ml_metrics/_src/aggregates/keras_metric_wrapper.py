@@ -12,82 +12,85 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Keras metric wrapper."""
+
 from __future__ import annotations
 
-from collections.abc import Iterable
 import dataclasses
+from collections.abc import Iterable
 from typing import Any, Protocol
 
 import chainable
 
 
 class KerasMetric(Protocol):
-  """Base interface for Keras metrics."""
+    """Base interface for Keras metrics."""
 
-  def update_state(self, *inputs, **named_inputs) -> None:
-    """Updates the state from a batch of inputs."""
+    def update_state(self, *inputs, **named_inputs) -> None:
+        """Updates the state from a batch of inputs."""
 
-  def reset_state(self) -> None:
-    """Resets the state."""
+    def reset_state(self) -> None:
+        """Resets the state."""
 
-  def merge_state(self, other: Iterable[KerasMetric]) -> None:
-    """Merges the state with another state of the same type."""
+    def merge_state(self, other: Iterable[KerasMetric]) -> None:
+        """Merges the state with another state of the same type."""
 
-  def result(self) -> Any:
-    """Returns the result of the metric."""
+    def result(self) -> Any:
+        """Returns the result of the metric."""
 
 
 def is_keras_metric(metric: Any) -> bool:
-  """Duck type check for Keras metric."""
-  return (
-      hasattr(metric, "update_state")
-      and hasattr(metric, "reset_state")
-      and hasattr(metric, "merge_state")
-      and hasattr(metric, "result")
-  )
+    """Duck type check for Keras metric."""
+    return (
+        hasattr(metric, "update_state")
+        and hasattr(metric, "reset_state")
+        and hasattr(metric, "merge_state")
+        and hasattr(metric, "result")
+    )
 
 
 @dataclasses.dataclass
 class KerasAggregateFn(chainable.AggregateFn):
-  """AggregateFn for Keras metrics."""
+    """AggregateFn for Keras metrics."""
 
-  metric: KerasMetric
+    metric: KerasMetric
 
-  def __post_init__(self):
-    if is_keras_metric(self.metric):
-      self.metric.reset_state()
-      self._metric = self.metric
-    else:
-      try:
-        assert hasattr(self.metric, "__call__")
-        self._metric = self.metric()  # pyrefly: ignore[not-callable]
-        if not is_keras_metric(self._metric):
-          raise TypeError("metric must implement Keras metric base interface.")
-      except Exception as e:
-        raise TypeError(
-            f"Cannot construct a Keras metric from {self.metric}."
-        ) from e
+    def __post_init__(self):
+        if is_keras_metric(self.metric):
+            self.metric.reset_state()
+            self._metric = self.metric
+        else:
+            try:
+                assert hasattr(self.metric, "__call__")
+                self._metric = self.metric()  # pyrefly: ignore[not-callable]
+                if not is_keras_metric(self._metric):
+                    raise TypeError(
+                        "metric must implement Keras metric base interface."
+                    )
+            except Exception as e:
+                raise TypeError(
+                    f"Cannot construct a Keras metric from {self.metric}."
+                ) from e
 
-  def create_state(self) -> KerasMetric:
-    assert hasattr(self._metric, "reset_state")
-    self._metric.reset_state()
-    return self._metric
+    def create_state(self) -> KerasMetric:
+        assert hasattr(self._metric, "reset_state")
+        self._metric.reset_state()
+        return self._metric
 
-  def update_state(
-      self, state: KerasMetric, *inputs: Any, **named_inputs: Any
-  ) -> KerasMetric:
-    state.update_state(*inputs, **named_inputs)
-    return state
+    def update_state(
+        self, state: KerasMetric, *inputs: Any, **named_inputs: Any
+    ) -> KerasMetric:
+        state.update_state(*inputs, **named_inputs)
+        return state
 
-  def merge_states(self, states: Iterable[KerasMetric]) -> KerasMetric:
-    # This in-place merges all the states into the first state and returns it.
-    iter_states = iter(states)
-    result = next(iter_states)
-    result.merge_state(list(iter_states))
-    return result
+    def merge_states(self, states: Iterable[KerasMetric]) -> KerasMetric:
+        # This in-place merges all the states into the first state and returns it.
+        iter_states = iter(states)
+        result = next(iter_states)
+        result.merge_state(list(iter_states))
+        return result
 
-  def get_result(self, state: KerasMetric) -> Any:
-    result = state.result()
-    if hasattr(result, "numpy"):
-      return result.numpy()
-    return result
+    def get_result(self, state: KerasMetric) -> Any:
+        result = state.result()
+        if hasattr(result, "numpy"):
+            return result.numpy()
+        return result

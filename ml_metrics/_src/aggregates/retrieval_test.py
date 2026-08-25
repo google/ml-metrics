@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from absl.testing import absltest
-from absl.testing import parameterized
+import numpy as np
+from absl.testing import absltest, parameterized
 from chainable import test_utils
+
 from ml_metrics._src.aggregates import retrieval
 from ml_metrics._src.aggregates import types as agg_types
 from ml_metrics._src.aggregates import utils
-import numpy as np
-
 
 InputType = agg_types.InputType
 RetrievalMetric = retrieval.RetrievalMetric
@@ -27,350 +26,360 @@ RetrievalMetric = retrieval.RetrievalMetric
 
 class ThresholdedRetrievalTest(parameterized.TestCase):
 
-  @parameterized.named_parameters([
-      dict(
-          testcase_name="with_prob",
-          y_prob=True,
-          thresholds=(0.2, 0.3, 0.5),
-          metric_list=(
-              "recall",
-              "precision",
-              "f1_score",
-              "recall@0.3",
-              "precision@0.3",
-              "f1_score@0.3",
-          ),
-          expected={
-              "thresholds": [0.2, 0.3, 0.5],
-              "recall": [1 / 2, 1 / 4, 0.0],
-              "precision": [2 / 3, 1 / 2, 0.0],
-              "f1_score": [
-                  retrieval._f1_score(2 / 3, 1 / 2),
-                  retrieval._f1_score(1 / 2, 1 / 4),
-                  0.0,
-              ],
-              "recall@0.3": 1 / 4,
-              "precision@0.3": 1 / 2,
-              "f1_score@0.3": retrieval._f1_score(1 / 2, 1 / 4),
-          },
-      ),
-      dict(
-          testcase_name="without_prob",
-          y_prob=False,
-          metric_list=(
-              "recall",
-              "precision",
-              "f1_score",
-              "recall@0.0",
-              "precision@0.0",
-              "f1_score@0.0",
-          ),
-          expected={
-              "thresholds": [0.0],
-              "recall": [3 / 4],
-              "precision": [3 / 5],
-              "f1_score": [
-                  retrieval._f1_score(3 / 4, 3 / 5),
-              ],
-              "recall@0.0": 3 / 4,
-              "precision@0.0": 3 / 5,
-              "f1_score@0.0": retrieval._f1_score(3 / 4, 3 / 5),
-          },
-      ),
-  ])
-  def test_thresholded_retrieval(
-      self, y_prob, metric_list, expected, thresholds=None
-  ):
-    y_true = [["a", "c", "e", "h"]] * 2
-    y_pred = [["a", "b", "c", "d", "e"]] * 2
-    y_prob = [[0.1, 0.2, 0.3, 0.4, 0.5]] * 2 if y_prob else None
-    # Matched result:
-    # y_true_prob = [[0.1, 0.3, 0.5, 0.0], [0.1, 0.3, 0.5, 0.0]]
-    # y_pred_prob = [[0.1, 0.0, 0.3, 0.0, 0.5], [0.1, 0.0, 0.3, 0.0, 0.5]]
+    @parameterized.named_parameters(
+        [
+            dict(
+                testcase_name="with_prob",
+                y_prob=True,
+                thresholds=(0.2, 0.3, 0.5),
+                metric_list=(
+                    "recall",
+                    "precision",
+                    "f1_score",
+                    "recall@0.3",
+                    "precision@0.3",
+                    "f1_score@0.3",
+                ),
+                expected={
+                    "thresholds": [0.2, 0.3, 0.5],
+                    "recall": [1 / 2, 1 / 4, 0.0],
+                    "precision": [2 / 3, 1 / 2, 0.0],
+                    "f1_score": [
+                        retrieval._f1_score(2 / 3, 1 / 2),
+                        retrieval._f1_score(1 / 2, 1 / 4),
+                        0.0,
+                    ],
+                    "recall@0.3": 1 / 4,
+                    "precision@0.3": 1 / 2,
+                    "f1_score@0.3": retrieval._f1_score(1 / 2, 1 / 4),
+                },
+            ),
+            dict(
+                testcase_name="without_prob",
+                y_prob=False,
+                metric_list=(
+                    "recall",
+                    "precision",
+                    "f1_score",
+                    "recall@0.0",
+                    "precision@0.0",
+                    "f1_score@0.0",
+                ),
+                expected={
+                    "thresholds": [0.0],
+                    "recall": [3 / 4],
+                    "precision": [3 / 5],
+                    "f1_score": [
+                        retrieval._f1_score(3 / 4, 3 / 5),
+                    ],
+                    "recall@0.0": 3 / 4,
+                    "precision@0.0": 3 / 5,
+                    "f1_score@0.0": retrieval._f1_score(3 / 4, 3 / 5),
+                },
+            ),
+        ]
+    )
+    def test_thresholded_retrieval(
+        self, y_prob, metric_list, expected, thresholds=None
+    ):
+        y_true = [["a", "c", "e", "h"]] * 2
+        y_pred = [["a", "b", "c", "d", "e"]] * 2
+        y_prob = [[0.1, 0.2, 0.3, 0.4, 0.5]] * 2 if y_prob else None
+        # Matched result:
+        # y_true_prob = [[0.1, 0.3, 0.5, 0.0], [0.1, 0.3, 0.5, 0.0]]
+        # y_pred_prob = [[0.1, 0.0, 0.3, 0.0, 0.5], [0.1, 0.0, 0.3, 0.0, 0.5]]
 
-    if thresholds is None:
-      retrieval_metric = retrieval.ThresholdedRetrieval(metrics=metric_list)
-    else:
-      retrieval_metric = retrieval.ThresholdedRetrieval(
-          thresholds=thresholds,
-          metrics=metric_list,
-      )
-    matched_true_prob, matched_pred_prob, y_prob = retrieval_metric.matcher(  # pyrefly: ignore[not-callable]
-        y_true, y_pred, y_prob
-    )
-    retrieval_metric.add(
-        y_prob=y_prob,
-        matched_true_prob=matched_true_prob,
-        matched_pred_prob=matched_pred_prob,
-    )
-    test_utils.assert_nested_container_equal(
-        self, expected, retrieval_metric.result()
-    )
+        if thresholds is None:
+            retrieval_metric = retrieval.ThresholdedRetrieval(metrics=metric_list)
+        else:
+            retrieval_metric = retrieval.ThresholdedRetrieval(
+                thresholds=thresholds,
+                metrics=metric_list,
+            )
+        matched_true_prob, matched_pred_prob, y_prob = (
+            retrieval_metric.matcher(  # pyrefly: ignore[not-callable]
+                y_true, y_pred, y_prob
+            )
+        )
+        retrieval_metric.add(
+            y_prob=y_prob,
+            matched_true_prob=matched_true_prob,
+            matched_pred_prob=matched_pred_prob,
+        )
+        test_utils.assert_nested_container_equal(
+            self, expected, retrieval_metric.result()
+        )
 
 
 class TopKRetrievalTest(parameterized.TestCase):
 
-  @parameterized.named_parameters([
-      dict(
-          testcase_name="multiclass",
-          y_pred=["y", "n", "y", "n", "y", "n", "n", "u"],
-          y_true=["y", "y", "n", "n", "y", "n", "y", "u"],
-          input_type=InputType.MULTICLASS,
-          metrics=[
-              RetrievalMetric.FOWLKES_MALLOWS_INDEX,
-              RetrievalMetric.THREAT_SCORE,
-              RetrievalMetric.DCG_SCORE,
-              RetrievalMetric.NDCG_SCORE,
-              RetrievalMetric.MEAN_RECIPROCAL_RANK,
-              RetrievalMetric.PRECISION,
-              RetrievalMetric.PPV,
-              RetrievalMetric.FALSE_DISCOVERY_RATE,
-              RetrievalMetric.MEAN_AVERAGE_PRECISION,
-              RetrievalMetric.RECALL,
-              RetrievalMetric.SENSITIVITY,
-              RetrievalMetric.TPR,
-              RetrievalMetric.POSITIVE_PREDICTIVE_VALUE,
-              RetrievalMetric.INTERSECTION_OVER_UNION,
-              RetrievalMetric.MISS_RATE,
-              RetrievalMetric.F1_SCORE,
-              RetrievalMetric.ACCURACY,
-          ],
-          k_list=[1, 2],
-          expected=([
-              # FMI@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
-              # FMI@2 = FMI@1 because there is only one output.
-              [5 / 8, 5 / 8],
-              # threat_score@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
-              # threat_score@2 = threat_score@1 since there is only one output.
-              [5 / 8, 5 / 8],
-              # DCG@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
-              # DCG@2 = DCG@1 since there is only one output.
-              [5 / 8, 5 / 8],
-              # NDCG@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
-              # NDCG@2 = NDCG@1 since there is only one output.
-              [5 / 8, 5 / 8],
-              # mRR@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
-              # mRR@2 = mRR@1 since there is only one output.
-              [5 / 8, 5 / 8],
-              # precision@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
-              # precision@2 = precision@1 since there is only one output.
-              [5 / 8, 5 / 8],
-              # ppv@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
-              # ppv@2 = ppv@1 since there is only one output.
-              [5 / 8, 5 / 8],
-              # FDR@1 = mean([0, 1, 1, 0, 0, 0, 1, 0]) = 3 / 8
-              # FDR@2 = FDR@1 since there is only one output.
-              [3 / 8, 3 / 8],
-              # mAP@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
-              # mAP@2 = mAP@1 since there is only one output.
-              [5 / 8, 5 / 8],
-              # recall@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
-              # recall@2 = recall@1 since there is only one output.
-              [5 / 8, 5 / 8],
-              # sensitivity@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
-              # sensitivity@2 = sensitivity@1 since there is only one output.
-              [5 / 8, 5 / 8],
-              # tpr@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
-              # tpr@2 = tpr@1 since there is only one output.
-              [5 / 8, 5 / 8],
-              # positive_predictive_value@1 = mean([1, 0, 0, 1,
-              #                                     1, 1, 0, 1]) = 5/8
-              # positive_predictive_value@2 = positive_predictive_value@1
-              #                               since there is only one output.
-              [5 / 8, 5 / 8],
-              # intersection_over_union@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5/8
-              # intersection_over_union@2 = intersection_over_union@1
-              #                             since there is only one output.
-              [5 / 8, 5 / 8],
-              # miss_rate@1 = mean([0, 1, 1, 0, 0, 0, 1, 0]) = 3 / 8
-              # miss_rate@2 = miss_rate@1 since there is only one output.
-              [3 / 8, 3 / 8],
-              # f1_score@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
-              # f1_score@2 = f1_score@1 since there is only one output.
-              [5 / 8, 5 / 8],
-              # accuracy@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
-              # accuracy@2 = accuracy@1 since there is only one output.
-              [5 / 8, 5 / 8],
-          ]),
-      ),
-      dict(
-          testcase_name="multiclass_multioutput",
-          y_pred=[["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]],
-          y_true=[["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]],
-          input_type=InputType.MULTICLASS_MULTIOUTPUT,
-          metrics=[
-              RetrievalMetric.FOWLKES_MALLOWS_INDEX,
-              RetrievalMetric.THREAT_SCORE,
-              RetrievalMetric.DCG_SCORE,
-              RetrievalMetric.NDCG_SCORE,
-              RetrievalMetric.MEAN_RECIPROCAL_RANK,
-              RetrievalMetric.PRECISION,
-              RetrievalMetric.PPV,
-              RetrievalMetric.FALSE_DISCOVERY_RATE,
-              RetrievalMetric.MEAN_AVERAGE_PRECISION,
-              RetrievalMetric.RECALL,
-              RetrievalMetric.SENSITIVITY,
-              RetrievalMetric.TPR,
-              RetrievalMetric.POSITIVE_PREDICTIVE_VALUE,
-              RetrievalMetric.INTERSECTION_OVER_UNION,
-              RetrievalMetric.MISS_RATE,
-              RetrievalMetric.F1_SCORE,
-              RetrievalMetric.ACCURACY,
-          ],
-          k_list=[1, 2],
-          expected=([
-              # FMI@1 = mean(sqrt([1, 0, 0, 1, 0.5, 1, 0, 1]))
-              # FMI@2 = mean(sqrt([1, 0.5, 0, 1, 0.5, 1, 0, 1]))
-              [
-                  np.sqrt([1, 0, 0, 1, 0.5, 1, 0, 1]).mean(),
-                  np.sqrt([1, 0.5, 0, 1, 0.5, 1, 0, 1]).mean(),
-              ],
-              # threat_score@1 = mean([1, 0, 0, 1, 0.5, 1, 0, 1]) = 4.5 / 8
-              # threat_score@2 = mean([0.5, 0.5, 0, 0.5, 1/3, 0.5, 0, 0.5]) =
-              #       = (2.5 + 1/3) / 8
-              [4.5 / 8, (2.5 + 1 / 3) / 8],
-              # DCG@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
-              # DCG@2 = mean([1, 1/log2(3), 0, 1, 1, 1, 0, 1])
-              #       = (5 + 1 / log2(3)) / 8
-              [5 / 8, (1 / np.log2(3) + 5) / 8],
-              # NDCG@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
-              # NDCG@2 = mean([1, 1/log2(3), 0, 1, 1/(1+1/log2(3)), 1, 0, 1])
-              #        = (4 + 1 / log2(3) + 1/(1+1/log2(3))) / 8
-              [5 / 8, (4 + 1 / np.log2(3) + 1 / (1 + 1 / np.log2(3))) / 8],
-              # mRR@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
-              # mRR@2 = mean([1, 1/2, 0, 1, 1, 1, 0, 1]) = 5.5 / 8
-              [5 / 8, 5.5 / 8],
-              # precision@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5/8
-              # precision@2 = mean([1, 1/2, 0, 1, 1, 1, 0, 1]) = 5.5/8
-              [5 / 8, 5.5 / 8],
-              # ppv@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5/8
-              # ppv@2 = mean([1, 1/2, 0, 1, 1, 1, 0, 1]) = 5.5/8
-              [5 / 8, 5.5 / 8],
-              # FDR@1 = mean([0, 1, 1, 0, 0, 0, 1, 0]) = 3/8
-              # FDR@2 = mean([0, 1/2, 1, 0, 0, 0, 1, 0]) = 2.5/8
-              [3 / 8, 2.5 / 8],
-              # mAP@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5/8
-              # mAP@2 = mean([1, 1/2, 0, 1, 1/2, 1, 0, 1]) = 5/8
-              [5 / 8, 5 / 8],
-              # recall@1 = mean([1, 0, 0, 1, 1/2, 1, 0, 1]) = 4.5/8
-              # recall@2 = mean([1, 1, 0, 1, 1/2, 1, 0, 1]) = 5.5/8
-              [4.5 / 8, 5.5 / 8],
-              # senstivity@1 = mean([1, 0, 0, 1, 1/2, 1, 0, 1]) = 4.5/8
-              # senstivity@2 = mean([1, 1, 0, 1, 1/2, 1, 0, 1]) = 5.5/8
-              [4.5 / 8, 5.5 / 8],
-              # tpr@1 = mean([1, 0, 0, 1, 1/2, 1, 0, 1]) = 4.5/8
-              # tpr@2 = mean([1, 1, 0, 1, 1/2, 1, 0, 1]) = 5.5/8
-              [4.5 / 8, 5.5 / 8],
-              # positive_predictive_value@1 = mean([1, 0, 0, 1,
-              #                                     1, 1, 0, 1]) = 5/8
-              # positive_predictive_value@2 = mean([1, 1/2, 0, 1,
-              #                                     1, 1, 0, 1]) = 5.5/8
-              [5 / 8, 5.5 / 8],
-              # intersection_over_union@1 = mean([1, 0, 0, 1,
-              #                                   1/2, 1, 0, 1]) = 4.5/8
-              # intersection_over_union@2 = mean([1, 1/2, 0, 1,
-              #                                   1/2, 1, 0, 1]) = 5/8
-              [4.5 / 8, 5 / 8],
-              # miss_rate@1 = mean([0, 1, 1, 0, 1/2, 0, 1, 0]) = 3.5/8
-              # miss_rate@2 = mean([0, 0, 1, 0, 1/2, 0, 1, 0]) = 2.5/8
-              [3.5 / 8, 2.5 / 8],
-              # f1_score@1 = mean([1, 0, 0, 1, 1/1.5, 1, 0, 1]) = (4+2/3)/8
-              # f1_score@2 = mean([1, 1/1.5, 0, 1, 1/1.5, 1, 0, 1]) = (4+4/3)/8
-              [(4 + 2 / 3) / 8, (4 + 4 / 3) / 8],
-              # accuracy@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5/8
-              # accuracy@2 = mean([1, 1, 0, 1, 1, 1, 0, 1]) = 6/8
-              [5 / 8, 6 / 8],
-          ]),
-      ),
-      dict(
-          testcase_name="multiclass_multioutput_infinity_k",
-          y_pred=[["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]],
-          y_true=[["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]],
-          input_type="multiclass-multioutput",
-          metrics=["precision"],
-          k_list=None,
-          # precision = mean([1, 1/2, 0, 1, 0, 1, 0, 1]) = 5.5 / 8
-          expected=([[5.5 / 8]]),
-      ),
-  ])
-  def test_computeretrieval_metric(
-      self,
-      y_true,
-      y_pred,
-      input_type,
-      metrics,
-      k_list,
-      expected,
-  ):
-    topk_retrievals = []
-    # TopKRetrieval's mergeable state is MeanState, merging multiple of the same
-    # state does not change the result since sum * N / cnt * N == sum / cnt.
-    for _ in range(3):
-      topk_retrieval = retrieval.TopKRetrieval(
-          metrics=metrics,
-          k_list=k_list,
-          input_type=input_type,
-      )
-      topk_retrieval.add(y_true, y_pred)
-      topk_retrievals.append(topk_retrieval)
-    topk_retrievals[0].merge(topk_retrievals[1])
-    expected = dict(zip(metrics, expected))
-    test_utils.assert_nested_container_equal(
-        self, expected, topk_retrievals[0].result()
+    @parameterized.named_parameters(
+        [
+            dict(
+                testcase_name="multiclass",
+                y_pred=["y", "n", "y", "n", "y", "n", "n", "u"],
+                y_true=["y", "y", "n", "n", "y", "n", "y", "u"],
+                input_type=InputType.MULTICLASS,
+                metrics=[
+                    RetrievalMetric.FOWLKES_MALLOWS_INDEX,
+                    RetrievalMetric.THREAT_SCORE,
+                    RetrievalMetric.DCG_SCORE,
+                    RetrievalMetric.NDCG_SCORE,
+                    RetrievalMetric.MEAN_RECIPROCAL_RANK,
+                    RetrievalMetric.PRECISION,
+                    RetrievalMetric.PPV,
+                    RetrievalMetric.FALSE_DISCOVERY_RATE,
+                    RetrievalMetric.MEAN_AVERAGE_PRECISION,
+                    RetrievalMetric.RECALL,
+                    RetrievalMetric.SENSITIVITY,
+                    RetrievalMetric.TPR,
+                    RetrievalMetric.POSITIVE_PREDICTIVE_VALUE,
+                    RetrievalMetric.INTERSECTION_OVER_UNION,
+                    RetrievalMetric.MISS_RATE,
+                    RetrievalMetric.F1_SCORE,
+                    RetrievalMetric.ACCURACY,
+                ],
+                k_list=[1, 2],
+                expected=(
+                    [
+                        # FMI@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
+                        # FMI@2 = FMI@1 because there is only one output.
+                        [5 / 8, 5 / 8],
+                        # threat_score@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
+                        # threat_score@2 = threat_score@1 since there is only one output.
+                        [5 / 8, 5 / 8],
+                        # DCG@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
+                        # DCG@2 = DCG@1 since there is only one output.
+                        [5 / 8, 5 / 8],
+                        # NDCG@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
+                        # NDCG@2 = NDCG@1 since there is only one output.
+                        [5 / 8, 5 / 8],
+                        # mRR@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
+                        # mRR@2 = mRR@1 since there is only one output.
+                        [5 / 8, 5 / 8],
+                        # precision@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
+                        # precision@2 = precision@1 since there is only one output.
+                        [5 / 8, 5 / 8],
+                        # ppv@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
+                        # ppv@2 = ppv@1 since there is only one output.
+                        [5 / 8, 5 / 8],
+                        # FDR@1 = mean([0, 1, 1, 0, 0, 0, 1, 0]) = 3 / 8
+                        # FDR@2 = FDR@1 since there is only one output.
+                        [3 / 8, 3 / 8],
+                        # mAP@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
+                        # mAP@2 = mAP@1 since there is only one output.
+                        [5 / 8, 5 / 8],
+                        # recall@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
+                        # recall@2 = recall@1 since there is only one output.
+                        [5 / 8, 5 / 8],
+                        # sensitivity@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
+                        # sensitivity@2 = sensitivity@1 since there is only one output.
+                        [5 / 8, 5 / 8],
+                        # tpr@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
+                        # tpr@2 = tpr@1 since there is only one output.
+                        [5 / 8, 5 / 8],
+                        # positive_predictive_value@1 = mean([1, 0, 0, 1,
+                        #                                     1, 1, 0, 1]) = 5/8
+                        # positive_predictive_value@2 = positive_predictive_value@1
+                        #                               since there is only one output.
+                        [5 / 8, 5 / 8],
+                        # intersection_over_union@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5/8
+                        # intersection_over_union@2 = intersection_over_union@1
+                        #                             since there is only one output.
+                        [5 / 8, 5 / 8],
+                        # miss_rate@1 = mean([0, 1, 1, 0, 0, 0, 1, 0]) = 3 / 8
+                        # miss_rate@2 = miss_rate@1 since there is only one output.
+                        [3 / 8, 3 / 8],
+                        # f1_score@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
+                        # f1_score@2 = f1_score@1 since there is only one output.
+                        [5 / 8, 5 / 8],
+                        # accuracy@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
+                        # accuracy@2 = accuracy@1 since there is only one output.
+                        [5 / 8, 5 / 8],
+                    ]
+                ),
+            ),
+            dict(
+                testcase_name="multiclass_multioutput",
+                y_pred=[["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]],
+                y_true=[["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]],
+                input_type=InputType.MULTICLASS_MULTIOUTPUT,
+                metrics=[
+                    RetrievalMetric.FOWLKES_MALLOWS_INDEX,
+                    RetrievalMetric.THREAT_SCORE,
+                    RetrievalMetric.DCG_SCORE,
+                    RetrievalMetric.NDCG_SCORE,
+                    RetrievalMetric.MEAN_RECIPROCAL_RANK,
+                    RetrievalMetric.PRECISION,
+                    RetrievalMetric.PPV,
+                    RetrievalMetric.FALSE_DISCOVERY_RATE,
+                    RetrievalMetric.MEAN_AVERAGE_PRECISION,
+                    RetrievalMetric.RECALL,
+                    RetrievalMetric.SENSITIVITY,
+                    RetrievalMetric.TPR,
+                    RetrievalMetric.POSITIVE_PREDICTIVE_VALUE,
+                    RetrievalMetric.INTERSECTION_OVER_UNION,
+                    RetrievalMetric.MISS_RATE,
+                    RetrievalMetric.F1_SCORE,
+                    RetrievalMetric.ACCURACY,
+                ],
+                k_list=[1, 2],
+                expected=(
+                    [
+                        # FMI@1 = mean(sqrt([1, 0, 0, 1, 0.5, 1, 0, 1]))
+                        # FMI@2 = mean(sqrt([1, 0.5, 0, 1, 0.5, 1, 0, 1]))
+                        [
+                            np.sqrt([1, 0, 0, 1, 0.5, 1, 0, 1]).mean(),
+                            np.sqrt([1, 0.5, 0, 1, 0.5, 1, 0, 1]).mean(),
+                        ],
+                        # threat_score@1 = mean([1, 0, 0, 1, 0.5, 1, 0, 1]) = 4.5 / 8
+                        # threat_score@2 = mean([0.5, 0.5, 0, 0.5, 1/3, 0.5, 0, 0.5]) =
+                        #       = (2.5 + 1/3) / 8
+                        [4.5 / 8, (2.5 + 1 / 3) / 8],
+                        # DCG@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
+                        # DCG@2 = mean([1, 1/log2(3), 0, 1, 1, 1, 0, 1])
+                        #       = (5 + 1 / log2(3)) / 8
+                        [5 / 8, (1 / np.log2(3) + 5) / 8],
+                        # NDCG@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
+                        # NDCG@2 = mean([1, 1/log2(3), 0, 1, 1/(1+1/log2(3)), 1, 0, 1])
+                        #        = (4 + 1 / log2(3) + 1/(1+1/log2(3))) / 8
+                        [5 / 8, (4 + 1 / np.log2(3) + 1 / (1 + 1 / np.log2(3))) / 8],
+                        # mRR@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5 / 8
+                        # mRR@2 = mean([1, 1/2, 0, 1, 1, 1, 0, 1]) = 5.5 / 8
+                        [5 / 8, 5.5 / 8],
+                        # precision@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5/8
+                        # precision@2 = mean([1, 1/2, 0, 1, 1, 1, 0, 1]) = 5.5/8
+                        [5 / 8, 5.5 / 8],
+                        # ppv@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5/8
+                        # ppv@2 = mean([1, 1/2, 0, 1, 1, 1, 0, 1]) = 5.5/8
+                        [5 / 8, 5.5 / 8],
+                        # FDR@1 = mean([0, 1, 1, 0, 0, 0, 1, 0]) = 3/8
+                        # FDR@2 = mean([0, 1/2, 1, 0, 0, 0, 1, 0]) = 2.5/8
+                        [3 / 8, 2.5 / 8],
+                        # mAP@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5/8
+                        # mAP@2 = mean([1, 1/2, 0, 1, 1/2, 1, 0, 1]) = 5/8
+                        [5 / 8, 5 / 8],
+                        # recall@1 = mean([1, 0, 0, 1, 1/2, 1, 0, 1]) = 4.5/8
+                        # recall@2 = mean([1, 1, 0, 1, 1/2, 1, 0, 1]) = 5.5/8
+                        [4.5 / 8, 5.5 / 8],
+                        # senstivity@1 = mean([1, 0, 0, 1, 1/2, 1, 0, 1]) = 4.5/8
+                        # senstivity@2 = mean([1, 1, 0, 1, 1/2, 1, 0, 1]) = 5.5/8
+                        [4.5 / 8, 5.5 / 8],
+                        # tpr@1 = mean([1, 0, 0, 1, 1/2, 1, 0, 1]) = 4.5/8
+                        # tpr@2 = mean([1, 1, 0, 1, 1/2, 1, 0, 1]) = 5.5/8
+                        [4.5 / 8, 5.5 / 8],
+                        # positive_predictive_value@1 = mean([1, 0, 0, 1,
+                        #                                     1, 1, 0, 1]) = 5/8
+                        # positive_predictive_value@2 = mean([1, 1/2, 0, 1,
+                        #                                     1, 1, 0, 1]) = 5.5/8
+                        [5 / 8, 5.5 / 8],
+                        # intersection_over_union@1 = mean([1, 0, 0, 1,
+                        #                                   1/2, 1, 0, 1]) = 4.5/8
+                        # intersection_over_union@2 = mean([1, 1/2, 0, 1,
+                        #                                   1/2, 1, 0, 1]) = 5/8
+                        [4.5 / 8, 5 / 8],
+                        # miss_rate@1 = mean([0, 1, 1, 0, 1/2, 0, 1, 0]) = 3.5/8
+                        # miss_rate@2 = mean([0, 0, 1, 0, 1/2, 0, 1, 0]) = 2.5/8
+                        [3.5 / 8, 2.5 / 8],
+                        # f1_score@1 = mean([1, 0, 0, 1, 1/1.5, 1, 0, 1]) = (4+2/3)/8
+                        # f1_score@2 = mean([1, 1/1.5, 0, 1, 1/1.5, 1, 0, 1]) = (4+4/3)/8
+                        [(4 + 2 / 3) / 8, (4 + 4 / 3) / 8],
+                        # accuracy@1 = mean([1, 0, 0, 1, 1, 1, 0, 1]) = 5/8
+                        # accuracy@2 = mean([1, 1, 0, 1, 1, 1, 0, 1]) = 6/8
+                        [5 / 8, 6 / 8],
+                    ]
+                ),
+            ),
+            dict(
+                testcase_name="multiclass_multioutput_infinity_k",
+                y_pred=[["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]],
+                y_true=[["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]],
+                input_type="multiclass-multioutput",
+                metrics=["precision"],
+                k_list=None,
+                # precision = mean([1, 1/2, 0, 1, 0, 1, 0, 1]) = 5.5 / 8
+                expected=([[5.5 / 8]]),
+            ),
+        ]
     )
+    def test_computeretrieval_metric(
+        self,
+        y_true,
+        y_pred,
+        input_type,
+        metrics,
+        k_list,
+        expected,
+    ):
+        topk_retrievals = []
+        # TopKRetrieval's mergeable state is MeanState, merging multiple of the same
+        # state does not change the result since sum * N / cnt * N == sum / cnt.
+        for _ in range(3):
+            topk_retrieval = retrieval.TopKRetrieval(
+                metrics=metrics,
+                k_list=k_list,
+                input_type=input_type,
+            )
+            topk_retrieval.add(y_true, y_pred)
+            topk_retrievals.append(topk_retrieval)
+        topk_retrievals[0].merge(topk_retrievals[1])
+        expected = dict(zip(metrics, expected))
+        test_utils.assert_nested_container_equal(
+            self, expected, topk_retrievals[0].result()
+        )
 
-    topk_retrieval = retrieval.TopKRetrieval(
-        metrics=metrics,
-        k_list=k_list,
-        input_type=input_type,
-    )
-    for _ in range(3):
-      topk_retrieval.add(y_true, y_pred)
-    test_utils.assert_nested_container_equal(
-        self, expected, topk_retrievals[0].result()
-    )
+        topk_retrieval = retrieval.TopKRetrieval(
+            metrics=metrics,
+            k_list=k_list,
+            input_type=input_type,
+        )
+        for _ in range(3):
+            topk_retrieval.add(y_true, y_pred)
+        test_utils.assert_nested_container_equal(
+            self, expected, topk_retrievals[0].result()
+        )
 
-    topk_retrieval_agg_fn = retrieval.TopKRetrieval(
-        metrics=metrics,
-        k_list=k_list,
-        input_type=input_type,
-    ).as_agg_fn()
-    test_utils.assert_nested_container_equal(
-        self, expected, topk_retrieval_agg_fn(y_true, y_pred)
-    )
+        topk_retrieval_agg_fn = retrieval.TopKRetrieval(
+            metrics=metrics,
+            k_list=k_list,
+            input_type=input_type,
+        ).as_agg_fn()
+        test_utils.assert_nested_container_equal(
+            self, expected, topk_retrieval_agg_fn(y_true, y_pred)
+        )
 
-  def test_retrieval_metric_add(self):
-    y_pred = [["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]]
-    y_true = [["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]]
-    topk_retrieval = retrieval.TopKRetrieval(
-        metrics=["precision"],
-        k_list=None,
-        input_type="multiclass-multioutput",
-    )
-    topk_retrieval.add(y_true, y_pred)
-    topk_retrieval.add(y_true, y_pred)
-    expected = {"precision": utils.MeanState(11, 16)}
-    self.assertDictEqual(expected, topk_retrieval.state)
+    def test_retrieval_metric_add(self):
+        y_pred = [["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]]
+        y_true = [["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]]
+        topk_retrieval = retrieval.TopKRetrieval(
+            metrics=["precision"],
+            k_list=None,
+            input_type="multiclass-multioutput",
+        )
+        topk_retrieval.add(y_true, y_pred)
+        topk_retrieval.add(y_true, y_pred)
+        expected = {"precision": utils.MeanState(11, 16)}
+        self.assertDictEqual(expected, topk_retrieval.state)
 
-  def test_retrieval_metric_merge(self):
-    y_pred = [["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]]
-    y_true = [["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]]
-    topk_retrieval1 = retrieval.TopKRetrieval(
-        metrics=[RetrievalMetric.PRECISION],
-        k_list=None,
-        input_type=InputType.MULTICLASS_MULTIOUTPUT,
-    )
-    topk_retrieval2 = retrieval.TopKRetrieval(
-        metrics=[RetrievalMetric.PRECISION],
-        k_list=None,
-        input_type=InputType.MULTICLASS_MULTIOUTPUT,
-    )
-    topk_retrieval1.add(y_true, y_pred)
-    topk_retrieval2.add(y_true, y_pred)
-    topk_retrieval1.merge(topk_retrieval2)
-    expected = {"precision": utils.MeanState(11, 16)}
-    self.assertDictEqual(expected, topk_retrieval1.state)
+    def test_retrieval_metric_merge(self):
+        y_pred = [["y"], ["n", "y"], ["y"], ["n"], ["y"], ["n"], ["n"], ["u"]]
+        y_true = [["y"], ["y"], ["n"], ["n"], ["y", "n"], ["n"], ["y"], ["u"]]
+        topk_retrieval1 = retrieval.TopKRetrieval(
+            metrics=[RetrievalMetric.PRECISION],
+            k_list=None,
+            input_type=InputType.MULTICLASS_MULTIOUTPUT,
+        )
+        topk_retrieval2 = retrieval.TopKRetrieval(
+            metrics=[RetrievalMetric.PRECISION],
+            k_list=None,
+            input_type=InputType.MULTICLASS_MULTIOUTPUT,
+        )
+        topk_retrieval1.add(y_true, y_pred)
+        topk_retrieval2.add(y_true, y_pred)
+        topk_retrieval1.merge(topk_retrieval2)
+        expected = {"precision": utils.MeanState(11, 16)}
+        self.assertDictEqual(expected, topk_retrieval1.state)
 
 
 if __name__ == "__main__":
-  absltest.main()
+    absltest.main()

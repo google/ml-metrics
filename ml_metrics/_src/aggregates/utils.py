@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Utils for aggregates."""
+
 from __future__ import annotations
 
 import collections
@@ -19,64 +20,69 @@ import dataclasses
 
 import chainable
 from chainable import types
+
 from ml_metrics._src.utils import math_utils
 
 
 @dataclasses.dataclass
 class MeanState(chainable.CallableMetric):
-  """Mergeable states for batch update in an aggregate function."""
+    """Mergeable states for batch update in an aggregate function."""
 
-  total: types.NumbersT = 0.0
-  count: types.NumbersT = 0
+    total: types.NumbersT = 0.0
+    count: types.NumbersT = 0
 
-  def new(self, inputs: types.NumbersT) -> types.NumbersT:
-    return MeanState(total=sum(inputs), count=len(inputs))  # pyrefly: ignore[bad-argument-type, no-matching-overload]
+    def new(self, inputs: types.NumbersT) -> types.NumbersT:
+        return MeanState(
+            total=sum(inputs), count=len(inputs)
+        )  # pyrefly: ignore[bad-argument-type, no-matching-overload]
 
-  def merge(self, other: MeanState):
-    self.total += other.total  # pyrefly: ignore[unsupported-operation]
-    self.count += other.count  # pyrefly: ignore[unsupported-operation]
+    def merge(self, other: MeanState):
+        self.total += other.total  # pyrefly: ignore[unsupported-operation]
+        self.count += other.count  # pyrefly: ignore[unsupported-operation]
 
-  def result(self):
-    return math_utils.safe_divide(self.total, self.count)
+    def result(self):
+        return math_utils.safe_divide(self.total, self.count)
 
 
 @dataclasses.dataclass
 class TupleMeanState(chainable.CallableMetric):
-  """MeanState for a tuple of inputs."""
+    """MeanState for a tuple of inputs."""
 
-  states: tuple[MeanState, ...] = ()
+    states: tuple[MeanState, ...] = ()
 
-  def new(self, *inputs: tuple[types.NumbersT, ...]) -> TupleMeanState:
-    return TupleMeanState(tuple(MeanState().new(x) for x in inputs))  # pyrefly: ignore[bad-argument-type]
+    def new(self, *inputs: tuple[types.NumbersT, ...]) -> TupleMeanState:
+        return TupleMeanState(
+            tuple(MeanState().new(x) for x in inputs)
+        )  # pyrefly: ignore[bad-argument-type]
 
-  def merge(self, other: TupleMeanState):
-    if not self.states:
-      self.states = tuple(MeanState() for _ in other.states)
-    for state, state_other in zip(self.states, other.states, strict=True):
-      state.merge(state_other)
+    def merge(self, other: TupleMeanState):
+        if not self.states:
+            self.states = tuple(MeanState() for _ in other.states)
+        for state, state_other in zip(self.states, other.states, strict=True):
+            state.merge(state_other)
 
-  def result(self):
-    return tuple(state.result() for state in self.states)
+    def result(self):
+        return tuple(state.result() for state in self.states)
 
 
 @dataclasses.dataclass
 class FrequencyState:
-  """Mergeable frequency states for batch update in an aggregate function."""
+    """Mergeable frequency states for batch update in an aggregate function."""
 
-  # TODO(b/331796958): Optimize storage consumption
-  counter: collections.Counter[str] = dataclasses.field(
-      default_factory=collections.Counter
-  )
-  count: int = 0
+    # TODO(b/331796958): Optimize storage consumption
+    counter: collections.Counter[str] = dataclasses.field(
+        default_factory=collections.Counter
+    )
+    count: int = 0
 
-  def merge(self, other: 'FrequencyState'):
-    self.counter.update(other.counter)
-    self.count += other.count
+    def merge(self, other: FrequencyState):
+        self.counter.update(other.counter)
+        self.count += other.count
 
-  def result(self) -> list[tuple[str, float]]:
-    result = [
-        (key, math_utils.safe_divide(value, self.count))
-        for key, value in self.counter.items()
-    ]
-    result = sorted(result, key=lambda x: (-x[1], x[0]))
-    return result  # pyrefly: ignore[bad-return]
+    def result(self) -> list[tuple[str, float]]:
+        result = [
+            (key, math_utils.safe_divide(value, self.count))
+            for key, value in self.counter.items()
+        ]
+        result = sorted(result, key=lambda x: (-x[1], x[0]))
+        return result  # pyrefly: ignore[bad-return]

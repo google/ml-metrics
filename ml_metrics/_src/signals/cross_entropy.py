@@ -13,17 +13,16 @@
 # limitations under the License.
 """Module for cross entropy loss functions."""
 
-from ml_metrics._src.aggregates import types
-from ml_metrics.google.tools.signal_registry import registry
-from ml_metrics._src.tools.telemetry import telemetry
 import numpy as np
+
+from ml_metrics._src.aggregates import types
+from ml_metrics._src.tools.telemetry import telemetry
+from ml_metrics.google.tools.signal_registry import registry
 
 
 def _check_y_true_contains_only_0_and_1(y_true: types.NumbersT) -> None:
-  if not all(y == 0 or y == 1 for y in y_true):  # pyrefly: ignore[not-iterable]
-    raise ValueError(
-        'y_true must contain only 0s and 1s, but recieved: {}'.format(y_true)
-    )
+    if not all(y == 0 or y == 1 for y in y_true):  # pyrefly: ignore[not-iterable]
+        raise ValueError(f"y_true must contain only 0s and 1s, but recieved: {y_true}")
 
 
 @registry.register_signal(
@@ -34,22 +33,24 @@ def binary_cross_entropy(
     y_true: types.NumbersT,
     y_pred: types.NumbersT,
 ) -> float:
-  """Calculates binary cross entropy loss for two lists of labels.
+    """Calculates binary cross entropy loss for two lists of labels.
 
-  Args:
-    y_true: A sequence of true binary labels (0 or 1).
-    y_pred: A sequence of predicted probabilities (values in (0, 1)).
+    Args:
+      y_true: A sequence of true binary labels (0 or 1).
+      y_pred: A sequence of predicted probabilities (values in (0, 1)).
 
-  Returns:
-    The binary cross-entropy loss between true labels and predicted labels.
+    Returns:
+      The binary cross-entropy loss between true labels and predicted labels.
 
-  Examples:
-    >>> binary_cross_entropy([0, 1], [0.1, 0.9])
-    0.10536051565782631
-  """
-  _check_y_true_contains_only_0_and_1(y_true)
+    Examples:
+      >>> binary_cross_entropy([0, 1], [0.1, 0.9])
+      0.10536051565782631
+    """
+    _check_y_true_contains_only_0_and_1(y_true)
 
-  return -np.mean(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))  # pyrefly: ignore[unsupported-operation]
+    return -np.mean(
+        y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred)
+    )  # pyrefly: ignore[unsupported-operation]
 
 
 @registry.register_signal(
@@ -60,20 +61,22 @@ def categorical_cross_entropy(
     y_true: types.NumbersT,
     y_pred: types.NumbersT,
 ):
-  """Calculates categorical cross entropy loss for two lists of labels.
+    """Calculates categorical cross entropy loss for two lists of labels.
 
-  Args:
-    y_true: A sequence of true class probabilities (must contain only 0s and
-      1s).
-    y_pred: A sequence of predicted class probabilities.
+    Args:
+      y_true: A sequence of true class probabilities (must contain only 0s and
+        1s).
+      y_pred: A sequence of predicted class probabilities.
 
-  Returns:
-    The categorical cross-entropy loss between true labels and predicted labels.
+    Returns:
+      The categorical cross-entropy loss between true labels and predicted labels.
 
-  Examples:
-    >>> categorical_cross_entropy([0, 1, 0], [0.2, 0.7, 0.1])
-    0.35667494393873245
-  """
-  _check_y_true_contains_only_0_and_1(y_true)
+    Examples:
+      >>> categorical_cross_entropy([0, 1, 0], [0.2, 0.7, 0.1])
+      0.35667494393873245
+    """
+    _check_y_true_contains_only_0_and_1(y_true)
 
-  return -np.sum(y_true * np.log(y_pred / np.sum(y_pred)))  # pyrefly: ignore[no-matching-overload]
+    return -np.sum(
+        y_true * np.log(y_pred / np.sum(y_pred))
+    )  # pyrefly: ignore[no-matching-overload]

@@ -15,15 +15,17 @@
 
 # pylint: disable=g-importing-member
 # pylint: disable=unused-import
-from ml_metrics._src.signals.text import alphabetical_char_count
-from ml_metrics._src.signals.text import average_word_length
-from ml_metrics._src.signals.text import exact_match
-from ml_metrics._src.signals.text import is_all_whitespace
-from ml_metrics._src.signals.text import non_ascii_char_count
-from ml_metrics._src.signals.text import reference_in_sample_match
-from ml_metrics._src.signals.text import reference_startswith_sample_match
-from ml_metrics._src.signals.text import sample_in_reference_match
-from ml_metrics._src.signals.text import sample_startswith_reference_match
-from ml_metrics._src.signals.text import token_count
-from ml_metrics._src.signals.text import token_match_rate
-from ml_metrics._src.signals.text import word_count
+from ml_metrics._src.signals.text import (
+    alphabetical_char_count,
+    average_word_length,
+    exact_match,
+    is_all_whitespace,
+    non_ascii_char_count,
+    reference_in_sample_match,
+    reference_startswith_sample_match,
+    sample_in_reference_match,
+    sample_startswith_reference_match,
+    token_count,
+    token_match_rate,
+    word_count,
+)
