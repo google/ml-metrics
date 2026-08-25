@@ -83,7 +83,7 @@ class CrossEntropyTest(absltest.TestCase):
         y_pred = np.array((0.1, 0.1, 0.4, 0.4, 0.6, 0.6, 0.9, 0.9))
 
         with self.assertRaisesRegex(
-            ValueError, "y_true must contain only 0s and 1s, but recieved: "
+            ValueError, "y_true must contain only 0s and 1s, but received: "
         ):
             cross_entropy.categorical_cross_entropy(y_true=y_true, y_pred=y_pred)
 
