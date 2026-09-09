@@ -676,13 +676,13 @@ def _apply_vocab_at_k(
   k_list = set(k_list)  # pyrefly: ignore[bad-assignment]
   for j in range(max(k_list)):
     if multioutput:
-      for i, row in enumerate(rows):  # pyrefly: ignore[bad-argument-type]
-        if j < len(row):
-          result[i][vocab[row[j]]] = True
+      for i, row in enumerate(rows):  # pyrefly: ignore[bad-argument-type, not-iterable]
+        if j < len(row):  # pyrefly: ignore[bad-argument-type]
+          result[i][vocab[row[j]]] = True  # pyrefly: ignore[bad-index]
     else:
       if j == 0:
-        for i, elem in enumerate(rows):  # pyrefly: ignore[bad-argument-type]
-          result[i][vocab[elem]] = True
+        for i, elem in enumerate(rows):  # pyrefly: ignore[bad-argument-type, not-iterable]
+          result[i][vocab[elem]] = True  # pyrefly: ignore[bad-index]
     if j + 1 in k_list:
       yield j + 1, result
 
