@@ -78,5 +78,5 @@ class FrequencyState:
         (key, math_utils.safe_divide(value, self.count))
         for key, value in self.counter.items()
     ]
-    result = sorted(result, key=lambda x: (-x[1], x[0]))
+    result = sorted(result, key=lambda x: (-x[1], x[0]))  # pyrefly: ignore[unsupported-operation]
     return result  # pyrefly: ignore[bad-return]
