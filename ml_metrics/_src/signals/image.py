@@ -51,7 +51,7 @@ def content_metadata(image_bytes: bytes) -> dict[str, int | float | str]:
 
   img = Image.open(io.BytesIO(image_bytes))
   width, height = img.size
-  return {  # pytype: disable=bad-return-type  # pillow-102-upgrade
+  return {
       'mode': img.mode,
       'format': img.format,
       'pixel_width': width,

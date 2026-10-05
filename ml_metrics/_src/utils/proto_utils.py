@@ -83,11 +83,11 @@ def dict_to_tf_example(data: dict[str, Any]) -> example_pb2.Example:
         assert isinstance(v, str), f'bad str type: {value}'
         feature[key].bytes_list.value.append(v.encode())
     elif isinstance(value[0], bytes):
-      feature[key].bytes_list.value.extend(value)  # pyrefly: ignore[bad-argument-type]
+      feature[key].bytes_list.value.extend(value)
     elif isinstance(value[0], (int, np.integer)):
-      feature[key].int64_list.value.extend(value)  # pyrefly: ignore[bad-argument-type]
+      feature[key].int64_list.value.extend(value)
     elif isinstance(value[0], (float, np.floating)):
-      feature[key].float_list.value.extend(value)  # pyrefly: ignore[bad-argument-type]
+      feature[key].float_list.value.extend(value)
     else:
       raise TypeError(f'Value for "{key}" is not a supported type.')
   return example

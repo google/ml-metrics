@@ -218,7 +218,7 @@ class Histogram(chainable.CallableMetric, chainable.HasAsAggFn):
   ) -> Histogram:
     new_histogram, new_bin_edges = np.histogram(  # pyrefly: ignore[no-matching-overload]
         inputs,
-        bins=self.bins,  # pyrefly: ignore[bad-argument-type]
+        bins=self.bins,
         range=self.range,
         weights=weights,
     )
@@ -428,7 +428,7 @@ class MeanAndVariance(Mean):
     batch = np.asarray(
         self.batch_score_fn(batch) if self.batch_score_fn else batch
     )
-    return self.__class__(  # pytype: disable=wrong-keyword-args
+    return self.__class__(
         _count=np.sum(~np.isnan(batch), axis=0),
         _mean=np.nanmean(batch, axis=0),
         _var=np.nanvar(batch, axis=0),
