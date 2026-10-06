@@ -17,7 +17,7 @@ jobs:
         os: [ubuntu-latest]
 
     steps:
-      - uses: "actions/checkout@v4"
+      - uses: "actions/checkout@v6"
       - name: Create directory
         run: |
           mkdir -p /tmp/ml_metrics
