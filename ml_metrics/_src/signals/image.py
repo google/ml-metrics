@@ -53,7 +53,7 @@ def content_metadata(image_bytes: bytes) -> dict[str, int | float | str]:
   width, height = img.size
   return {
       'mode': img.mode,
-      'format': img.format,
+      'format': img.format,  # pyrefly: ignore[bad-assignment]
       'pixel_width': width,
       'pixel_height': height,
       'megapixel_resolution': width * height / MEGAPIXELS,
